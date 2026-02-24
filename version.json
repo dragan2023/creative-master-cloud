@@ -1,0 +1,12 @@
+{
+    "current_version": "1.0.0",
+    "minimum_version": "0.9.0",
+    "download_url": "https://github.com/YOUR_USERNAME/creative-master/releases/download/v1.0.0/creative-master-v1.0.0.zip",
+    "download_url_mirror": "https://ghproxy.com/https://github.com/YOUR_USERNAME/creative-master/releases/download/v1.0.0/creative-master-v1.0.0.zip",
+    "update_notes": "## v1.0.0 首次发布\n\n### 新功能\n- AI 智能对话功能\n- 文档智能解析\n- 知识库管理\n- 多模型支持（DeepSeek、通义千问、豆包、OpenAI、Google Gemini）\n\n### 优化\n- 性能优化\n- 界面美化\n- 傻瓜式一键启动",
+    "release_date": "2026-02-24",
+    "file_size_mb": 150,
+    "file_hash_md5": "placeholder-update-on-release",
+    "force_update": false,
+    "changelog_url": "https://github.com/YOUR_USERNAME/creative-master/blob/main/CHANGELOG.md"
+}
