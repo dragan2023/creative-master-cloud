@@ -151,7 +151,8 @@ echo   发现新版本: %REMOTE_VERSION%
 echo ========================================
 echo.
 echo 更新说明:
-echo %UPDATE_NOTES%
+:: 使用 PowerShell 直接显示更新说明（支持多行文本）
+powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; Write-Host $json.update_notes"
 echo.
 
 :: 询问是否更新
