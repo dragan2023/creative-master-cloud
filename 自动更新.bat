@@ -68,33 +68,52 @@ set "DOWNLOAD_SUCCESS=0"
 powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12" >nul 2>&1
 
 :: 尝试镜像1
-echo [尝试] 镜像源1 (ghproxy.com)...
-powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%MIRROR_URL1%' -TimeoutSec 20 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { Write-Host ('错误: ' + $_.Exception.Message); exit 1 }"
-if not errorlevel 1 set "DOWNLOAD_SUCCESS=1"
+echo [尝试 1/3] 镜像源 ghproxy.com...
+powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%MIRROR_URL1%' -TimeoutSec 20 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    set "DOWNLOAD_SUCCESS=1"
+    echo [OK] 镜像源1连接成功
+) else (
+    echo [跳过] 镜像源1连接失败，尝试下一个...
+)
 
 :: 尝试镜像2
 if "%DOWNLOAD_SUCCESS%"=="0" (
-    echo [尝试] 镜像源2 (mirror.ghproxy.com)...
-    powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%MIRROR_URL2%' -TimeoutSec 20 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { Write-Host ('错误: ' + $_.Exception.Message); exit 1 }"
-    if not errorlevel 1 set "DOWNLOAD_SUCCESS=1"
+    echo [尝试 2/3] 镜像源 mirror.ghproxy.com...
+    powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%MIRROR_URL2%' -TimeoutSec 20 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { exit 1 }" >nul 2>&1
+    if not errorlevel 1 (
+        set "DOWNLOAD_SUCCESS=1"
+        echo [OK] 镜像源2连接成功
+    ) else (
+        echo [跳过] 镜像源2连接失败，尝试下一个...
+    )
 )
 
 :: 尝试直连
 if "%DOWNLOAD_SUCCESS%"=="0" (
-    echo [尝试] 直连 GitHub...
-    powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%VERSION_URL%' -TimeoutSec 30 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { Write-Host ('错误: ' + $_.Exception.Message); exit 1 }"
-    if not errorlevel 1 set "DOWNLOAD_SUCCESS=1"
+    echo [尝试 3/3] 直连 GitHub...
+    powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%VERSION_URL%' -TimeoutSec 30 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { exit 1 }" >nul 2>&1
+    if not errorlevel 1 (
+        set "DOWNLOAD_SUCCESS=1"
+        echo [OK] 直连GitHub成功
+    ) else (
+        echo [失败] 直连GitHub也失败
+    )
 )
 
 if "%DOWNLOAD_SUCCESS%"=="0" (
     echo.
-    echo [错误] 无法连接到更新服务器
+    echo ========================================
+    echo   [错误] 所有连接方式均失败
+    echo ========================================
+    echo.
     echo 可能原因：
     echo   1. 网络连接问题
     echo   2. 防火墙阻止了连接
     echo   3. GitHub 服务暂时不可用
     echo.
     echo 请检查网络连接后重试
+    echo ========================================
     pause
     exit /b 1
 )
