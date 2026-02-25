@@ -120,11 +120,49 @@ if "%DOWNLOAD_SUCCESS%"=="0" (
 
 echo [OK] 版本信息获取成功
 
-:: 解析远程版本信息
-for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.current_version"') do set REMOTE_VERSION=%%v
-for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.download_url_mirror"') do set DOWNLOAD_URL=%%v
-for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.file_size_mb"') do set FILE_SIZE_MB=%%v
-for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.update_notes"') do set UPDATE_NOTES=%%v
+:: 验证远程版本文件
+if not exist "%REMOTE_VERSION_FILE%" (
+    echo [错误] 远程版本文件不存在
+    pause
+    exit /b 1
+)
+
+:: 检查文件内容是否有效
+for %%A in ("%REMOTE_VERSION_FILE%") do set FILE_SIZE=%%~zA
+if "%FILE_SIZE%"=="0" (
+    echo [错误] 远程版本文件为空
+    pause
+    exit /b 1
+)
+
+:: 解析远程版本信息（带错误处理）
+echo 正在解析版本信息...
+
+for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; if ($content -match 'current_version') { $json = $content | ConvertFrom-Json; $json.current_version } else { '' } } catch { '' }"') do set REMOTE_VERSION=%%v
+
+for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.download_url_mirror } catch { '' }"') do set DOWNLOAD_URL=%%v
+
+for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.file_size_mb } catch { '' }"') do set FILE_SIZE_MB=%%v
+
+:: 如果镜像URL为空，尝试获取直连URL
+if "%DOWNLOAD_URL%"=="" (
+    for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.download_url } catch { '' }"') do set DOWNLOAD_URL=%%v
+)
+
+:: 验证必要信息
+if "%REMOTE_VERSION%"=="" (
+    echo [错误] 无法解析远程版本号
+    echo 请检查网络连接后重试
+    pause
+    exit /b 1
+)
+
+if "%DOWNLOAD_URL%"=="" (
+    echo [错误] 无法获取下载地址
+    echo 请检查网络连接后重试
+    pause
+    exit /b 1
+)
 
 echo 远程版本: %REMOTE_VERSION%
 echo 文件大小: %FILE_SIZE_MB% MB
@@ -151,8 +189,8 @@ echo   发现新版本: %REMOTE_VERSION%
 echo ========================================
 echo.
 echo 更新说明:
-:: 使用 PowerShell 直接显示更新说明（支持多行文本）
-powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; Write-Host $json.update_notes"
+:: 使用 PowerShell 直接显示更新说明（支持多行文本，带错误处理）
+powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; Write-Host $json.update_notes } catch { Write-Host '（无法加载更新说明）' }"
 echo.
 
 :: 询问是否更新
@@ -184,9 +222,11 @@ echo [OK] 服务已关闭
 echo.
 echo [步骤 5/6] 下载更新包...
 
-:: 如果镜像 URL 为空，使用直连 URL
+:: 再次验证下载地址
 if "%DOWNLOAD_URL%"=="" (
-    for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.download_url"') do set DOWNLOAD_URL=%%v
+    echo [错误] 下载地址为空，无法下载
+    pause
+    exit /b 1
 )
 
 echo 下载地址: %DOWNLOAD_URL%
