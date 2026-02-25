@@ -192,12 +192,16 @@ if "%DOWNLOAD_URL%"=="" (
 echo 下载地址: %DOWNLOAD_URL%
 echo.
 
-:: 下载文件（显示进度，支持TLS 1.2）
+:: 使用系统临时目录避免中文路径问题
+set "SYSTEM_TEMP=%TEMP%"
+set "UPDATE_ZIP=%SYSTEM_TEMP%\creative_master_update.zip"
+
+:: 下载文件（使用系统临时目录，避免中文路径问题）
 powershell -NoProfile -Command ^
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;" ^
     "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
     "$url = '%DOWNLOAD_URL%';" ^
-    "$output = '%TEMP_DIR%\update.zip';" ^
-    "$ProgressPreference = 'SilentlyContinue';" ^
+    "$output = '%UPDATE_ZIP%';" ^
     "Write-Host '正在下载更新包...';" ^
     "try {" ^
     "    $client = New-Object System.Net.WebClient;" ^
@@ -207,7 +211,7 @@ powershell -NoProfile -Command ^
     "        Write-Host ('[OK] 下载完成，文件大小: {0:N2} MB' -f $size);" ^
     "        exit 0" ^
     "    } else {" ^
-    "        Write-Host '[错误] 下载失败';" ^
+    "        Write-Host '[错误] 下载失败：文件不存在';" ^
     "        exit 1" ^
     "    }" ^
     "} catch {" ^
@@ -243,9 +247,12 @@ if exist "%PROJECT_DIR%frontend\.env.local" (
 
 :: 解压更新包
 echo 正在解压更新包...
+set "EXTRACT_DIR=%SYSTEM_TEMP%\creative_master_extract"
 powershell -NoProfile -Command ^
-    "Expand-Archive -Path '%TEMP_DIR%\update.zip' -DestinationPath '%TEMP_DIR%\extracted' -Force;" ^
-    "if (Test-Path '%TEMP_DIR%\extracted') { exit 0 } else { exit 1 }"
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;" ^
+    "if (Test-Path '%EXTRACT_DIR%') { Remove-Item -Path '%EXTRACT_DIR%' -Recurse -Force };" ^
+    "Expand-Archive -Path '%UPDATE_ZIP%' -DestinationPath '%EXTRACT_DIR%' -Force;" ^
+    "if (Test-Path '%EXTRACT_DIR%') { exit 0 } else { exit 1 }"
 
 if errorlevel 1 (
     echo [错误] 解压失败
@@ -254,12 +261,13 @@ if errorlevel 1 (
 )
 
 :: 查找解压后的实际目录（可能是 creative-master-v1.1.0 这样的名称）
-for /d %%d in ("%TEMP_DIR%\extracted\*") do set "EXTRACTED_DIR=%%d"
-if not defined EXTRACTED_DIR set "EXTRACTED_DIR=%TEMP_DIR%\extracted"
+for /d %%d in ("%EXTRACT_DIR%\*") do set "EXTRACTED_DIR=%%d"
+if not defined EXTRACTED_DIR set "EXTRACTED_DIR=%EXTRACT_DIR%"
 
 :: 复制文件（排除数据目录和配置文件）
 echo 正在更新文件...
 powershell -NoProfile -Command ^
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;" ^
     "$source = '%EXTRACTED_DIR%';" ^
     "$dest = '%PROJECT_DIR%';" ^
     "$exclude = @('backend\data', 'backend\.env', 'frontend\.env.local', 'temp_update', 'backup_old', '自动更新.bat');" ^
@@ -293,7 +301,9 @@ if exist "%BACKUP_DIR%\.env.local" (
 
 :: 清理临时文件
 echo 正在清理临时文件...
-rd /s /q "%TEMP_DIR%" 2>nul
+if exist "%UPDATE_ZIP%" del "%UPDATE_ZIP%" 2>nul
+if exist "%EXTRACT_DIR%" rd /s /q "%EXTRACT_DIR%" 2>nul
+if exist "%TEMP_DIR%" rd /s /q "%TEMP_DIR%" 2>nul
 
 :: 完成
 echo.
