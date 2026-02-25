@@ -129,25 +129,45 @@ if not exist "%REMOTE_VERSION_FILE%" (
 
 :: 检查文件内容是否有效
 for %%A in ("%REMOTE_VERSION_FILE%") do set FILE_SIZE=%%~zA
+echo 远程版本文件大小: %FILE_SIZE% 字节
 if "%FILE_SIZE%"=="0" (
     echo [错误] 远程版本文件为空
     pause
     exit /b 1
 )
 
+:: 显示远程版本文件内容（调试）
+echo.
+echo [调试] 远程版本文件内容:
+echo ----------------------------------------
+type "%REMOTE_VERSION_FILE%"
+echo.
+echo ----------------------------------------
+
 :: 解析远程版本信息（带错误处理）
+echo.
 echo 正在解析版本信息...
 
-for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; if ($content -match 'current_version') { $json = $content | ConvertFrom-Json; $json.current_version } else { '' } } catch { '' }"') do set REMOTE_VERSION=%%v
+:: 使用更可靠的JSON解析方式
+for /f "delims=" %%v in ('powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; Write-Host '[调试] 文件内容长度:' $content.Length; $json = $content | ConvertFrom-Json; Write-Host '[调试] 解析成功'; $json.current_version } catch { Write-Host ('[调试] 解析错误: ' + $_.Exception.Message); '' }"') do set REMOTE_VERSION=%%v
 
-for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.download_url_mirror } catch { '' }"') do set DOWNLOAD_URL=%%v
+for /f "delims=" %%v in ('powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.download_url_mirror } catch { '' }"') do set DOWNLOAD_URL=%%v
 
-for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.file_size_mb } catch { '' }"') do set FILE_SIZE_MB=%%v
+for /f "delims=" %%v in ('powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.file_size_mb } catch { '' }"') do set FILE_SIZE_MB=%%v
 
 :: 如果镜像URL为空，尝试获取直连URL
 if "%DOWNLOAD_URL%"=="" (
-    for /f "delims=" %%v in ('powershell -NoProfile -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.download_url } catch { '' }"') do set DOWNLOAD_URL=%%v
+    echo [提示] 镜像下载地址为空，尝试获取直连地址...
+    for /f "delims=" %%v in ('powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $content = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 -Raw; $json = $content | ConvertFrom-Json; $json.download_url } catch { '' }"') do set DOWNLOAD_URL=%%v
 )
+
+:: 显示解析结果（调试）
+echo.
+echo [调试] 解析结果:
+echo   REMOTE_VERSION = %REMOTE_VERSION%
+echo   DOWNLOAD_URL = %DOWNLOAD_URL%
+echo   FILE_SIZE_MB = %FILE_SIZE_MB%
+echo.
 
 :: 验证必要信息
 if "%REMOTE_VERSION%"=="" (
