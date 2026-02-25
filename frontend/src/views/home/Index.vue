@@ -6,17 +6,7 @@
         <h1>欢迎回来，{{ userStore.userInfo?.username || '用户' }}</h1>
         <p>选择一个创意模块开始您的创作之旅</p>
         <div class="version-info">
-          <span class="version-badge">v{{ currentVersion || '1.0.0' }}</span>
-          <el-button 
-            type="primary" 
-            plain
-            :loading="checkingUpdate"
-            @click="checkUpdate"
-            class="check-update-btn"
-          >
-            <el-icon v-if="!checkingUpdate"><Refresh /></el-icon>
-            {{ checkingUpdate ? '检查中...' : '检查更新' }}
-          </el-button>
+          <span class="version-badge">v{{ currentVersion || '1.1.0' }}</span>
         </div>
       </div>
       <div class="welcome-illustration">
@@ -106,6 +96,52 @@
         </el-table-column>
       </el-table>
     </div>
+    
+    <!-- 资源链接 -->
+    <div class="resources-section">
+      <h2 class="section-title">资源链接</h2>
+      <div class="resources-grid">
+        <a 
+          href="https://github.com/dragan2023/creative-master" 
+          target="_blank" 
+          class="resource-card github"
+        >
+          <el-icon :size="24"><Link /></el-icon>
+          <span>GitHub 项目地址</span>
+          <p>查看源码、提交 Issue</p>
+        </a>
+        <a 
+          href="https://pan.quark.cn/s/1333d8e42793?pwd=VP5u" 
+          target="_blank" 
+          class="resource-card quark"
+        >
+          <el-icon :size="24"><FolderOpened /></el-icon>
+          <span>夸克网盘下载</span>
+          <p>提取码: VP5u</p>
+        </a>
+        <a 
+          href="https://pan.baidu.com/s/1zg-BrlctdDMa7jA9VH8Q_g?pwd=wxbv" 
+          target="_blank" 
+          class="resource-card baidu"
+        >
+          <el-icon :size="24"><FolderOpened /></el-icon>
+          <span>百度网盘下载</span>
+          <p>提取码: wxbv</p>
+        </a>
+      </div>
+      <div class="author-info">
+        <div class="author-item">
+          <el-icon :size="18"><User /></el-icon>
+          <span>作者 B站：</span>
+          <a href="https://space.bilibili.com/" target="_blank">打卤阳春面</a>
+        </div>
+        <div class="author-item">
+          <el-icon :size="18"><ChatDotRound /></el-icon>
+          <span>联系 QQ：</span>
+          <span class="qq-number">7527149</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -115,14 +151,11 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores'
 import { historyApi } from '@/api'
 import { CREATIVE_MODULES } from '@/config'
-import { Refresh } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 
-// 从父组件注入更新检查方法
-const checkUpdate = inject('checkUpdate')
-const checkingUpdate = inject('checkingUpdate')
+// 从父组件注入版本号
 const currentVersion = inject('currentVersion')
 
 // 用于首页展示的创意模块
@@ -227,20 +260,6 @@ function formatDate(dateStr) {
         border-radius: 12px;
         font-size: 13px;
         font-weight: 500;
-      }
-      
-      .check-update-btn {
-        background: rgba(255, 255, 255, 0.95);
-        border-color: transparent;
-        color: #409EFF;
-        font-weight: 500;
-        transition: all 0.3s;
-        
-        &:hover {
-          background: #fff;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
       }
     }
   }
@@ -373,5 +392,109 @@ function formatDate(dateStr) {
   background: #fff;
   border-radius: 12px;
   padding: 24px;
+  margin-bottom: 30px;
+}
+
+.resources-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  
+  .resources-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+    
+    .resource-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: all 0.3s;
+      cursor: pointer;
+      
+      &.github {
+        background: linear-gradient(135deg, #24292e 0%, #444d56 100%);
+        color: #fff;
+        
+        &:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 8px 20px rgba(36, 41, 46, 0.3);
+        }
+      }
+      
+      &.quark {
+        background: linear-gradient(135deg, #1890ff 0%, #36cfc9 100%);
+        color: #fff;
+        
+        &:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 8px 20px rgba(24, 144, 255, 0.3);
+        }
+      }
+      
+      &.baidu {
+        background: linear-gradient(135deg, #06a7ff 0%, #2b6cb0 100%);
+        color: #fff;
+        
+        &:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 8px 20px rgba(6, 167, 255, 0.3);
+        }
+      }
+      
+      .el-icon {
+        margin-bottom: 10px;
+      }
+      
+      span {
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 4px;
+      }
+      
+      p {
+        font-size: 12px;
+        opacity: 0.8;
+        margin: 0;
+      }
+    }
+  }
+  
+  .author-info {
+    display: flex;
+    gap: 30px;
+    padding-top: 16px;
+    border-top: 1px solid #ebeef5;
+    
+    .author-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: #606266;
+      
+      .el-icon {
+        color: #909399;
+      }
+      
+      a {
+        color: #409eff;
+        text-decoration: none;
+        
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+      
+      .qq-number {
+        color: #409eff;
+        font-weight: 500;
+      }
+    }
+  }
 }
 </style>

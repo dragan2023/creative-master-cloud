@@ -70,19 +70,6 @@
         </div>
         
         <div class="header-right">
-          <!-- 检查更新按钮 -->
-          <el-tooltip content="检查更新" placement="bottom">
-            <el-button 
-              text 
-              circle
-              :loading="checkingUpdate"
-              @click="handleCheckUpdate"
-              class="update-btn"
-            >
-              <el-icon :size="18"><Refresh /></el-icon>
-            </el-button>
-          </el-tooltip>
-          
           <el-dropdown @command="handleCommand">
             <div class="user-info">
               <el-avatar :size="32" class="avatar">
@@ -95,9 +82,6 @@
               <el-dropdown-menu>
                 <el-dropdown-item command="profile">
                   <el-icon><User /></el-icon>个人设置
-                </el-dropdown-item>
-                <el-dropdown-item command="checkUpdate">
-                  <el-icon><Refresh /></el-icon>检查更新
                 </el-dropdown-item>
                 <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon>退出登录
@@ -117,16 +101,6 @@
         </router-view>
       </el-main>
     </el-container>
-    
-    <!-- 更新检查组件（仅手动触发，不在页面加载时自动检查） -->
-    <UpdateChecker
-      ref="updateCheckerRef"
-      :auto-check="false"
-      :current-version="currentVersion"
-      :show-manual-check="false"
-      @update-available="onUpdateAvailable"
-      @no-update="onNoUpdate"
-    />
   </el-container>
 </template>
 
@@ -134,9 +108,7 @@
 import { ref, computed, onMounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore, useAppStore } from '@/stores'
-import { ElMessageBox, ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
-import UpdateChecker from '@/components/UpdateChecker.vue'
+import { ElMessageBox } from 'element-plus'
 import { updateApi } from '@/api'
 
 const router = useRouter()
@@ -144,11 +116,8 @@ const route = useRoute()
 const userStore = useUserStore()
 const appStore = useAppStore()
 
-// 更新检查相关
-const updateCheckerRef = ref(null)
-const checkingUpdate = ref(false)
+// 当前版本号（从后端API获取）
 const currentVersion = ref('1.0.0')
-const isAutoCheck = ref(false) // 标记是否为自动检查
 
 const collapsed = computed(() => appStore.sidebarCollapsed)
 const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
@@ -159,64 +128,20 @@ function toggleSidebar() {
   appStore.toggleSidebar()
 }
 
-// 获取当前版本
+// 获取当前版本号
 async function fetchCurrentVersion() {
   try {
     const response = await updateApi.getCurrentVersion()
-    currentVersion.value = response.data?.version || '1.0.0'
+    currentVersion.value = response?.version || '1.0.0'
   } catch (error) {
     console.error('获取版本信息失败:', error)
-  }
-}
-
-// 手动检查更新
-async function handleCheckUpdate() {
-  isAutoCheck.value = false // 手动检查
-  checkingUpdate.value = true
-  try {
-    if (updateCheckerRef.value) {
-      await updateCheckerRef.value.checkUpdate()
-    }
-  } finally {
-    checkingUpdate.value = false
-  }
-}
-
-// 自动检查更新（应用启动时调用）
-async function autoCheckUpdate() {
-  isAutoCheck.value = true // 自动检查
-  checkingUpdate.value = true
-  try {
-    if (updateCheckerRef.value) {
-      await updateCheckerRef.value.checkUpdate()
-    }
-  } catch (error) {
-    // 自动检查失败时静默处理，不影响用户体验
-    console.error('自动检查更新失败:', error)
-  } finally {
-    checkingUpdate.value = false
-  }
-}
-
-// 发现新版本回调
-function onUpdateAvailable(updateInfo) {
-  console.log('发现新版本:', updateInfo)
-  // UpdateChecker 组件会自动弹出对话框
-}
-
-// 无新版本回调  
-function onNoUpdate() {
-  // 只有手动检查时才显示通知
-  if (!isAutoCheck.value) {
-    ElMessage.success('当前已是最新版本')
+    // 保持默认值
   }
 }
 
 async function handleCommand(command) {
   if (command === 'profile') {
     router.push('/profile')
-  } else if (command === 'checkUpdate') {
-    await handleCheckUpdate()
   } else if (command === 'logout') {
     await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
       type: 'warning'
@@ -227,17 +152,10 @@ async function handleCommand(command) {
 }
 
 // 提供给子组件使用
-provide('checkUpdate', handleCheckUpdate)
-provide('checkingUpdate', checkingUpdate)
 provide('currentVersion', currentVersion)
 
 onMounted(async () => {
   await fetchCurrentVersion()
-  
-  // 延迟 3 秒后自动检查更新（不影响应用启动速度）
-  setTimeout(() => {
-    autoCheckUpdate()
-  }, 3000)
 })
 </script>
 
@@ -312,14 +230,6 @@ onMounted(async () => {
     display: flex;
     align-items: center;
     gap: 8px;
-    
-    .update-btn {
-      margin-right: 8px;
-      
-      &:hover {
-        color: #409EFF;
-      }
-    }
     
     .user-info {
       display: flex;

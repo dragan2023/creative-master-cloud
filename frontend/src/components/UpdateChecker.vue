@@ -67,23 +67,11 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button
-            v-if="!updateInfo?.force_update && !isDownloading"
-            @click="skipUpdate"
-          >
-            跳过此版本
-          </el-button>
-          <el-button
-            v-if="!isDownloading"
-            @click="showDialog = false"
-          >
-            稍后提醒
-          </el-button>
-          <el-button
             type="primary"
             :loading="isDownloading"
             @click="startDownload"
           >
-            {{ isDownloading ? '处理中...' : '查看更新指引' }}
+            {{ isDownloading ? '处理中...' : '立即更新' }}
           </el-button>
         </div>
       </template>
