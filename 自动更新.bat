@@ -1,0 +1,314 @@
+@echo off
+setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
+
+:: ============================================================
+:: 全能创意大师 - 自动更新脚本 v1.0
+:: 功能：检测更新、下载更新包、关闭服务、解压覆盖、重启程序
+:: ============================================================
+
+title 全能创意大师 - 自动更新
+
+set "PROJECT_DIR=%~dp0"
+set "TEMP_DIR=%PROJECT_DIR%temp_update"
+set "VERSION_FILE=%PROJECT_DIR%version.json"
+set "BACKUP_DIR=%PROJECT_DIR%backup_old"
+
+echo.
+echo ========================================================
+echo     全能创意大师 - 自动更新程序
+echo ========================================================
+echo.
+
+:: 检查 PowerShell 是否可用
+powershell -Command "Get-Host" >nul 2>&1
+if errorlevel 1 (
+    echo [错误] 未找到 PowerShell，无法执行自动更新
+    echo 请确保 Windows 系统完整安装
+    pause
+    exit /b 1
+)
+
+:: 读取本地版本
+echo [步骤 1/6] 读取本地版本信息...
+if not exist "%VERSION_FILE%" (
+    echo [错误] 未找到 version.json 文件
+    pause
+    exit /b 1
+)
+
+for /f "delims=" %%v in ('powershell -Command "(Get-Content '%VERSION_FILE%' | ConvertFrom-Json).current_version"') do set LOCAL_VERSION=%%v
+echo 本地版本: %LOCAL_VERSION%
+
+:: 获取远程版本信息
+echo.
+echo [步骤 2/6] 检查远程版本信息...
+
+set "VERSION_URL=https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
+set "MIRROR_URL=https://ghproxy.com/https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
+
+:: 尝试从镜像获取（国内加速）
+echo 正在连接服务器...
+powershell -Command "try { $response = Invoke-WebRequest -Uri '%MIRROR_URL%' -TimeoutSec 15 -UseBasicParsing; $response.Content | Out-File -FilePath '%TEMP_DIR%\remote_version.json' -Encoding utf8; exit 0 } catch { exit 1 }" >nul 2>&1
+
+if errorlevel 1 (
+    echo [提示] 镜像连接失败，尝试直连...
+    powershell -Command "try { $response = Invoke-WebRequest -Uri '%VERSION_URL%' -TimeoutSec 15 -UseBasicParsing; $response.Content | Out-File -FilePath '%TEMP_DIR%\remote_version.json' -Encoding utf8; exit 0 } catch { exit 1 }" >nul 2>&1
+)
+
+if errorlevel 1 (
+    echo [错误] 无法连接到更新服务器
+    echo 请检查网络连接后重试
+    pause
+    exit /b 1
+)
+
+:: 解析远程版本信息
+for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).current_version"') do set REMOTE_VERSION=%%v
+for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).download_url_mirror"') do set DOWNLOAD_URL=%%v
+for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).file_size_mb"') do set FILE_SIZE_MB=%%v
+for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).update_notes"') do set UPDATE_NOTES=%%v
+
+echo 远程版本: %REMOTE_VERSION%
+echo 文件大小: %FILE_SIZE_MB% MB
+
+:: 比较版本号
+echo.
+echo [步骤 3/6] 比较版本...
+
+call :CompareVersions %LOCAL_VERSION% %REMOTE_VERSION%
+
+if !COMPARE_RESULT! LEQ 0 (
+    echo.
+    echo ========================================
+    echo   当前已是最新版本！
+    echo ========================================
+    echo.
+    pause
+    exit /b 0
+)
+
+echo.
+echo ========================================
+echo   发现新版本: %REMOTE_VERSION%
+echo ========================================
+echo.
+echo 更新说明:
+echo %UPDATE_NOTES%
+echo.
+
+:: 询问是否更新
+set /p CONFIRM="是否立即更新？(Y/N): "
+if /i not "%CONFIRM%"=="Y" (
+    echo 已取消更新
+    pause
+    exit /b 0
+)
+
+:: 关闭运行中的服务
+echo.
+echo [步骤 4/6] 关闭运行中的服务...
+
+:: 关闭后端服务（uvicorn）
+taskkill /f /im python.exe /fi "WINDOWTITLE eq 全能创意大师*" >nul 2>&1
+taskkill /f /im uvicorn* >nul 2>&1
+
+:: 关闭前端服务（node）
+taskkill /f /im node.exe /fi "WINDOWTITLE eq 全能创意大师*" >nul 2>&1
+
+:: 清理端口
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":8000 "') do taskkill /f /pid %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":5173 "') do taskkill /f /pid %%a >nul 2>&1
+
+echo [OK] 服务已关闭
+
+:: 下载更新包
+echo.
+echo [步骤 5/6] 下载更新包...
+
+:: 如果镜像 URL 为空，使用直连 URL
+if "%DOWNLOAD_URL%"=="" (
+    for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).download_url"') do set DOWNLOAD_URL=%%v
+)
+
+echo 下载地址: %DOWNLOAD_URL%
+echo.
+
+:: 创建临时目录
+if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
+
+:: 下载文件（显示进度）
+powershell -Command ^
+    "$url = '%DOWNLOAD_URL%';" ^
+    "$output = '%TEMP_DIR%\update.zip';" ^
+    "$ProgressPreference = 'SilentlyContinue';" ^
+    "Write-Host '正在下载更新包...';" ^
+    "try {" ^
+    "    $client = New-Object System.Net.WebClient;" ^
+    "    $client.DownloadFile($url, $output);" ^
+    "    if (Test-Path $output) {" ^
+    "        $size = (Get-Item $output).Length / 1MB;" ^
+    "        Write-Host ('[OK] 下载完成，文件大小: {0:N2} MB' -f $size);" ^
+    "        exit 0" ^
+    "    } else {" ^
+    "        Write-Host '[错误] 下载失败';" ^
+    "        exit 1" ^
+    "    }" ^
+    "} catch {" ^
+    "    Write-Host ('[错误] 下载失败: ' + $_.Exception.Message);" ^
+    "    exit 1" ^
+    "}"
+
+if errorlevel 1 (
+    echo [错误] 下载更新包失败
+    echo 请检查网络连接后重试
+    pause
+    exit /b 1
+)
+
+:: 解压并覆盖文件
+echo.
+echo [步骤 6/6] 解压并更新文件...
+
+:: 创建备份目录
+if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
+
+:: 备份重要文件（数据库、配置）
+echo 正在备份重要文件...
+if exist "%PROJECT_DIR%backend\data\creative_master.db" (
+    copy "%PROJECT_DIR%backend\data\creative_master.db" "%BACKUP_DIR%\" >nul 2>&1
+)
+if exist "%PROJECT_DIR%backend\.env" (
+    copy "%PROJECT_DIR%backend\.env" "%BACKUP_DIR%\" >nul 2>&1
+)
+if exist "%PROJECT_DIR%frontend\.env.local" (
+    copy "%PROJECT_DIR%frontend\.env.local" "%BACKUP_DIR%\" >nul 2>&1
+)
+
+:: 解压更新包
+echo 正在解压更新包...
+powershell -Command ^
+    "Expand-Archive -Path '%TEMP_DIR%\update.zip' -DestinationPath '%TEMP_DIR%\extracted' -Force;" ^
+    "if (Test-Path '%TEMP_DIR%\extracted') { exit 0 } else { exit 1 }"
+
+if errorlevel 1 (
+    echo [错误] 解压失败
+    pause
+    exit /b 1
+)
+
+:: 查找解压后的实际目录（可能是 creative-master-v1.1.0 这样的名称）
+for /d %%d in ("%TEMP_DIR%\extracted\*") do set "EXTRACTED_DIR=%%d"
+if not defined EXTRACTED_DIR set "EXTRACTED_DIR=%TEMP_DIR%\extracted"
+
+:: 复制文件（排除数据目录和配置文件）
+echo 正在更新文件...
+powershell -Command ^
+    "$source = '%EXTRACTED_DIR%';" ^
+    "$dest = '%PROJECT_DIR%';" ^
+    "$exclude = @('backend\data', 'backend\.env', 'frontend\.env.local', 'temp_update', 'backup_old', '自动更新.bat');" ^
+    "Get-ChildItem -Path $source -Recurse | Where-Object {" ^
+    "    $relativePath = $_.FullName.Substring($source.Length + 1);" ^
+    "    $shouldExclude = $false;" ^
+    "    foreach ($ex in $exclude) {" ^
+    "        if ($relativePath -like \"$ex*\") { $shouldExclude = $true; break }" ^
+    "    };" ^
+    "    -not $shouldExclude" ^
+    "} | ForEach-Object {" ^
+    "    $relativePath = $_.FullName.Substring($source.Length + 1);" ^
+    "    $targetPath = Join-Path $dest $relativePath;" ^
+    "    if ($_.PSIsContainer) {" ^
+    "        if (-not (Test-Path $targetPath)) { New-Item -ItemType Directory -Path $targetPath -Force | Out-Null }" ^
+    "    } else {" ^
+    "        $targetDir = Split-Path $targetPath -Parent;" ^
+    "        if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null };" ^
+    "        Copy-Item $_.FullName -Destination $targetPath -Force" ^
+    "    }" ^
+    "}; " ^
+    "Write-Host '[OK] 文件更新完成'"
+
+:: 恢复配置文件
+if exist "%BACKUP_DIR%\.env" (
+    copy "%BACKUP_DIR%\.env" "%PROJECT_DIR%backend\.env" >nul 2>&1
+)
+if exist "%BACKUP_DIR%\.env.local" (
+    copy "%BACKUP_DIR%\.env.local" "%PROJECT_DIR%frontend\.env.local" >nul 2>&1
+)
+
+:: 清理临时文件
+echo 正在清理临时文件...
+rd /s /q "%TEMP_DIR%" 2>nul
+
+:: 完成
+echo.
+echo ========================================================
+echo   更新完成！
+echo ========================================================
+echo.
+echo 版本已更新至: %REMOTE_VERSION%
+echo.
+echo 按任意键启动程序...
+pause >nul
+
+:: 启动程序
+start "" "%PROJECT_DIR%start.bat"
+exit /b 0
+
+:: ============================================================
+:: 版本比较函数
+:: 参数1: 版本1
+:: 参数2: 版本2
+:: 返回: COMPARE_RESULT (1=版本1大, -1=版本2大, 0=相等)
+:: ============================================================
+:CompareVersions
+set "V1=%~1"
+set "V2=%~2"
+set "COMPARE_RESULT=0"
+
+:: 解析版本号
+for /f "tokens=1,2,3 delims=." %%a in ("%V1%") do (
+    set V1_MAJOR=%%a
+    set V1_MINOR=%%b
+    set V1_PATCH=%%c
+)
+for /f "tokens=1,2,3 delims=." %%a in ("%V2%") do (
+    set V2_MAJOR=%%a
+    set V2_MINOR=%%b
+    set V2_PATCH=%%c
+)
+
+:: 默认值为0
+if not defined V1_MAJOR set V1_MAJOR=0
+if not defined V1_MINOR set V1_MINOR=0
+if not defined V1_PATCH set V1_PATCH=0
+if not defined V2_MAJOR set V2_MAJOR=0
+if not defined V2_MINOR set V2_MINOR=0
+if not defined V2_PATCH set V2_PATCH=0
+
+:: 比较
+if !V1_MAJOR! GTR !V2_MAJOR! (
+    set "COMPARE_RESULT=1"
+    goto :eof
+)
+if !V1_MAJOR! LSS !V2_MAJOR! (
+    set "COMPARE_RESULT=-1"
+    goto :eof
+)
+if !V1_MINOR! GTR !V2_MINOR! (
+    set "COMPARE_RESULT=1"
+    goto :eof
+)
+if !V1_MINOR! LSS !V2_MINOR! (
+    set "COMPARE_RESULT=-1"
+    goto :eof
+)
+if !V1_PATCH! GTR !V2_PATCH! (
+    set "COMPARE_RESULT=1"
+    goto :eof
+)
+if !V1_PATCH! LSS !V2_PATCH! (
+    set "COMPARE_RESULT=-1"
+    goto :eof
+)
+
+goto :eof

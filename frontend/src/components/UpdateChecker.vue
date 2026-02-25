@@ -83,7 +83,7 @@
             :loading="isDownloading"
             @click="startDownload"
           >
-            {{ isDownloading ? '下载中...' : '立即更新' }}
+            {{ isDownloading ? '处理中...' : '查看更新指引' }}
           </el-button>
         </div>
       </template>
@@ -211,24 +211,22 @@ async function startDownload() {
   errorMessage.value = ''
   
   try {
-    // 模拟下载进度（实际下载需要在后端进行，因为浏览器有安全限制）
-    // 这里我们打开下载链接让用户下载
-    const downloadUrl = updateInfo.value.download_url
-    
-    // 使用浏览器下载
-    const link = document.createElement('a')
-    link.href = downloadUrl
-    link.download = `creative-master-v${updateInfo.value.latest_version}.zip`
-    link.target = '_blank'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    
-    // 显示下载提示
+    // 显示更新指引对话框
     ElNotification({
-      title: '下载已开始',
-      message: '请在浏览器下载管理器中查看下载进度。下载完成后请解压并运行 start.bat',
-      type: 'success',
+      title: '更新指引',
+      dangerouslyUseHTMLString: true,
+      message: `
+        <div style="line-height: 1.8;">
+          <p><strong>请按以下步骤完成更新：</strong></p>
+          <ol style="padding-left: 20px; margin: 10px 0;">
+            <li>关闭当前运行的程序（关闭所有命令行窗口）</li>
+            <li>双击运行项目目录下的 <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 4px;">自动更新.bat</code></li>
+            <li>等待更新完成后，程序会自动重启</li>
+          </ol>
+          <p style="color: #909399; font-size: 12px;">更新包大小: ${updateInfo.value.file_size_mb} MB</p>
+        </div>
+      `,
+      type: 'info',
       duration: 0
     })
     
@@ -236,8 +234,8 @@ async function startDownload() {
     showDialog.value = false
     
   } catch (error) {
-    console.error('下载失败:', error)
-    errorMessage.value = '下载失败，请稍后重试或手动下载'
+    console.error('更新失败:', error)
+    errorMessage.value = '更新失败，请手动运行 自动更新.bat'
   } finally {
     isDownloading.value = false
   }
