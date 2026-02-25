@@ -29,6 +29,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: 创建临时目录（提前创建，避免后续写入失败）
+if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
+
 :: 读取本地版本
 echo [步骤 1/6] 读取本地版本信息...
 if not exist "%VERSION_FILE%" (
@@ -37,7 +40,14 @@ if not exist "%VERSION_FILE%" (
     exit /b 1
 )
 
-for /f "delims=" %%v in ('powershell -Command "(Get-Content '%VERSION_FILE%' | ConvertFrom-Json).current_version"') do set LOCAL_VERSION=%%v
+:: 使用 PowerShell 读取 JSON（处理中文路径）
+for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.current_version"') do set LOCAL_VERSION=%%v
+
+if "%LOCAL_VERSION%"=="" (
+    echo [错误] 无法解析本地版本信息
+    pause
+    exit /b 1
+)
 echo 本地版本: %LOCAL_VERSION%
 
 :: 获取远程版本信息
@@ -45,29 +55,57 @@ echo.
 echo [步骤 2/6] 检查远程版本信息...
 
 set "VERSION_URL=https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
-set "MIRROR_URL=https://ghproxy.com/https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
+set "MIRROR_URL1=https://ghproxy.com/https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
+set "MIRROR_URL2=https://mirror.ghproxy.com/https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
 
-:: 尝试从镜像获取（国内加速）
+:: 尝试多个镜像源（国内加速）
 echo 正在连接服务器...
-powershell -Command "try { $response = Invoke-WebRequest -Uri '%MIRROR_URL%' -TimeoutSec 15 -UseBasicParsing; $response.Content | Out-File -FilePath '%TEMP_DIR%\remote_version.json' -Encoding utf8; exit 0 } catch { exit 1 }" >nul 2>&1
 
-if errorlevel 1 (
-    echo [提示] 镜像连接失败，尝试直连...
-    powershell -Command "try { $response = Invoke-WebRequest -Uri '%VERSION_URL%' -TimeoutSec 15 -UseBasicParsing; $response.Content | Out-File -FilePath '%TEMP_DIR%\remote_version.json' -Encoding utf8; exit 0 } catch { exit 1 }" >nul 2>&1
+set "REMOTE_VERSION_FILE=%TEMP_DIR%\remote_version.json"
+set "DOWNLOAD_SUCCESS=0"
+
+:: 设置 TLS 1.2（GitHub要求）
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12" >nul 2>&1
+
+:: 尝试镜像1
+echo [尝试] 镜像源1 (ghproxy.com)...
+powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%MIRROR_URL1%' -TimeoutSec 20 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { Write-Host ('错误: ' + $_.Exception.Message); exit 1 }"
+if not errorlevel 1 set "DOWNLOAD_SUCCESS=1"
+
+:: 尝试镜像2
+if "%DOWNLOAD_SUCCESS%"=="0" (
+    echo [尝试] 镜像源2 (mirror.ghproxy.com)...
+    powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%MIRROR_URL2%' -TimeoutSec 20 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { Write-Host ('错误: ' + $_.Exception.Message); exit 1 }"
+    if not errorlevel 1 set "DOWNLOAD_SUCCESS=1"
 )
 
-if errorlevel 1 (
+:: 尝试直连
+if "%DOWNLOAD_SUCCESS%"=="0" (
+    echo [尝试] 直连 GitHub...
+    powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $response = Invoke-WebRequest -Uri '%VERSION_URL%' -TimeoutSec 30 -UseBasicParsing; [System.IO.File]::WriteAllText('%REMOTE_VERSION_FILE%', $response.Content, [System.Text.Encoding]::UTF8); exit 0 } catch { Write-Host ('错误: ' + $_.Exception.Message); exit 1 }"
+    if not errorlevel 1 set "DOWNLOAD_SUCCESS=1"
+)
+
+if "%DOWNLOAD_SUCCESS%"=="0" (
+    echo.
     echo [错误] 无法连接到更新服务器
+    echo 可能原因：
+    echo   1. 网络连接问题
+    echo   2. 防火墙阻止了连接
+    echo   3. GitHub 服务暂时不可用
+    echo.
     echo 请检查网络连接后重试
     pause
     exit /b 1
 )
 
+echo [OK] 版本信息获取成功
+
 :: 解析远程版本信息
-for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).current_version"') do set REMOTE_VERSION=%%v
-for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).download_url_mirror"') do set DOWNLOAD_URL=%%v
-for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).file_size_mb"') do set FILE_SIZE_MB=%%v
-for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).update_notes"') do set UPDATE_NOTES=%%v
+for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.current_version"') do set REMOTE_VERSION=%%v
+for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.download_url_mirror"') do set DOWNLOAD_URL=%%v
+for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.file_size_mb"') do set FILE_SIZE_MB=%%v
+for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.update_notes"') do set UPDATE_NOTES=%%v
 
 echo 远程版本: %REMOTE_VERSION%
 echo 文件大小: %FILE_SIZE_MB% MB
@@ -128,17 +166,15 @@ echo [步骤 5/6] 下载更新包...
 
 :: 如果镜像 URL 为空，使用直连 URL
 if "%DOWNLOAD_URL%"=="" (
-    for /f "delims=" %%v in ('powershell -Command "(Get-Content '%TEMP_DIR%\remote_version.json' | ConvertFrom-Json).download_url"') do set DOWNLOAD_URL=%%v
+    for /f "delims=" %%v in ('powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $json = Get-Content -Path '%REMOTE_VERSION_FILE%' -Encoding UTF8 | ConvertFrom-Json; $json.download_url"') do set DOWNLOAD_URL=%%v
 )
 
 echo 下载地址: %DOWNLOAD_URL%
 echo.
 
-:: 创建临时目录
-if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
-
-:: 下载文件（显示进度）
-powershell -Command ^
+:: 下载文件（显示进度，支持TLS 1.2）
+powershell -NoProfile -Command ^
+    "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
     "$url = '%DOWNLOAD_URL%';" ^
     "$output = '%TEMP_DIR%\update.zip';" ^
     "$ProgressPreference = 'SilentlyContinue';" ^
@@ -187,7 +223,7 @@ if exist "%PROJECT_DIR%frontend\.env.local" (
 
 :: 解压更新包
 echo 正在解压更新包...
-powershell -Command ^
+powershell -NoProfile -Command ^
     "Expand-Archive -Path '%TEMP_DIR%\update.zip' -DestinationPath '%TEMP_DIR%\extracted' -Force;" ^
     "if (Test-Path '%TEMP_DIR%\extracted') { exit 0 } else { exit 1 }"
 
@@ -203,7 +239,7 @@ if not defined EXTRACTED_DIR set "EXTRACTED_DIR=%TEMP_DIR%\extracted"
 
 :: 复制文件（排除数据目录和配置文件）
 echo 正在更新文件...
-powershell -Command ^
+powershell -NoProfile -Command ^
     "$source = '%EXTRACTED_DIR%';" ^
     "$dest = '%PROJECT_DIR%';" ^
     "$exclude = @('backend\data', 'backend\.env', 'frontend\.env.local', 'temp_update', 'backup_old', '自动更新.bat');" ^
