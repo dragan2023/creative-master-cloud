@@ -93,16 +93,17 @@ class OpenAIProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> LLMResponse:
-        """生成文本（支持多模态）"""
+        """生成文本（支持多模态：文本、图片）"""
         messages = []
 
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
-        # 构建多模态内容
+        # 构建多模态内容（OpenAI 不支持视频，忽略 videos 参数）
         user_content = self._build_content(prompt, images)
         messages.append({"role": "user", "content": user_content})
 
@@ -133,16 +134,17 @@ class OpenAIProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
-        """流式生成文本（支持多模态）"""
+        """流式生成文本（支持多模态：文本、图片）"""
         messages = []
 
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
-        # 构建多模态内容
+        # 构建多模态内容（OpenAI 不支持视频，忽略 videos 参数）
         user_content = self._build_content(prompt, images)
         messages.append({"role": "user", "content": user_content})
 

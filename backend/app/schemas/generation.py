@@ -37,6 +37,15 @@ class ShortVideoInput(BaseModel):
     ai_platforms: Optional[str] = Field(None, description="AI视频平台")
     reference_video: Optional[str] = Field(
         None, description="参考视频URL（仅Gemini 1.5 Pro/Flash支持）")
+    # 运营相关自定义变量
+    account_tone: Optional[str] = Field(
+        None, description="账号调性（如：专业干货型、搞笑娱乐型、情感治愈型等）")
+    target_fans: Optional[str] = Field(
+        None, description="目标粉丝群体（如：18-25岁女性、职场白领、宝妈群体等）")
+    content_position: Optional[str] = Field(
+        None, description="内容定位（如：知识科普、生活记录、好物推荐等）")
+    custom_variables: Optional[Dict[str, Any]] = Field(
+        None, description="其他自定义变量")
 
 
 # ==================== 剧本大纲 ====================

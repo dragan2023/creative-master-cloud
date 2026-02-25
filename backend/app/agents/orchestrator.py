@@ -9,6 +9,9 @@ import time
 import random
 import re
 import asyncio
+import base64
+import os
+import mimetypes
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -19,10 +22,202 @@ from app.agents.prompt_manager import get_prompt_manager, PromptManager
 from app.tools.web_search import get_web_search_tool, WebSearchTool
 from app.tools.knowledge_retrieval import get_knowledge_retrieval_tool, KnowledgeRetrievalTool
 from app.tools.webpage_reader import get_webpage_reader, WebpageReader
+from app.tools.file_parser import get_file_parser, FileParser
 from app.core.logger import get_logger, LoggerAdapter
-from app.core.config import PRESET_MODELS
+from app.core.config import PRESET_MODELS, get_settings
 from app.models.knowledge_base import KnowledgeBase, KnowledgeBaseType, KnowledgeBaseStatus, KnowledgeBaseCategory
 from app.models.generation import Generation, GenerationModule, GenerationStatus
+
+
+def convert_images_to_base64(images: Optional[List[str]]) -> Optional[List[str]]:
+    """
+    将图片URL列表转换为base64编码格式
+
+    Args:
+        images: 图片URL列表，支持：
+            - 相对路径（如 /api/v1/generate/uploads/xxx.png）
+            - 完整URL（如 http://xxx/yyy.png）
+            - 已经是base64格式（如 data:image/png;base64,xxx）
+
+    Returns:
+        转换后的图片URL列表（全部为 data:image/xxx;base64,yyy 格式）
+    """
+    if not images:
+        return None
+
+    settings = get_settings()
+    upload_dir = settings.get_upload_dir()
+    result = []
+
+    for img_url in images:
+        # 已经是base64格式，直接使用
+        if img_url.startswith("data:image"):
+            result.append(img_url)
+            continue
+
+        # 完整URL（http/https），直接使用（LLM可以访问）
+        if img_url.startswith("http://") or img_url.startswith("https://"):
+            result.append(img_url)
+            continue
+
+        # 相对路径，需要转换为base64
+        if img_url.startswith("/api/v1/generate/uploads/"):
+            # 提取文件名
+            filename = img_url.split("/")[-1]
+            file_path = os.path.join(upload_dir, filename)
+
+            if os.path.exists(file_path):
+                # 读取文件并转换为base64
+                with open(file_path, "rb") as f:
+                    image_data = f.read()
+
+                # 获取MIME类型
+                mime_type, _ = mimetypes.guess_type(file_path)
+                if not mime_type:
+                    mime_type = "image/png"  # 默认
+
+                base64_data = base64.b64encode(image_data).decode("utf-8")
+                result.append(f"data:{mime_type};base64,{base64_data}")
+            else:
+                # 文件不存在，跳过
+                continue
+        else:
+            # 其他格式，尝试作为相对路径处理
+            result.append(img_url)
+
+    return result if result else None
+
+
+async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> Optional[str]:
+    """
+    将文件URL转换为文件内容文本
+
+    Args:
+        file_url: 文件URL，支持：
+            - 相对路径（如 /api/v1/generate/uploads/xxx.pdf）
+            - 完整URL（如 http://xxx/yyy.docx）
+            - 本地文件路径
+        logger: 日志记录器
+
+    Returns:
+        文件内容文本，如果无法读取则返回原始URL
+    """
+    if not file_url:
+        return None
+
+    settings = get_settings()
+    upload_dir = settings.get_upload_dir()
+    file_parser = get_file_parser()
+
+    # 确定文件路径
+    file_path = None
+
+    # 相对路径（如 /api/v1/generate/uploads/xxx.pdf）
+    if file_url.startswith("/api/v1/generate/uploads/"):
+        filename = file_url.split("/")[-1]
+        file_path = os.path.join(upload_dir, filename)
+    # 完整URL（http/https）- 不支持远程文件，返回原始URL
+    elif file_url.startswith("http://") or file_url.startswith("https://"):
+        if logger:
+            logger.warning(f"远程文件URL不支持解析: {file_url}")
+        return file_url  # 返回原始URL，让提示词模板中使用URL
+    # 本地文件路径
+    elif os.path.exists(file_url):
+        file_path = file_url
+    else:
+        if logger:
+            logger.warning(f"文件不存在: {file_url}")
+        return file_url
+
+    # 检查文件是否存在
+    if not file_path or not os.path.exists(file_path):
+        if logger:
+            logger.warning(f"文件路径无效或文件不存在: {file_path}")
+        return file_url
+
+    # 检查文件类型是否支持
+    if not file_parser.is_supported(file_path):
+        if logger:
+            logger.warning(f"不支持的文件类型: {file_path}")
+        return file_url
+
+    # 解析文件内容
+    try:
+        result = await file_parser.parse(file_path)
+
+        # 安全检查：确保 result 是字典类型
+        if not isinstance(result, dict):
+            if logger:
+                logger.error(f"文件解析返回异常类型: {type(result)}")
+            return file_url
+
+        if "error" in result:
+            error_msg = result.get("error", "未知错误")
+            if logger:
+                logger.error(f"文件解析失败: {error_msg}")
+            return file_url
+
+        content = result.get("content", "")
+        if content:
+            if logger:
+                logger.info(f"成功解析文件内容: {file_path}, 字符数: {len(content)}")
+
+            return f"""
+【用户上传的大纲文件内容】
+
+{content}
+
+【以上是大纲文件内容，请在此基础上进行创作】
+"""
+        else:
+            if logger:
+                logger.warning(f"文件内容为空: {file_path}")
+            return file_url
+
+    except Exception as e:
+        if logger:
+            logger.error(f"解析文件异常: {str(e)}")
+        return file_url
+
+
+async def process_input_params_files(
+    input_params: Dict[str, Any],
+    logger=None
+) -> Dict[str, Any]:
+    """
+    处理输入参数中的文件URL，将文件内容提取出来
+
+    Args:
+        input_params: 输入参数字典
+        logger: 日志记录器
+
+    Returns:
+        处理后的输入参数（原地修改并返回）
+    """
+    # 处理 custom_outline 字段（剧本大纲和小说大纲模块）
+    if input_params.get("custom_outline"):
+        original_value = input_params["custom_outline"]
+        if logger:
+            logger.info(
+                f"[文件处理] 开始处理 custom_outline，原始值: {original_value[:100] if len(str(original_value)) > 100 else original_value}")
+
+        content = await convert_file_url_to_content(
+            input_params["custom_outline"],
+            logger
+        )
+
+        # 只有当成功解析到内容时才更新
+        if content and not content.startswith("/") and not content.startswith("http"):
+            input_params["custom_outline"] = content
+            if logger:
+                logger.info(
+                    f"[文件处理] custom_outline 已更新为文件内容，长度: {len(str(content))}")
+        else:
+            if logger:
+                logger.warning(
+                    f"[文件处理] custom_outline 解析失败或返回原始URL: {str(content)[:100]}")
+
+    return input_params
 
 
 def get_model_friendly_name(provider: str, model_id: str) -> str:
@@ -71,7 +266,8 @@ class AgentOrchestrator:
         reference_urls: Optional[List[str]] = None,
         provider: Optional[str] = None,
         temperature: float = 0.7,
-        images: Optional[List[str]] = None
+        images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         执行创意生成（非流式）
@@ -88,6 +284,7 @@ class AgentOrchestrator:
             provider: 指定LLM提供者
             temperature: 温度参数
             images: 图片URL列表（多模态支持）
+            videos: 视频URL列表（多模态支持，仅部分模型支持）
 
         Returns:
             生成结果
@@ -103,10 +300,13 @@ class AgentOrchestrator:
                 provider_name=provider
             )
 
-            # 2. 获取提示词模板
+            # 2. 处理输入参数中的文件URL（将文件内容提取出来）
+            input_params = await process_input_params_files(input_params, logger)
+
+            # 3. 获取提示词模板
             prompt_template = await self.prompt_manager.get_prompt(db, module)
 
-            # 3. 渲染提示词
+            # 4. 渲染提示词
             system_prompt = self.prompt_manager.render_prompt(
                 prompt_template, input_params, module=module)
 
@@ -185,12 +385,22 @@ class AgentOrchestrator:
 
             logger.info(f"开始生成 - 模块: {module}, 模型: {llm_provider.model_name}")
 
-            # 5. 调用 LLM（支持多模态）
+            # 转换图片URL为base64格式
+            converted_images = convert_images_to_base64(images)
+            if converted_images:
+                logger.info(f"已转换 {len(converted_images)} 张图片为base64格式")
+
+            # 处理视频URL
+            if videos:
+                logger.info(f"接收到 {len(videos)} 个视频URL: {videos}")
+
+            # 5. 调用 LLM（支持多模态：文本、图片、视频）
             response = await llm_provider.generate(
                 prompt=full_prompt,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                images=images
+                images=converted_images,
+                videos=videos
             )
 
             # 6. 记录到会话
@@ -239,6 +449,7 @@ class AgentOrchestrator:
         provider: Optional[str] = None,
         temperature: float = 0.7,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         cancel_event: Optional[asyncio.Event] = None
     ) -> AsyncGenerator[str, None]:
         """
@@ -256,6 +467,7 @@ class AgentOrchestrator:
             provider: 指定LLM提供者
             temperature: 温度参数
             images: 图片URL列表（多模态支持）
+            videos: 视频URL列表（多模态支持，仅部分LLM支持）
 
         Yields:
             SSE 格式的数据块
@@ -286,11 +498,14 @@ class AgentOrchestrator:
             )
             yield self._format_sse("workflow", {"type": "step", "step": "model", "status": "done", "message": f"已加载模型: {model_display_name}"})
 
-            # 2. 获取提示词模板
+            # 2. 处理输入参数中的文件URL（将文件内容提取出来）
+            input_params = await process_input_params_files(input_params, logger)
+
+            # 3. 获取提示词模板
             yield self._format_sse("workflow", {"type": "step", "step": "prompt", "status": "running", "message": "正在准备提示词...", "icon": "Document"})
             prompt_template = await self.prompt_manager.get_prompt(db, module)
 
-            # 3. 渲染提示词
+            # 4. 渲染提示词
             system_prompt = self.prompt_manager.render_prompt(
                 prompt_template, input_params, module=module)
 
@@ -393,6 +608,15 @@ class AgentOrchestrator:
             logger.info(
                 f"开始流式生成 - 模块: {module}, 模型: {llm_provider.model_name}")
 
+            # 转换图片URL为base64格式
+            converted_images = convert_images_to_base64(images)
+            if converted_images:
+                logger.info(f"已转换 {len(converted_images)} 张图片为base64格式")
+
+            # 处理视频URL
+            if videos:
+                logger.info(f"接收到 {len(videos)} 个视频URL: {videos}")
+
             # 5. 生成并实时输出初稿内容
             yield self._format_sse("workflow", {"type": "step", "step": "generate", "status": "running", "message": "正在生成初稿内容...", "icon": "ChatDotRound"})
 
@@ -401,7 +625,8 @@ class AgentOrchestrator:
                 prompt=full_prompt,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                images=images
+                images=converted_images,
+                videos=videos
             ):
                 # 检查取消事件
                 if cancel_event and cancel_event.is_set():

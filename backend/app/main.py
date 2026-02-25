@@ -102,14 +102,17 @@ async def add_process_time_header(request: Request, call_next):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger = get_logger("system")
-    logger.error(f"未处理的异常: {str(exc)}", exc_info=True)
+    import traceback
+    error_detail = f"{type(exc).__name__}: {str(exc)}"
+    full_traceback = traceback.format_exc()
+    logger.error(f"未处理的异常: {error_detail}\n{full_traceback}")
 
     return JSONResponse(
         status_code=500,
         content={
             "code": 500,
             "message": "服务器内部错误",
-            "detail": str(exc) if settings.DEBUG else None
+            "detail": error_detail if settings.DEBUG else None
         }
     )
 

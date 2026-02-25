@@ -2,7 +2,7 @@
 豆包 (Doubao) LLM 提供者
 调用字节跳动火山引擎豆包 API
 使用 OpenAI 兼容接口
-支持多模态内容（文本、图片）
+支持多模态内容（文本、图片、视频）
 """
 from typing import AsyncGenerator, Optional, Dict, List, Any, Union
 from openai import AsyncOpenAI
@@ -10,9 +10,16 @@ from openai import AsyncOpenAI
 from app.agents.base_provider import BaseLLMProvider, LLMResponse
 
 
-# 豆包支持视觉能力的模型
+# 豆包支持视觉能力的模型（包括多模态模型）
+# doubao-seed-2-0-pro 系列支持文字、图片、视频输入
 DOUBAO_VISION_MODELS = [
-    "doubao-1-5-pro", "doubao-1-5-vision", "doubao-vision"
+    "doubao-1-5-pro",
+    "doubao-1-5-vision",
+    "doubao-vision",
+    "doubao-seed-2-0-pro",  # 支持文字、图片、视频
+    "doubao-seed-2-0",      # 支持文字、图片、视频
+    "seed-2-0-pro",         # 简写形式
+    "seed-2-0"              # 简写形式
 ]
 
 
@@ -43,25 +50,61 @@ class DoubaoProvider(BaseLLMProvider):
         return self._client
 
     def _supports_vision(self) -> bool:
-        """检查当前模型是否支持视觉"""
-        return any(vm in self.model_name.lower() for vm in DOUBAO_VISION_MODELS)
+        """检查当前模型是否支持视觉（图片/视频）"""
+        model_lower = self.model_name.lower()
+        # 精确匹配或包含关键词
+        for vm in DOUBAO_VISION_MODELS:
+            if vm in model_lower or model_lower == vm:
+                return True
+        # 额外检查：包含 vision/seed 关键词的模型通常支持视觉
+        if "vision" in model_lower or "seed" in model_lower:
+            return True
+        return False
 
     def _build_content(
         self,
         text: str,
-        images: Optional[List[str]] = None
+        images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None
     ) -> Union[str, List[Dict[str, Any]]]:
-        """构建消息内容（支持多模态）"""
-        if not images or not self._supports_vision():
+        """
+        构建消息内容（支持多模态）
+
+        Args:
+            text: 文本内容
+            images: 图片URL列表（支持 base64、本地路径、网络URL）
+            videos: 视频URL列表（支持 base64、本地路径、网络URL）
+
+        Returns:
+            构建的消息内容
+        """
+        # 如果没有多模态内容或不支持视觉，返回纯文本
+        if not self._supports_vision():
+            return text
+
+        has_images = images and len(images) > 0
+        has_videos = videos and len(videos) > 0
+
+        if not has_images and not has_videos:
             return text
 
         content = [{"type": "text", "text": text}]
 
-        for img_url in images:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": img_url}
-            })
+        # 添加图片内容
+        if has_images:
+            for img_url in images:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img_url}
+                })
+
+        # 添加视频内容
+        if has_videos:
+            for video_url in videos:
+                content.append({
+                    "type": "video_url",
+                    "video_url": {"url": video_url}
+                })
 
         return content
 
@@ -72,16 +115,17 @@ class DoubaoProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> LLMResponse:
-        """生成文本（支持多模态）"""
+        """生成文本（支持多模态：文本、图片、视频）"""
         messages = []
 
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
-        user_content = self._build_content(prompt, images)
+        user_content = self._build_content(prompt, images, videos)
         messages.append({"role": "user", "content": user_content})
 
         response = await self.client.chat.completions.create(
@@ -111,16 +155,17 @@ class DoubaoProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
-        """流式生成文本（支持多模态）"""
+        """流式生成文本（支持多模态：文本、图片、视频）"""
         messages = []
 
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
-        user_content = self._build_content(prompt, images)
+        user_content = self._build_content(prompt, images, videos)
         messages.append({"role": "user", "content": user_content})
 
         stream = await self.client.chat.completions.create(

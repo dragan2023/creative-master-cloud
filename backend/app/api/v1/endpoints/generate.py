@@ -91,7 +91,7 @@ async def upload_file(
     """
     from app.core.config import get_settings
     settings = get_settings()
-    
+
     content_type = file.content_type or ""
     file_ext = None
     file_type = None  # 'image' or 'document'
@@ -199,7 +199,7 @@ async def get_uploaded_file(file_name: str):
     """
     from fastapi.responses import FileResponse
     from app.core.config import get_settings
-    
+
     settings = get_settings()
     upload_dir = settings.get_upload_dir()
     file_path = os.path.join(upload_dir, file_name)
@@ -284,6 +284,10 @@ async def generate_short_video(
 
     input_params = data.model_dump()
 
+    # 提取参考视频URL（如果存在）
+    reference_video = input_params.get("reference_video")
+    videos = [reference_video] if reference_video else None
+
     result = await orchestrator.generate(
         db=db,
         module="short_video",
@@ -294,7 +298,8 @@ async def generate_short_video(
         enable_knowledge=enable_knowledge,
         reference_urls=input_params.get("reference_urls"),
         provider=provider,
-        temperature=temperature
+        temperature=temperature,
+        videos=videos
     )
 
     if result.get("success"):
@@ -335,6 +340,10 @@ async def generate_short_video_stream(
 
     input_params = data.model_dump()
 
+    # 提取参考视频URL（如果存在）
+    reference_video = input_params.get("reference_video")
+    videos = [reference_video] if reference_video else None
+
     # 创建取消令牌
     cancel_event = asyncio.Event()
     if session_id:
@@ -353,6 +362,7 @@ async def generate_short_video_stream(
                 reference_urls=input_params.get("reference_urls"),
                 provider=provider,
                 temperature=temperature,
+                videos=videos,
                 cancel_event=cancel_event
             ):
                 # 检查是否被取消
@@ -704,6 +714,10 @@ async def generate_tvc(
 
     input_params = data.model_dump()
 
+    # 提取参考视频URL（如果存在）
+    reference_video = input_params.get("reference_video")
+    videos = [reference_video] if reference_video else None
+
     result = await orchestrator.generate(
         db=db,
         module="tvc",
@@ -714,7 +728,8 @@ async def generate_tvc(
         enable_knowledge=enable_knowledge,
         reference_urls=input_params.get("reference_urls"),
         provider=provider,
-        temperature=temperature
+        temperature=temperature,
+        videos=videos
     )
 
     if result.get("success"):
@@ -752,6 +767,10 @@ async def generate_tvc_stream(
 
     input_params = data.model_dump()
 
+    # 提取参考视频URL（如果存在）
+    reference_video = input_params.get("reference_video")
+    videos = [reference_video] if reference_video else None
+
     # 创建取消令牌
     cancel_event = asyncio.Event()
     if session_id:
@@ -770,7 +789,7 @@ async def generate_tvc_stream(
                 reference_urls=input_params.get("reference_urls"),
                 provider=provider,
                 temperature=temperature,
-                images=input_params.get("images"),
+                videos=videos,
                 cancel_event=cancel_event
             ):
                 # 检查是否被取消

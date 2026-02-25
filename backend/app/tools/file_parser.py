@@ -74,7 +74,7 @@ class FileParser:
                 return await self._parse_pdf(file_path)
             elif ext in [".docx", ".doc"]:
                 return await self._parse_docx(file_path)
-            elif ext == ".txt":
+            elif ext in [".txt", ".md"]:
                 return await self._parse_txt(file_path)
             else:
                 return {"error": f"未实现的解析器: {ext}"}
@@ -155,7 +155,7 @@ class FileParser:
 
     async def _parse_txt(self, file_path: str) -> Dict[str, Any]:
         """
-        解析 TXT 文件
+        解析 TXT/MD 文件
 
         Args:
             file_path: 文件路径
@@ -163,15 +163,38 @@ class FileParser:
         Returns:
             解析结果
         """
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        # 尝试多种编码
+        encodings = ["utf-8", "gbk", "gb2312", "utf-16", "latin-1"]
+        content = None
+        used_encoding = None
+
+        for encoding in encodings:
+            try:
+                with open(file_path, "r", encoding=encoding) as f:
+                    content = f.read()
+                used_encoding = encoding
+                break
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                return {
+                    "error": f"读取文件失败: {str(e)}",
+                    "content": ""
+                }
+
+        if content is None:
+            return {
+                "error": "无法识别文件编码，尝试了多种编码均失败",
+                "content": ""
+            }
 
         return {
             "content": content,
             "metadata": {
                 "file_path": file_path,
                 "file_type": "txt",
-                "char_count": len(content)
+                "char_count": len(content),
+                "encoding": used_encoding
             }
         }
 

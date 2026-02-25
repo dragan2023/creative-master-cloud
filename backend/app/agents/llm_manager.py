@@ -21,21 +21,19 @@ class LLMManager:
     """LLM 管理器"""
 
     # 提供者映射（所有OpenAI兼容API都使用OpenAIProvider）
+    # 2026年最新配置：只保留通义千问、豆包、硅基流动、OpenRouter
     PROVIDER_CLASSES = {
-        "deepseek": DeepSeekProvider,
-        "openai": OpenAIProvider,
+        # 通义千问（文本模型）
         "qianwen": QianwenProvider,
-        "google": GoogleProvider,
+        "qianwen-image": OpenAIProvider,  # 图像生成模型使用OpenAI兼容接口
+        # 豆包（火山引擎）
         "doubao": DoubaoProvider,
-        # OpenAI兼容API服务商
-        "zhipu": OpenAIProvider,
-        "moonshot": OpenAIProvider,
-        "baichuan": OpenAIProvider,
-        "minimax": OpenAIProvider,
-        "yi": OpenAIProvider,
+        "doubao-image": DoubaoProvider,  # 图像生成模型
+        # 硅基流动
         "siliconflow": OpenAIProvider,
-        "modelscope": OpenAIProvider,
-        "openrouter": OpenAIProvider,  # OpenRouter聚合平台
+        # OpenRouter
+        "openrouter": OpenAIProvider,
+        "openrouter-image": OpenAIProvider,  # 图像生成模型
     }
 
     def __init__(self):
@@ -142,16 +140,17 @@ class LLMManager:
         获取系统预置的 LLM 提供者
 
         Args:
-            provider_name: 提供者名称（可选，默认使用 DeepSeek）
+            provider_name: 提供者名称（可选，默认使用 qianwen）
 
         Returns:
             LLM 提供者实例
         """
         settings = get_settings()
-        provider_name = provider_name or "deepseek"
+        provider_name = provider_name or "qianwen"
 
         # 获取系统预置 API Key
-        api_key = getattr(settings, f"{provider_name.upper()}_API_KEY", None)
+        api_key = getattr(
+            settings, f"{provider_name.upper().replace('-', '_')}_API_KEY", None)
 
         if not api_key:
             raise ValueError(f"系统未配置 {provider_name} 的 API Key")
@@ -161,6 +160,21 @@ class LLMManager:
     def get_preset_models(self) -> Dict[str, Any]:
         """获取所有预置模型信息"""
         return PRESET_MODELS
+
+    def get_providers_by_type(self, model_type: str = "text") -> Dict[str, Any]:
+        """
+        按类型获取提供商配置
+
+        Args:
+            model_type: 模型类型 (text/image/video)
+
+        Returns:
+            符合类型的提供商配置
+        """
+        return {
+            key: value for key, value in PRESET_MODELS.items()
+            if any(m.get("type") == model_type for m in value.get("models", []))
+        }
 
 
 # 全局 LLM 管理器实例

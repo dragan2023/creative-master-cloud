@@ -133,13 +133,45 @@
             <el-form-item prop="reference_video">
               <template #label>
                 <span>参考视频</span>
-                <el-tag type="warning" size="small" style="margin-left: 8px;">仅支持 Gemini 1.5 Pro/Flash</el-tag>
+                <el-tag type="warning" size="small" style="margin-left: 8px;">仅支持多模态模型</el-tag>
               </template>
               <el-input
                 v-model="form.reference_video"
-                placeholder="输入参考视频URL（可选，需要选择Gemini模型才能解析视频）"
+                placeholder="输入参考视频URL（可选）"
               />
+              <div class="form-tip">URL需要资料直链，推荐使用图床网站获取直链</div>
             </el-form-item>
+            
+            <!-- 运营相关变量 -->
+            <el-divider content-position="left">运营设置（自定义变量）</el-divider>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="账号调性" prop="account_tone">
+                  <el-input
+                    v-model="form.account_tone"
+                    placeholder="如：专业干货型、搞笑娱乐型、情感治愈型"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="目标粉丝群体" prop="target_fans">
+                  <el-input
+                    v-model="form.target_fans"
+                    placeholder="如：18-25岁女性、职场白领、宝妈群体"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="24">
+                <el-form-item label="内容定位" prop="content_position">
+                  <el-input
+                    v-model="form.content_position"
+                    placeholder="如：知识科普、生活记录、好物推荐、情感分享、技能教学等"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
           </template>
           
           <!-- ========== 剧本大纲模块 ========== -->
@@ -209,6 +241,11 @@
                         <el-icon><Document /></el-icon>
                         {{ form.custom_outline_name || '已上传文件' }}
                       </el-tag>
+                    </div>
+                    <!-- Token 消耗提示 -->
+                    <div class="token-tip">
+                      <el-icon><InfoFilled /></el-icon>
+                      <span>文件字符数量越多，消耗的token越多</span>
                     </div>
                   </div>
                 </el-form-item>
@@ -336,6 +373,11 @@
                         {{ form.custom_outline_name || '已上传文件' }}
                       </el-tag>
                     </div>
+                    <!-- Token 消耗提示 -->
+                    <div class="token-tip">
+                      <el-icon><InfoFilled /></el-icon>
+                      <span>文件字符数量越多，消耗的token越多</span>
+                    </div>
                   </div>
                 </el-form-item>
               </el-col>
@@ -459,7 +501,11 @@
             <!-- 第八行：参考图片（多模态） -->
             <el-row :gutter="20">
               <el-col :span="24">
-                <el-form-item label="参考图片">
+                <el-form-item>
+                  <template #label>
+                    <span>参考图片</span>
+                    <el-tag type="warning" size="small" style="margin-left: 8px;">仅支持多模态模型</el-tag>
+                  </template>
                   <div class="image-upload-section">
                     <el-upload
                       :action="uploadUrl"
@@ -484,6 +530,7 @@
                         placeholder="或输入图片URL，多个用逗号分隔"
                         @blur="parseImageUrls"
                       />
+                      <div class="form-tip">URL需要资料直链，推荐使用图床网站获取直链</div>
                     </div>
                   </div>
                 </el-form-item>
@@ -624,12 +671,13 @@
                 <el-form-item prop="reference_video">
                   <template #label>
                     <span>参考视频</span>
-                    <el-tag type="warning" size="small" style="margin-left: 8px;">仅支持 Gemini 1.5 Pro/Flash</el-tag>
+                    <el-tag type="warning" size="small" style="margin-left: 8px;">仅支持多模态模型</el-tag>
                   </template>
                   <el-input
                     v-model="form.reference_video"
-                    placeholder="输入参考视频URL（可选，需要选择Gemini模型才能解析视频）"
+                    placeholder="输入参考视频URL（可选）"
                   />
+                  <div class="form-tip">URL需要资料直链，推荐使用图床网站获取直链</div>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -874,7 +922,11 @@ const form = ref({
   style_types: [],        // 二级选项
   style_types_level1: [], // 一级选项
   generate_ai_prompt: false,
-  ai_platforms: []
+  ai_platforms: [],
+  // 短视频运营相关变量（自定义变量）
+  account_tone: '',       // 账号调性
+  target_fans: '',        // 目标粉丝群体
+  content_position: ''    // 内容定位
 })
 
 // 图片上传相关
@@ -1129,6 +1181,10 @@ async function handleGenerate() {
         generate_ai_prompt: form.value.generate_ai_prompt ? '是' : '否',
         ai_platforms: form.value.ai_platforms?.join(', ') || '无',
         reference_video: form.value.reference_video || null,
+        // 运营相关自定义变量
+        account_tone: form.value.account_tone || null,
+        target_fans: form.value.target_fans || null,
+        content_position: form.value.content_position || null,
         enable_knowledge: enableKnowledge.value
       }
     } else if (type.value === 'script') {
@@ -1577,6 +1633,19 @@ async function trackAction(actionType) {
       .el-icon {
         margin-right: 4px;
       }
+    }
+  }
+  
+  .token-tip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #909399;
+    
+    .el-icon {
+      font-size: 14px;
     }
   }
 }

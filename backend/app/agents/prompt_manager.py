@@ -66,6 +66,22 @@ MODULE_VARIABLES_CONFIG = {
                 "default": "无",
                 "description": "参考视频URL（仅Gemini 1.5 Pro/Flash支持）",
                 "required": False
+            },
+            # 运营相关自定义变量
+            "account_tone": {
+                "default": "未指定",
+                "description": "账号调性（如：专业干货型、搞笑娱乐型、情感治愈型等）",
+                "required": False
+            },
+            "target_fans": {
+                "default": "未指定",
+                "description": "目标粉丝群体（如：18-25岁女性、职场白领、宝妈群体等）",
+                "required": False
+            },
+            "content_position": {
+                "default": "未指定",
+                "description": "内容定位（如：知识科普、生活记录、好物推荐等）",
+                "required": False
             }
         }
     },
@@ -1351,6 +1367,19 @@ class PromptManager:
             # 4. 使用通用默认值
             else:
                 filled_vars[var_name] = "未指定"
+
+        # 特殊处理：custom_outline 变量
+        # 如果内容已包含"用户上传的大纲文件内容"标记，说明已正确解析
+        # 如果为空或只是URL，则显示"未提供"
+        if "custom_outline" in filled_vars:
+            outline_value = filled_vars["custom_outline"]
+            if not outline_value or outline_value.strip() == "":
+                filled_vars["custom_outline"] = "（未提供自写大纲）"
+            elif outline_value.startswith("http") or outline_value.startswith("/api"):
+                # 如果还是URL格式，说明解析失败
+                filled_vars["custom_outline"] = f"（文件解析失败，原URL: {outline_value[:50]}...）"
+                logger.warning(
+                    f"custom_outline 文件解析可能失败，值仍为URL: {outline_value[:100]}")
 
         # 替换变量
         for key, value in filled_vars.items():

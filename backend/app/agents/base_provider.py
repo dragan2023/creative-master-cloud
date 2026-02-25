@@ -140,6 +140,7 @@ class BaseLLMProvider(ABC):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> LLMResponse:
@@ -152,6 +153,7 @@ class BaseLLMProvider(ABC):
             temperature: 温度参数
             max_tokens: 最大 Token 数
             images: 图片URL列表（支持http(s)://和base64 data:image格式）
+            videos: 视频URL列表（支持http(s)://和base64 data:video格式）
             files: 文件URL列表
             **kwargs: 其他参数
 
@@ -168,6 +170,7 @@ class BaseLLMProvider(ABC):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
@@ -180,6 +183,7 @@ class BaseLLMProvider(ABC):
             temperature: 温度参数
             max_tokens: 最大 Token 数
             images: 图片URL列表
+            videos: 视频URL列表
             files: 文件URL列表
             **kwargs: 其他参数
 

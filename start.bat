@@ -2,8 +2,8 @@
 setlocal enabledelayedexpansion
 
 :: ============================================================
-:: 全能创意大师 - 发行版启动脚本 v7.0
-:: 功能：环境检测、依赖安装、端口检测、服务启动
+:: 全能创意大师 - 发行版启动脚本 v8.0
+:: 功能：环境检测、端口清理、依赖安装、服务启动
 :: ============================================================
 
 title 全能创意大师 - 启动脚本
@@ -14,6 +14,10 @@ set "BACKEND_DIR=%PROJECT_DIR%backend"
 set "FRONTEND_DIR=%PROJECT_DIR%frontend"
 set "DATA_DIR=%BACKEND_DIR%data"
 
+:: 端口配置
+set "BACKEND_PORT=8000"
+set "FRONTEND_PORT=5173"
+
 echo.
 echo ========================================================
 echo     全能创意大师 - 智能内容生成平台
@@ -22,7 +26,7 @@ echo.
 
 :: [第零步] 检测并配置 PowerShell 环境
 echo ========================================================
-echo  [步骤 0/7] 检测 PowerShell 环境
+echo  [步骤 0/8] 检测 PowerShell 环境
 echo ========================================================
 
 set "PS_OK=0"
@@ -80,7 +84,7 @@ echo.
 
 :: [第一步] 检测 Python 环境
 echo ========================================================
-echo  [步骤 1/7] 检测 Python 环境
+echo  [步骤 1/8] 检测 Python 环境
 echo ========================================================
 
 python --version >nul 2>&1
@@ -120,7 +124,7 @@ echo.
 
 :: [第二步] 检测 Node.js 环境
 echo ========================================================
-echo  [步骤 2/7] 检测 Node.js 环境
+echo  [步骤 2/8] 检测 Node.js 环境
 echo ========================================================
 
 node --version >nul 2>&1
@@ -145,9 +149,22 @@ if !NODE_MAJOR! LSS 20 (
 
 echo.
 
-:: [第三步] 创建必要的目录和配置文件
+:: [第三步] 检测并清理端口占用（提前执行）
 echo ========================================================
-echo  [步骤 3/7] 创建必要的目录和配置文件
+echo  [步骤 3/8] 检测并清理端口占用
+echo ========================================================
+echo.
+
+:: 调用端口清理函数
+call :CleanPort !BACKEND_PORT! "后端服务"
+call :CleanPort !FRONTEND_PORT! "前端服务"
+
+echo  [OK] 端口清理完成
+echo.
+
+:: [第四步] 创建必要的目录和配置文件
+echo ========================================================
+echo  [步骤 4/8] 创建必要的目录和配置文件
 echo ========================================================
 
 if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
@@ -164,7 +181,7 @@ if not exist "%BACKEND_DIR%\.env" (
         echo APP_NAME=Creative Master
         echo DEBUG=True
         echo HOST=0.0.0.0
-        echo PORT=8000
+        echo PORT=!BACKEND_PORT!
         echo DATABASE_URL=sqlite+aiosqlite:///./data/creative_master.db
         echo SECRET_KEY=auto-generated-please-change
         echo LOG_LEVEL=INFO
@@ -181,8 +198,8 @@ if not exist "%BACKEND_DIR%\.env" (
 if not exist "%FRONTEND_DIR%\.env.local" (
     echo  [*] 正在生成前端配置文件...
     (
-        echo VITE_BACKEND_URL=http://localhost:8000
-        echo VITE_FRONTEND_PORT=5173
+        echo VITE_BACKEND_URL=http://localhost:!BACKEND_PORT!
+        echo VITE_FRONTEND_PORT=!FRONTEND_PORT!
     ) > "%FRONTEND_DIR%\.env.local"
     echo  [OK] 前端配置文件已生成
 ) else (
@@ -191,9 +208,9 @@ if not exist "%FRONTEND_DIR%\.env.local" (
 
 echo.
 
-:: [第四步] 检查并安装依赖
+:: [第五步] 检查并安装依赖
 echo ========================================================
-echo  [步骤 4/7] 检查并安装依赖
+echo  [步骤 5/8] 检查并安装依赖
 echo ========================================================
 
 if not exist "%BACKEND_DIR%\venv" (
@@ -268,61 +285,10 @@ if not exist "node_modules" (
 
 echo.
 
-:: [第五步] 检测端口占用
-echo ========================================================
-echo  [步骤 5/7] 检测端口占用
-echo ========================================================
-
-:: 使用更简单的端口检测方法
-set BACKEND_PORT=8000
-echo  [*] 检测后端端口 !BACKEND_PORT!...
-netstat -ano 2>nul | find ":%BACKEND_PORT% " >nul
-if not errorlevel 1 (
-    echo  [!] 端口 !BACKEND_PORT! 已被占用，尝试下一个端口...
-    set /a BACKEND_PORT=8001
-)
-echo  [OK] 后端将使用端口: !BACKEND_PORT!
-
-set FRONTEND_PORT=5173
-echo  [*] 检测前端端口 !FRONTEND_PORT!...
-netstat -ano 2>nul | find ":%FRONTEND_PORT% " >nul
-if not errorlevel 1 (
-    echo  [!] 端口 !FRONTEND_PORT! 已被占用，尝试下一个端口...
-    set /a FRONTEND_PORT=5174
-)
-echo  [OK] 前端将使用端口: !FRONTEND_PORT!
-
-(
-    echo APP_NAME=Creative Master
-    echo DEBUG=True
-    echo HOST=0.0.0.0
-    echo PORT=!BACKEND_PORT!
-    echo DATABASE_URL=sqlite+aiosqlite:///./data/creative_master.db
-    echo SECRET_KEY=auto-generated-please-change
-    echo LOG_LEVEL=INFO
-    echo LOG_DIR=./logs
-    echo CHROMA_PERSIST_DIR=./data/chroma
-    echo UPLOAD_DIR=./data/uploads
-    echo MARKER_MODEL_DIR=./data/marker_models
-) > "%BACKEND_DIR%\.env"
-
-(
-    echo VITE_BACKEND_URL=http://localhost:!BACKEND_PORT!
-    echo VITE_FRONTEND_PORT=!FRONTEND_PORT!
-) > "%FRONTEND_DIR%\.env.local"
-
-echo.
-
 :: [第六步] 启动服务
 echo ========================================================
-echo  [步骤 6/7] 启动服务
+echo  [步骤 6/8] 启动服务
 echo ========================================================
-
-echo  [*] 清理旧进程...
-taskkill /f /im python.exe >nul 2>&1
-taskkill /f /im node.exe >nul 2>&1
-timeout /t 2 /nobreak >nul
-echo  [OK] 清理完成
 
 echo  [*] 正在启动后端服务（端口 !BACKEND_PORT!）...
 start "全能创意大师 - 后端服务" cmd /k "cd /d "%BACKEND_DIR%" && call venv\Scripts\activate.bat && venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port !BACKEND_PORT! --reload"
@@ -356,7 +322,7 @@ echo.
 
 :: [第七步] 完成
 echo ========================================================
-echo  [步骤 7/7] 启动完成
+echo  [步骤 7/8] 启动完成
 echo ========================================================
 echo.
 echo  ========================================
@@ -377,3 +343,46 @@ echo.
 :: 无需在此手动打开浏览器，否则会打开两个窗口
 
 pause
+exit /b 0
+
+:: ============================================================
+:: 端口清理函数
+:: 参数1: 端口号
+:: 参数2: 服务名称（用于日志显示）
+:: ============================================================
+:CleanPort
+set "CLEAN_PORT=%~1"
+set "SERVICE_NAME=%~2"
+set "PORT_CLEANED=0"
+
+echo  [*] 检测 %SERVICE_NAME% 端口 !CLEAN_PORT!...
+
+:: 使用 netstat 查找占用指定端口的进程
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":%CLEAN_PORT% "') do (
+    set "PID=%%a"
+    
+    :: 跳过空值和 "0"
+    if "!PID!" NEQ "" if "!PID!" NEQ "0" (
+        echo  [!] 发现端口 !CLEAN_PORT! 被进程 PID=!PID! 占用
+        echo  [*] 正在强制终止进程 !PID!...
+        
+        :: 强制终止进程
+        taskkill /f /pid !PID! >nul 2>&1
+        if not errorlevel 1 (
+            echo  [OK] 进程 !PID! 已终止
+            set "PORT_CLEANED=1"
+        ) else (
+            echo  [WARNING] 无法终止进程 !PID!，可能需要管理员权限
+        )
+    )
+)
+
+:: 等待端口释放
+if !PORT_CLEANED! EQU 1 (
+    timeout /t 1 /nobreak >nul
+    echo  [OK] 端口 !CLEAN_PORT! 已清理
+) else (
+    echo  [OK] 端口 !CLEAN_PORT! 可用
+)
+
+goto :eof

@@ -46,12 +46,13 @@ class QianwenProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> LLMResponse:
-        """生成文本（支持多模态）"""
+        """生成文本（支持多模态：文本、图片）"""
 
-        # 如果有图片且模型支持视觉，使用多模态API
+        # 如果有图片且模型支持视觉，使用多模态API（千问不支持视频）
         if images and self._supports_vision():
             return await self._generate_multimodal(prompt, images, system_prompt, temperature, max_tokens, **kwargs)
 
@@ -141,12 +142,13 @@ class QianwenProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
-        """流式生成文本（支持多模态）"""
+        """流式生成文本（支持多模态：文本、图片）"""
 
-        # 多模态暂不支持流式，降级为普通模式
+        # 多模态暂不支持流式，降级为普通模式（千问不支持视频）
         if images and self._supports_vision():
             response = await self._generate_multimodal(prompt, images, system_prompt, temperature, max_tokens, **kwargs)
             yield response.content

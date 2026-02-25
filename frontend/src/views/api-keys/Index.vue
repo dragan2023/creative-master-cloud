@@ -17,6 +17,20 @@
       </div>
     </div>
     
+    <!-- 模型类型筛选 -->
+    <div class="type-filter">
+      <span class="filter-label">模型类型：</span>
+      <el-radio-group v-model="selectedType" size="small">
+        <el-radio-button label="all">全部</el-radio-button>
+        <el-radio-button label="text">
+          <el-icon><EditPen /></el-icon> 文本模型
+        </el-radio-button>
+        <el-radio-button label="image">
+          <el-icon><Picture /></el-icon> 图像模型
+        </el-radio-button>
+      </el-radio-group>
+    </div>
+    
      <!-- 未设置默认Key警告 -->
     <el-alert
       v-if="apiKeyStore.apiKeys.length > 0 && !apiKeyStore.defaultKey"
@@ -30,20 +44,28 @@
     
     <!-- API Key 列表 -->
     <div class="keys-list">
-      <el-empty v-if="!apiKeyStore.apiKeys.length && !apiKeyStore.loading" description="暂无 API Key">
+      <el-empty v-if="!filteredApiKeys.length && !apiKeyStore.loading" description="暂无 API Key">
         <el-button type="primary" @click="openAddDialog">立即添加</el-button>
       </el-empty>
       
       <div v-else class="key-cards">
         <div
-          v-for="key in apiKeyStore.apiKeys"
+          v-for="key in filteredApiKeys"
           :key="key.id"
           class="key-card"
           :class="{ 'is-default': key.is_default }"
         >
           <div class="key-header">
-            <div class="provider-badge" :style="{ background: getProviderColor(key.provider) }">
-              {{ getProviderLabel(key.provider) }}
+            <div class="provider-badges">
+              <div class="provider-badge" :style="{ background: getProviderColor(key.provider) }">
+                {{ getProviderLabel(key.provider) }}
+              </div>
+              <el-tag v-if="getProviderType(key.provider) === 'image'" type="warning" size="small">
+                <el-icon><Picture /></el-icon> 图像
+              </el-tag>
+              <el-tag v-else type="primary" size="small">
+                <el-icon><EditPen /></el-icon> 文本
+              </el-tag>
             </div>
             <div class="header-tags">
               <el-tag v-if="key.is_default" type="success" size="small">默认</el-tag>
@@ -118,10 +140,26 @@
         :rules="rules"
         label-width="100px"
       >
+        <!-- 模型类型选择 -->
+        <el-form-item label="模型类型" prop="model_type">
+          <el-radio-group v-model="form.model_type" @change="onModelTypeChange">
+            <el-radio-button label="text">
+              <el-icon><EditPen /></el-icon> 文本模型
+            </el-radio-button>
+            <el-radio-button label="image">
+              <el-icon><Picture /></el-icon> 图像模型
+            </el-radio-button>
+          </el-radio-group>
+          <div class="form-tip">
+            <el-icon><InfoFilled /></el-icon>
+            <span>文本模型用于创意生成，图像模型用于图片生成/编辑</span>
+          </div>
+        </el-form-item>
+        
         <el-form-item label="提供商" prop="provider">
           <el-select v-model="form.provider" placeholder="选择提供商" style="width: 100%" @change="onProviderChange">
             <el-option
-              v-for="p in LLM_PROVIDERS"
+              v-for="p in filteredProviders"
               :key="p.value"
               :label="p.label"
               :value="p.value"
@@ -226,8 +264,10 @@ const submitting = ref(false)
 const testingNew = ref(false)
 const testingId = ref(null)
 const formRef = ref()
+const selectedType = ref('all')
 
 const form = ref({
+  model_type: 'text',
   provider: '',
   api_base: '',
   model_name: '',
@@ -236,10 +276,26 @@ const form = ref({
 })
 
 const rules = {
+  model_type: [{ required: true, message: '请选择模型类型', trigger: 'change' }],
   provider: [{ required: true, message: '请选择提供商', trigger: 'change' }],
   model_name: [{ required: true, message: '请输入模型名称', trigger: 'blur' }],
   api_key: [{ required: true, message: '请输入 API Key', trigger: 'blur' }]
 }
+
+// 根据类型筛选提供商
+const filteredProviders = computed(() => {
+  if (form.value.model_type === 'all') return LLM_PROVIDERS
+  return LLM_PROVIDERS.filter(p => p.type === form.value.model_type)
+})
+
+// 根据类型筛选已添加的API Key
+const filteredApiKeys = computed(() => {
+  if (selectedType.value === 'all') return apiKeyStore.apiKeys
+  return apiKeyStore.apiKeys.filter(key => {
+    const provider = LLM_PROVIDERS.find(p => p.value === key.provider)
+    return provider?.type === selectedType.value
+  })
+})
 
 const currentProviderDoc = computed(() => {
   const provider = LLM_PROVIDERS.find(p => p.value === form.value.provider)
@@ -263,6 +319,12 @@ onMounted(async () => {
 function openAddDialog() {
   resetForm()
   showAddDialog.value = true
+}
+
+function onModelTypeChange() {
+  form.value.provider = ''
+  form.value.model_name = ''
+  form.value.api_base = ''
 }
 
 function onProviderChange() {
@@ -364,6 +426,7 @@ async function removeKey(id) {
 
 function resetForm() {
   form.value = {
+    model_type: 'text',
     provider: '',
     api_base: '',
     model_name: '',
@@ -377,20 +440,19 @@ function getProviderLabel(provider) {
   return p?.label || provider
 }
 
+function getProviderType(provider) {
+  const p = LLM_PROVIDERS.find(p => p.value === provider)
+  return p?.type || 'text'
+}
+
 function getProviderColor(provider) {
   const colors = {
-    deepseek: '#4285f4',
-    doubao: '#ff4d4f',
     qianwen: '#722ed1',
-    zhipu: '#1890ff',
-    moonshot: '#13c2c2',
-    baichuan: '#faad14',
-    minimax: '#eb2f96',
-    yi: '#52c41a',
+    'qianwen-image': '#9c27b0',
+    doubao: '#ff4d4f',
+    'doubao-image': '#ff7875',
     siliconflow: '#2f54eb',
-    modelscope: '#fa8c16',
-    openai: '#10a37f',
-    google: '#4285f4'
+    openrouter: '#10a37f'
   }
   return colors[provider] || '#909399'
 }
@@ -442,6 +504,18 @@ function formatDate(dateStr) {
   }
 }
 
+.type-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  
+  .filter-label {
+    font-size: 14px;
+    color: #606266;
+  }
+}
+
 .key-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -469,6 +543,12 @@ function formatDate(dateStr) {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    
+    .provider-badges {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
     
     .provider-badge {
       padding: 4px 12px;

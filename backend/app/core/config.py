@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # 应用基础配置
     APP_NAME: str = "全能创意大师"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "1.1.0"
     APP_BASE_URL: str = Field(
         default="http://localhost:5173",
         description="应用基础URL，用于OpenRouter等服务的HTTP-Referer头"
@@ -121,58 +121,55 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = True
 
-    def get_log_dir(self) -> str:
-        """获取日志目录的绝对路径"""
+    def _normalize_path(self, path: str) -> str:
+        """规范化路径，移除 ./ 前缀并确保格式正确"""
+        # 移除 ./ 或 .\ 前缀
+        normalized = path.lstrip("./").lstrip(".\\")
         # 获取 backend 目录的绝对路径
         backend_dir = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
-        log_dir = os.path.join(backend_dir, "logs")
+        # 拼接并规范化
+        full_path = os.path.join(backend_dir, normalized)
+        return os.path.normpath(full_path)
+
+    def get_log_dir(self) -> str:
+        """获取日志目录的绝对路径"""
+        log_dir = self._normalize_path("logs")
         if not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
         return log_dir
 
     def get_chroma_dir(self) -> str:
         """获取 ChromaDB 持久化目录的绝对路径"""
-        backend_dir = os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))
-        chroma_dir = os.path.join(backend_dir, self.CHROMA_PERSIST_DIR)
+        chroma_dir = self._normalize_path(self.CHROMA_PERSIST_DIR)
         if not os.path.exists(chroma_dir):
             os.makedirs(chroma_dir, exist_ok=True)
         return chroma_dir
 
     def get_chroma_model_cache_dir(self) -> str:
         """获取 ChromaDB 模型缓存目录的绝对路径"""
-        backend_dir = os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))
-        model_cache_dir = os.path.join(
-            backend_dir, self.CHROMA_MODEL_CACHE_DIR)
+        model_cache_dir = self._normalize_path(self.CHROMA_MODEL_CACHE_DIR)
         if not os.path.exists(model_cache_dir):
             os.makedirs(model_cache_dir, exist_ok=True)
         return model_cache_dir
 
     def get_knowledge_graph_dir(self) -> str:
         """获取知识图谱存储目录的绝对路径"""
-        backend_dir = os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))
-        kg_dir = os.path.join(backend_dir, self.KNOWLEDGE_GRAPH_DIR)
+        kg_dir = self._normalize_path(self.KNOWLEDGE_GRAPH_DIR)
         if not os.path.exists(kg_dir):
             os.makedirs(kg_dir, exist_ok=True)
         return kg_dir
 
     def get_marker_model_dir(self) -> str:
         """获取 Marker 模型存储目录的绝对路径"""
-        backend_dir = os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))
-        model_dir = os.path.join(backend_dir, self.MARKER_MODEL_DIR)
+        model_dir = self._normalize_path(self.MARKER_MODEL_DIR)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir, exist_ok=True)
         return model_dir
 
     def get_upload_dir(self) -> str:
         """获取文件上传目录的绝对路径"""
-        backend_dir = os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))
-        upload_dir = os.path.join(backend_dir, self.UPLOAD_DIR)
+        upload_dir = self._normalize_path(self.UPLOAD_DIR)
         if not os.path.exists(upload_dir):
             os.makedirs(upload_dir, exist_ok=True)
         return upload_dir
@@ -190,263 +187,125 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# 预置模型配置（2025-2026年最新）
+# 预置模型配置（2026年最新）
+# 模型类型: text(文本模型), image(图像生成模型), video(视频模型)
 # vision: 是否支持图片输入（多模态）
 # description: 模型能力说明
 PRESET_MODELS = {
-    "deepseek": {
-        "name": "DeepSeek",
-        "provider": "deepseek",
-        "notice": "国内服务商，直连即可",
-        "models": [
-            {"id": "deepseek-chat", "name": "DeepSeek-V3.2", "context": "128K",
-                "vision": False, "description": "通用对话模型，擅长创意写作、代码生成、逻辑推理"},
-            {"id": "deepseek-reasoner", "name": "DeepSeek-R1", "context": "128K",
-                "vision": False, "description": "深度推理模型，擅长数学计算、复杂逻辑分析"}
-        ],
-        "default_model": "deepseek-chat",
-        "api_base": "https://api.deepseek.com/v1",
-        "doc_url": "https://platform.deepseek.com"
-    },
-    "doubao": {
-        "name": "豆包 (字节跳动/火山引擎)",
-        "provider": "doubao",
-        "notice": "模型名称需填写接入点ID（Endpoint ID），如：ep-2024xxxx-xxxxx。请在火山引擎控制台创建推理接入点后获取。",
-        "models": [
-            {"id": "ep-xxxx-xxxx", "name": "Endpoint ID示例", "context": "256K",
-                "vision": True, "description": "请在火山引擎控制台创建接入点，使用接入点ID作为模型名称"}
-        ],
-        "default_model": "ep-xxxx-xxxx",
-        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
-        "doc_url": "https://console.volcengine.com/ark"
-    },
+    # ==================== 通义千问（阿里云百炼）====================
     "qianwen": {
-        "name": "通义千问 (阿里云)",
+        "name": "通义千问 (阿里云百炼)",
         "provider": "qianwen",
-        "notice": "国内服务商，直连即可",
+        "notice": "国内服务商，直连即可。支持文本、图像、视频多模态输入。",
         "models": [
-            {"id": "qwen-max", "name": "Qwen-Max", "context": "256K",
-                "vision": True, "description": "旗舰多模态模型，综合能力最强"},
-            {"id": "qwen-plus", "name": "Qwen-Plus", "context": "1M",
-                "vision": True, "description": "多模态模型，超长上下文"},
-            {"id": "qwen-turbo", "name": "Qwen-Turbo", "context": "1M",
-                "vision": True, "description": "快速多模态模型，响应快"},
-            {"id": "qwen-coder-plus", "name": "Qwen-Coder-Plus", "context": "1M",
-                "vision": False, "description": "代码专用模型"},
-            {"id": "qwen-vl-max", "name": "Qwen-VL-Max", "context": "32K",
-                "vision": True, "description": "视觉理解专用模型，擅长OCR、图表分析"}
+            # 文本模型（多模态）
+            {"id": "qwen3.5-plus", "name": "Qwen3.5-Plus", "context": "256K",
+                "vision": True, "type": "text",
+                "description": "旗舰多模态模型，支持文本/图像/视频输入，擅长语言理解、逻辑推理、代码生成、智能体任务"},
+            {"id": "qwen3.5-plus-2026-02-15", "name": "Qwen3.5-Plus (快照)", "context": "256K",
+                "vision": True, "type": "text",
+                "description": "Qwen3.5-Plus 快照版本"},
         ],
-        "default_model": "qwen-plus",
+        "default_model": "qwen3.5-plus",
         "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "doc_url": "https://bailian.console.aliyun.com"
     },
-    "zhipu": {
-        "name": "智谱AI (GLM)",
-        "provider": "zhipu",
-        "notice": "国内服务商，直连即可",
+    # 图像生成模型（单独配置）
+    "qianwen-image": {
+        "name": "通义千问-图像生成 (阿里云百炼)",
+        "provider": "qianwen",
+        "notice": "图像生成模型，通过文本描述生成图像。支持中英双语渲染。",
         "models": [
-            {"id": "glm-4-plus", "name": "GLM-4-Plus", "context": "128K",
-                "vision": False, "description": "旗舰对话模型，擅长中文创作、知识问答"},
-            {"id": "glm-4-flash", "name": "GLM-4-Flash", "context": "128K",
-                "vision": False, "description": "快速模型，性价比高"},
-            {"id": "glm-4-air", "name": "GLM-4-Air", "context": "128K",
-                "vision": False, "description": "均衡模型"},
-            {"id": "glm-z1-air", "name": "GLM-Z1-Air", "context": "128K",
-                "vision": False, "description": "推理增强模型"},
-            {"id": "glm-4v-plus", "name": "GLM-4V-Plus", "context": "128K",
-                "vision": True, "description": "多模态模型，支持图片理解"}
+            {"id": "z-image-turbo", "name": "Z-Image-Turbo", "context": "-",
+                "vision": False, "type": "image",
+                "description": "轻量级文生图模型，快速生成高质量图像，分辨率512-2048px"},
+            {"id": "qwen-image-edit-max-2026-01-16", "name": "Qwen-Image-Edit-Max", "context": "-",
+                "vision": True, "type": "image",
+                "description": "图像编辑模型，支持角色一致性、工业设计、几何推理"},
         ],
-        "default_model": "glm-4-flash",
-        "api_base": "https://open.bigmodel.cn/api/paas/v4",
-        "doc_url": "https://open.bigmodel.cn"
+        "default_model": "z-image-turbo",
+        "api_base": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+        "doc_url": "https://bailian.console.aliyun.com"
     },
-    "moonshot": {
-        "name": "月之暗面 (Kimi)",
-        "provider": "moonshot",
-        "notice": "国内服务商，直连即可",
+
+    # ==================== 火山引擎（豆包）====================
+    "doubao": {
+        "name": "豆包 (字节跳动/火山引擎)",
+        "provider": "doubao",
+        "notice": "模型名称需填写接入点ID（Endpoint ID），如：ep-2024xxxx-xxxxx。doubao-seed-2-0-pro支持文本、图像、视频多模态输入。",
         "models": [
-            {"id": "kimi-latest", "name": "Kimi Latest", "context": "128K",
-                "vision": True, "description": "最新多模态模型，综合能力最强"},
-            {"id": "moonshot-v1-8k", "name": "Moonshot V1 8K", "context": "8K",
-                "vision": False, "description": "标准模型"},
-            {"id": "moonshot-v1-32k", "name": "Moonshot V1 32K", "context": "32K",
-                "vision": False, "description": "中长上下文模型"},
-            {"id": "moonshot-v1-128k", "name": "Moonshot V1 128K", "context": "128K",
-                "vision": False, "description": "长上下文模型"}
+            # 文本模型（多模态）
+            {"id": "doubao-seed-2-0-pro-260215", "name": "Doubao-Seed-2.0-Pro", "context": "256K",
+                "vision": True, "type": "text",
+                "description": "旗舰多模态模型，支持文本/图像/视频输入，擅长复杂推理、工具调用、视频理解"},
+            {"id": "deepseek-v3-2-251201", "name": "DeepSeek-V3.2 (火山引擎)", "context": "128K",
+                "vision": False, "type": "text",
+                "description": "DeepSeek V3.2版本，支持隐式缓存，擅长推理和工具调用"},
         ],
-        "default_model": "kimi-latest",
-        "api_base": "https://api.moonshot.cn/v1",
-        "doc_url": "https://platform.moonshot.cn"
+        "default_model": "doubao-seed-2-0-pro-260215",
+        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+        "doc_url": "https://console.volcengine.com/ark"
     },
-    "baichuan": {
-        "name": "百川智能",
-        "provider": "baichuan",
-        "notice": "国内服务商，直连即可",
+    # 图像生成模型（豆包Seedream系列）
+    "doubao-image": {
+        "name": "豆包-图像生成 (火山引擎)",
+        "provider": "doubao",
+        "notice": "Seedream系列图像生成模型，支持文本生成图像、图像编辑。",
         "models": [
-            {"id": "Baichuan4", "name": "Baichuan4", "context": "128K",
-                "vision": True, "description": "旗舰多模态模型"},
-            {"id": "Baichuan4-Turbo", "name": "Baichuan4 Turbo", "context": "128K",
-                "vision": True, "description": "快速多模态模型"},
-            {"id": "Baichuan3-Turbo", "name": "Baichuan3 Turbo", "context": "128K",
-                "vision": False, "description": "对话模型"}
+            {"id": "doubao-seedream-5-0-260128", "name": "Seedream-5.0", "context": "-",
+                "vision": False, "type": "image",
+                "description": "最新图像生成模型，高质量文生图"},
         ],
-        "default_model": "Baichuan4-Turbo",
-        "api_base": "https://api.baichuan-ai.com/v1",
-        "doc_url": "https://platform.baichuan-ai.com"
+        "default_model": "doubao-seedream-5-0-260128",
+        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+        "doc_url": "https://console.volcengine.com/ark"
     },
-    "minimax": {
-        "name": "MiniMax",
-        "provider": "minimax",
-        "notice": "部分API需要group_id参数，请参考官方文档",
-        "models": [
-            {"id": "MiniMax-Text-01", "name": "MiniMax-Text-01", "context": "4M",
-                "vision": False, "description": "超长上下文模型（400万token）"},
-            {"id": "abab6.5s-chat", "name": "abab6.5s", "context": "245K",
-                "vision": False, "description": "快速模型"},
-            {"id": "abab6.5g-chat", "name": "abab6.5g", "context": "245K",
-                "vision": True, "description": "多模态模型"}
-        ],
-        "default_model": "abab6.5s-chat",
-        "api_base": "https://api.minimax.chat/v1",
-        "doc_url": "https://platform.minimax.io"
-    },
-    "yi": {
-        "name": "零一万物 (Yi)",
-        "provider": "yi",
-        "notice": "国内服务商，直连即可",
-        "models": [
-            {"id": "yi-large", "name": "Yi Large", "context": "32K",
-                "vision": False, "description": "旗舰对话模型"},
-            {"id": "yi-large-turbo", "name": "Yi Large Turbo", "context": "16K",
-                "vision": False, "description": "快速模型"},
-            {"id": "yi-medium", "name": "Yi Medium", "context": "16K",
-                "vision": False, "description": "均衡模型"},
-            {"id": "yi-vl-plus", "name": "Yi-VL-Plus", "context": "16K",
-                "vision": True, "description": "多模态模型"}
-        ],
-        "default_model": "yi-large",
-        "api_base": "https://api.lingyiwanwu.com/v1",
-        "doc_url": "https://platform.lingyiwanwu.com"
-    },
+
+    # ==================== 硅基流动 ====================
     "siliconflow": {
         "name": "硅基流动 (SiliconFlow)",
         "provider": "siliconflow",
         "notice": "聚合平台，提供多种开源模型API，模型名称格式：开发者/模型名",
         "models": [
-            {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek-V3",
-                "context": "64K", "vision": False, "description": "开源旗舰模型"},
-            {"id": "Qwen/Qwen2.5-72B-Instruct", "name": "Qwen2.5-72B",
-                "context": "32K", "vision": False, "description": "开源大模型"},
-            {"id": "Qwen/Qwen2-VL-72B-Instruct", "name": "Qwen2-VL-72B", "context": "32K",
-                "vision": True, "description": "开源多模态模型"},
-            {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "Llama-3.3-70B",
-                "context": "8K", "vision": False, "description": "Meta开源模型"}
+            {"id": "deepseek-ai/DeepSeek-V3.2", "name": "DeepSeek-V3.2", "context": "164K",
+                "vision": False, "type": "text",
+                "description": "推理优先模型，支持思考模式下的工具调用，Agent能力增强"},
         ],
-        "default_model": "deepseek-ai/DeepSeek-V3",
+        "default_model": "deepseek-ai/DeepSeek-V3.2",
         "api_base": "https://api.siliconflow.cn/v1",
         "doc_url": "https://cloud.siliconflow.cn"
     },
-    "modelscope": {
-        "name": "魔搭 (ModelScope)",
-        "provider": "modelscope",
-        "notice": "阿里云模型社区，提供多种模型API",
-        "models": [
-            {"id": "qwen-plus", "name": "Qwen-Plus", "context": "128K",
-                "vision": True, "description": "多模态模型"},
-            {"id": "qwen-turbo", "name": "Qwen-Turbo", "context": "8K",
-                "vision": False, "description": "快速模型"},
-            {"id": "qwen-max", "name": "Qwen-Max", "context": "32K",
-                "vision": True, "description": "旗舰多模态模型"},
-            {"id": "deepseek-v3", "name": "DeepSeek-V3", "context": "64K",
-                "vision": False, "description": "开源旗舰模型"}
-        ],
-        "default_model": "qwen-plus",
-        "api_base": "https://api-inference.modelscope.cn/v1",
-        "doc_url": "https://modelscope.cn"
-    },
-    "openai": {
-        "name": "OpenAI",
-        "provider": "openai",
-        "notice": "国外服务商，需要代理访问",
-        "models": [
-            {"id": "gpt-4o", "name": "GPT-4o", "context": "128K",
-                "vision": True, "description": "旗舰多模态模型，综合能力最强"},
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "context": "128K",
-                "vision": True, "description": "轻量多模态模型，性价比高"},
-            {"id": "gpt-4-turbo", "name": "GPT-4 Turbo", "context": "128K",
-                "vision": True, "description": "多模态模型"},
-            {"id": "o1-preview", "name": "o1 Preview", "context": "128K",
-                "vision": False, "description": "推理增强模型"},
-            {"id": "o1-mini", "name": "o1 Mini", "context": "128K",
-                "vision": False, "description": "轻量推理模型"}
-        ],
-        "default_model": "gpt-4o-mini",
-        "api_base": "https://api.openai.com/v1",
-        "doc_url": "https://platform.openai.com"
-    },
-    "google": {
-        "name": "Google Gemini",
-        "provider": "google",
-        "notice": "国外服务商，需要代理访问。使用Google AI Studio API Key",
-        "models": [
-            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "context": "1M",
-                "vision": True, "description": "最新多模态模型，响应快"},
-            {"id": "gemini-2.0-flash-lite", "name": "Gemini 2.0 Flash-Lite",
-                "context": "1M", "vision": True, "description": "轻量多模态模型"},
-            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "context": "2M",
-                "vision": True, "description": "超长上下文多模态模型（200万token）"},
-            {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "context": "1M",
-                "vision": True, "description": "快速多模态模型"}
-        ],
-        "default_model": "gemini-2.0-flash",
-        "api_base": None,
-        "doc_url": "https://aistudio.google.com"
-    },
+
+    # ==================== OpenRouter ====================
     "openrouter": {
         "name": "OpenRouter",
         "provider": "openrouter",
         "notice": "国外模型聚合平台，国内直连，支持支付宝充值。模型格式：提供商/模型名",
         "models": [
+            # Google Gemini 文本模型
+            {"id": "google/gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro", "context": "1M",
+                "vision": True, "type": "text",
+                "description": "Google多模态模型，擅长推理和工具调用"},
             # OpenAI 模型
-            {"id": "openai/gpt-4o", "name": "GPT-4o", "context": "128K",
-                "vision": True, "description": "OpenAI旗舰多模态模型"},
-            {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini", "context": "128K",
-                "vision": True, "description": "轻量多模态模型，性价比高"},
-            {"id": "openai/o1-preview", "name": "o1 Preview", "context": "128K",
-                "vision": False, "description": "推理增强模型"},
-            {"id": "openai/o1-mini", "name": "o1 Mini", "context": "128K",
-                "vision": False, "description": "轻量推理模型"},
-            # Google 模型
-            {"id": "google/gemini-2.0-flash-001", "name": "Gemini 2.0 Flash", "context": "1M",
-                "vision": True, "description": "Google最新多模态模型"},
-            {"id": "google/gemini-1.5-pro", "name": "Gemini 1.5 Pro", "context": "2M",
-                "vision": True, "description": "超长上下文模型"},
-            {"id": "google/gemini-1.5-flash", "name": "Gemini 1.5 Flash", "context": "1M",
-                "vision": True, "description": "快速多模态模型"},
-            # Anthropic 模型
-            {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet", "context": "200K",
-                "vision": True, "description": "Anthropic最强模型"},
-            {"id": "anthropic/claude-3.5-haiku", "name": "Claude 3.5 Haiku", "context": "200K",
-                "vision": True, "description": "快速轻量模型"},
-            {"id": "anthropic/claude-3-opus", "name": "Claude 3 Opus", "context": "200K",
-                "vision": True, "description": "旗舰模型"},
-            # xAI 模型
-            {"id": "x-ai/grok-beta", "name": "Grok Beta", "context": "128K",
-                "vision": False, "description": "xAI旗舰模型"},
-            {"id": "x-ai/grok-2-1212", "name": "Grok 2", "context": "128K",
-                "vision": False, "description": "xAI最新模型"},
-            # Meta 模型
-            {"id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B", "context": "8K",
-                "vision": False, "description": "Meta开源旗舰模型"},
-            {"id": "meta-llama/llama-3.2-90b-vision-instruct", "name": "Llama 3.2 90B Vision", "context": "128K",
-                "vision": True, "description": "Meta多模态模型"},
-            # DeepSeek 模型
-            {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat", "context": "64K",
-                "vision": False, "description": "DeepSeek对话模型"},
-            {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1", "context": "64K",
-                "vision": False, "description": "DeepSeek推理模型"}
+            {"id": "openai/gpt-5.2-pro", "name": "GPT-5.2 Pro", "context": "400K",
+                "vision": True, "type": "text",
+                "description": "OpenAI最新旗舰模型，40万token上下文，擅长编码和复杂推理"},
         ],
-        "default_model": "openai/gpt-4o-mini",
+        "default_model": "google/gemini-3.1-pro-preview",
+        "api_base": "https://openrouter.ai/api/v1",
+        "doc_url": "https://openrouter.ai"
+    },
+    # OpenRouter 图像生成模型
+    "openrouter-image": {
+        "name": "OpenRouter-图像生成",
+        "provider": "openrouter",
+        "notice": "通过OpenRouter访问的图像生成模型。",
+        "models": [
+            {"id": "google/gemini-3-pro-image-preview", "name": "Gemini 3 Pro Image", "context": "-",
+                "vision": False, "type": "image",
+                "description": "Google最新图像生成模型，支持文本生成高质量图像"},
+        ],
+        "default_model": "google/gemini-3-pro-image-preview",
         "api_base": "https://openrouter.ai/api/v1",
         "doc_url": "https://openrouter.ai"
     }

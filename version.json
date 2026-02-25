@@ -1,11 +1,11 @@
 {
-    "current_version": "1.0.0",
+    "current_version": "1.1.0",
     "minimum_version": "0.9.0",
-    "download_url": "https://github.com/dragan2023/creative-master/releases/download/v1.0.0/creative-master-v1.0.0.zip",
-    "download_url_mirror": "https://ghproxy.com/https://github.com/dragan2023/creative-master/releases/download/v1.0.0/creative-master-v1.0.0.zip",
-    "update_notes": "## v1.0.0 首次发布\n\n### 新功能\n- AI 智能对话功能\n- 文档智能解析\n- 知识库管理\n- 多模型支持（DeepSeek、通义千问、豆包、OpenAI、Google Gemini）\n\n### 优化\n- 性能优化\n- 界面美化\n- 傻瓜式一键启动",
+    "download_url": "https://github.com/dragan2023/creative-master/releases/download/v1.1.0/creative-master-v1.1.0.zip",
+    "download_url_mirror": "https://ghproxy.com/https://github.com/dragan2023/creative-master/releases/download/v1.1.0/creative-master-v1.1.0.zip",
+    "update_notes": "## v1.1.0 多模态增强与模型更新\n\n### 新功能\n- 多模态视频传输：短视频/TVC模块支持参考视频URL输入，LLM可分析视频内容\n- API Key管理界面重构：支持自定义模型名称、API地址，模型配置更灵活\n- 新增模型支持：Qwen3.5-Plus、Doubao-Seed-2.0-Pro、Gemini 3.1 Pro、GPT-5.2 Pro等\n- 图像生成模型支持：Z-Image-Turbo、Seedream-5.0、Gemini 3 Pro Image\n\n### 优化\n- 前端表单优化：参考视频/图片输入框添加使用说明\n- 启动脚本优化：网络检测与镜像源切换更智能\n- LLM Provider增强：Google/豆包支持视频理解\n\n### 修复\n- 修复视频URL无法传递给LLM的问题\n- 修复文件上传解析路径问题",
     "release_date": "2026-02-24",
-    "file_size_mb": 150,
+    "file_size_mb": 160,
     "file_hash_md5": "placeholder-update-on-release",
     "force_update": false,
     "changelog_url": "https://github.com/dragan2023/creative-master/blob/main/CHANGELOG.md"

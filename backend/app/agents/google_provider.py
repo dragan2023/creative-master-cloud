@@ -47,7 +47,8 @@ class GoogleProvider(BaseLLMProvider):
         self,
         text: str,
         images: Optional[List[str]] = None,
-        files: Optional[List[str]] = None
+        files: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None
     ) -> List[types.Part]:
         """
         构建多模态内容
@@ -56,6 +57,7 @@ class GoogleProvider(BaseLLMProvider):
             text: 文本内容
             images: 图片URL列表
             files: 文件URL列表
+            videos: 视频URL列表
 
         Returns:
             Part对象列表
@@ -99,7 +101,89 @@ class GoogleProvider(BaseLLMProvider):
                         )
                     ))
 
+        # 添加视频（Google Gemini 支持视频理解）
+        if videos:
+            for video_url in videos:
+                # 检测视频 MIME 类型
+                mime_type = self._detect_video_mime_type(video_url)
+
+                if video_url.startswith("data:video"):
+                    # Base64 格式视频
+                    import base64
+                    base64_data = video_url.split(
+                        ",")[1] if "," in video_url else video_url
+                    video_data = base64.b64decode(base64_data)
+                    parts.append(types.Part(
+                        inline_data=types.Blob(
+                            mime_type=mime_type,
+                            data=video_data
+                        )
+                    ))
+                elif "youtube.com" in video_url or "youtu.be" in video_url:
+                    # YouTube URL - Gemini 原生支持
+                    parts.append(types.Part(
+                        file_data=types.FileData(
+                            file_uri=video_url,
+                            mime_type=mime_type
+                        )
+                    ))
+                else:
+                    # 其他视频 URL（需要是 Google Cloud Storage 或已上传到 File API）
+                    parts.append(types.Part(
+                        file_data=types.FileData(
+                            file_uri=video_url,
+                            mime_type=mime_type
+                        )
+                    ))
+
+        # 添加其他文件
+        if files:
+            for file_url in files:
+                mime_type = self._detect_file_mime_type(file_url)
+                parts.append(types.Part(
+                    file_data=types.FileData(
+                        file_uri=file_url,
+                        mime_type=mime_type
+                    )
+                ))
+
         return parts
+
+    def _detect_video_mime_type(self, url: str) -> str:
+        """检测视频 MIME 类型"""
+        url_lower = url.lower()
+        if ".mp4" in url_lower:
+            return "video/mp4"
+        elif ".webm" in url_lower:
+            return "video/webm"
+        elif ".mov" in url_lower:
+            return "video/quicktime"
+        elif ".avi" in url_lower:
+            return "video/x-msvideo"
+        elif ".mkv" in url_lower:
+            return "video/x-matroska"
+        elif ".flv" in url_lower:
+            return "video/x-flv"
+        elif "youtube.com" in url_lower or "youtu.be" in url_lower:
+            return "video/youtube"
+        return "video/mp4"  # 默认
+
+    def _detect_file_mime_type(self, url: str) -> str:
+        """检测文件 MIME 类型"""
+        url_lower = url.lower()
+        if ".pdf" in url_lower:
+            return "application/pdf"
+        elif ".doc" in url_lower:
+            return "application/msword"
+        elif ".docx" in url_lower:
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif ".txt" in url_lower:
+            return "text/plain"
+        elif ".mp3" in url_lower:
+            return "audio/mpeg"
+        elif ".wav" in url_lower:
+            return "audio/wav"
+        return "application/octet-stream"
 
     async def generate(
         self,
@@ -108,10 +192,11 @@ class GoogleProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> LLMResponse:
-        """生成文本（支持多模态）"""
+        """生成文本（支持多模态：文本、图片、视频）"""
         config = types.GenerateContentConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
@@ -120,9 +205,10 @@ class GoogleProvider(BaseLLMProvider):
         if system_prompt:
             config.system_instruction = system_prompt
 
-        # 构建多模态内容
-        if images or files:
-            contents = self._build_multimodal_content(prompt, images, files)
+        # 构建多模态内容（Google Gemini 支持视频）
+        if images or videos or files:
+            contents = self._build_multimodal_content(
+                prompt, images, files, videos)
         else:
             contents = prompt
 
@@ -148,10 +234,11 @@ class GoogleProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         images: Optional[List[str]] = None,
+        videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
-        """流式生成文本（支持多模态）"""
+        """流式生成文本（支持多模态：文本、图片、视频）"""
         config = types.GenerateContentConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
@@ -160,9 +247,10 @@ class GoogleProvider(BaseLLMProvider):
         if system_prompt:
             config.system_instruction = system_prompt
 
-        # 构建多模态内容
-        if images or files:
-            contents = self._build_multimodal_content(prompt, images, files)
+        # 构建多模态内容（Google Gemini 支持视频）
+        if images or videos or files:
+            contents = self._build_multimodal_content(
+                prompt, images, files, videos)
         else:
             contents = prompt
 
