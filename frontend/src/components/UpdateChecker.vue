@@ -115,10 +115,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  // 是否自动检查（应用启动时）
+  // 是否自动检查（默认关闭，由父组件控制自动检查时机）
   autoCheck: {
     type: Boolean,
-    default: true
+    default: false
   },
   // 自动检查延迟（秒）
   autoCheckDelay: {
@@ -258,12 +258,8 @@ function loadSkippedVersions() {
 // 组件挂载
 onMounted(() => {
   loadSkippedVersions()
-  
-  if (props.autoCheck) {
-    setTimeout(() => {
-      checkUpdate()
-    }, props.autoCheckDelay * 1000)
-  }
+  // 注意：自动检查由父组件（MainLayout）控制，不在组件内部自动检查
+  // 这样可以确保更新检测逻辑遵循项目规范：手动触发原则
 })
 
 // 暴露方法给父组件

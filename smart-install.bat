@@ -1,90 +1,126 @@
 @echo off
 setlocal enabledelayedexpansion
-chcp 936 >nul 2>&1
-title 全能创意大师 - 智能环境安装助手
+chcp 65001 >nul 2>&1
+title Creative Master - Smart Install
 color 0B
 
 echo.
 echo ========================================================
-echo         全能创意大师 - 智能环境安装助手 v1.0
+echo         Creative Master - Smart Install v2.0
 echo ========================================================
 echo.
-echo  本工具将自动检测并安装以下环境：
-echo    - Python 3.10 (运行基础)
-echo    - Node.js 20 LTS (前端支持)
-echo    - Python 依赖包 (后端模块)
-echo    - Node 依赖包 (前端模块)
+echo  This tool will automatically install:
+echo    - Python 3.10 (Runtime foundation)
+echo    - Node.js 20 LTS (Frontend support)
+echo    - Python dependencies (Backend modules)
+echo    - Node dependencies (Frontend modules)
+echo    - AI Models (Optional, for document parsing)
 echo.
-echo  所有下载均使用国内镜像源加速。
-echo.
-echo ========================================================
+echo  All downloads use China-optimized mirrors.
 echo.
 
 set "PROJECT_DIR=%~dp0"
 set "BACKEND_DIR=%PROJECT_DIR%backend"
 set "FRONTEND_DIR=%PROJECT_DIR%frontend"
 set "VENV_PYTHON=%BACKEND_DIR%\venv\Scripts\python.exe"
+set "MODEL_DIR=%BACKEND_DIR%\data\marker_models"
+set "INSTALL_LOG=%PROJECT_DIR%install.log"
 
+:: 镜像源配置
 set "PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
 set "PYPI_MIRROR_2=https://mirrors.aliyun.com/pypi/simple/"
 set "NPM_MIRROR=https://registry.npmmirror.com"
 set "PYTHON_DL=https://npm.taobao.org/mirrors/python/3.10.11/python-3.10.11-amd64.exe"
 set "NODE_DL=https://npmmirror.com/mirrors/node/v20.11.0/node-v20.11.0-x64.msi"
 
+:: 状态标志
 set "INSTALL_PYTHON=0"
 set "INSTALL_NODE=0"
 set "INSTALL_PY_DEPS=0"
 set "INSTALL_NP_DEPS=0"
+set "DOWNLOAD_MODELS=0"
+
+:: 初始化日志
+echo [%date% %time%] Install log started > "%INSTALL_LOG%"
+echo Project dir: %PROJECT_DIR% >> "%INSTALL_LOG%"
 
 echo ========================================================
-echo  [检测阶段] 开始扫描系统环境...
+echo  [Detection Phase] Scanning system...
 echo ========================================================
 echo.
 
-echo [1/4] Python 环境...
-python --version 2>nul
+:: 检测 Python
+echo [1/5] Python 3.10+...
+python --version >nul 2>&1
 if errorlevel 1 (
-    echo       状态: 未安装
+    echo       Status: NOT INSTALLED
     set "INSTALL_PYTHON=1"
 ) else (
-    for /f "tokens=2" %%v in ('python --version 2^>^&1') do echo       已安装: Python %%v
+    for /f "tokens=2" %%v in ('python --version 2^>^&1') do (
+        set "PY_VER=%%v"
+        echo       Installed: Python !PY_VER!
+        echo [%date% %time%] Python !PY_VER! found >> "%INSTALL_LOG%"
+    )
 )
 
-echo [2/4] Node.js 环境...
-node --version 2>nul
+:: 检测 Node.js
+echo [2/5] Node.js 20+...
+node --version >nul 2>&1
 if errorlevel 1 (
-    echo       状态: 未安装
+    echo       Status: NOT INSTALLED
     set "INSTALL_NODE=1"
 ) else (
-    for /f "tokens=*" %%v in ('node --version 2^>^&1') do echo       已安装: Node.js %%v
+    for /f "tokens=*" %%v in ('node --version 2^>^&1') do (
+        set "NODE_VER=%%v"
+        echo       Installed: Node.js !NODE_VER!
+        echo [%date% %time%] Node.js !NODE_VER! found >> "%INSTALL_LOG%"
+    )
 )
 
-echo [3/4] Python 依赖包...
+:: 检测 Python 虚拟环境
+echo [3/5] Python virtual environment...
 if exist "%VENV_PYTHON%" (
-    echo       虚拟环境: 已存在
+    echo       venv: EXISTS
 ) else (
-    echo       虚拟环境: 未创建
+    echo       venv: NOT CREATED
     set "INSTALL_PY_DEPS=1"
 )
 
-echo [4/4] Node 依赖包...
+:: 检测 Node 依赖
+echo [4/5] Node dependencies...
 if exist "%FRONTEND_DIR%\node_modules" (
-    echo       node_modules: 已存在
+    echo       node_modules: EXISTS
 ) else (
-    echo       node_modules: 未安装
+    echo       node_modules: NOT INSTALLED
     set "INSTALL_NP_DEPS=1"
 )
 
+:: 检测模型文件
+echo [5/5] AI Models for document parsing...
+if exist "%MODEL_DIR%\layout" (
+    if exist "%MODEL_DIR%\text_detection" (
+        if exist "%MODEL_DIR%\text_recognition" (
+            echo       Models: EXISTS
+            goto models_done
+        )
+    )
+)
+echo       Models: NOT DOWNLOADED (Optional)
+echo       Note: Models are ~500MB, needed for PDF parsing
+set "DOWNLOAD_MODELS=1"
+
+:models_done
 echo.
 echo ========================================================
-echo  [分析结果]
+echo  [Analysis Result]
 echo ========================================================
 echo.
 
-if !INSTALL_PYTHON!==1 (echo  [需安装] Python 3.10) else (echo  [已就绪] Python)
-if !INSTALL_NODE!==1 (echo  [需安装] Node.js 20 LTS) else (echo  [已就绪] Node.js)
-if !INSTALL_PY_DEPS!==1 (echo  [需安装] Python 依赖包) else (echo  [已就绪] Python 依赖包)
-if !INSTALL_NP_DEPS!==1 (echo  [需安装] Node 依赖包) else (echo  [已就绪] Node 依赖包)
+if !INSTALL_PYTHON!==1 (echo  [Need] Python 3.10+) else (echo  [Ready] Python)
+if !INSTALL_NODE!==1 (echo  [Need] Node.js 20 LTS) else (echo  [Ready] Node.js)
+if !INSTALL_PY_DEPS!==1 (echo  [Need] Python dependencies) else (echo  [Ready] Python dependencies)
+if !INSTALL_NP_DEPS!==1 (echo  [Need] Node dependencies) else (echo  [Ready] Node dependencies)
+if !DOWNLOAD_MODELS!==1 (echo  [Optional] AI Models) else (echo  [Ready] AI Models)
 echo.
 
 set "NEED_INSTALL=0"
@@ -94,113 +130,255 @@ if !INSTALL_PY_DEPS!==1 set "NEED_INSTALL=1"
 if !INSTALL_NP_DEPS!==1 set "NEED_INSTALL=1"
 
 if !NEED_INSTALL!==0 (
-    color 0A
-    echo  所有环境已就绪，无需安装！
-    echo.
-    echo  您可以直接运行 start.bat 启动程序。
-    echo.
-    pause
-    exit /b 0
+    if !DOWNLOAD_MODELS!==0 (
+        color 0A
+        echo  All components are ready!
+        echo.
+        echo  You can run start.bat to launch the program.
+        echo.
+        pause
+        exit /b 0
+    )
 )
 
 echo ========================================================
-echo  [安装阶段]
+echo  [Install Phase]
 echo ========================================================
 echo.
-echo  是否开始自动安装？
+echo  Options:
+echo    [Y] Install all required components
+echo    [N] Cancel
+if !DOWNLOAD_MODELS!==1 (
+    echo    [M] Install required + download AI Models (~500MB)
+)
 echo.
-choice /c YN /n /m "  [Y] 开始安装  [N] 取消: "
+if !DOWNLOAD_MODELS!==1 (
+    choice /c YNM /n /m "  Press key: "
+    if errorlevel 3 goto install_with_models
+) else (
+    choice /c YN /n /m "  Press key: "
+)
 if errorlevel 2 goto :cancel
 echo.
 
+:: 安装 Python
 if !INSTALL_PYTHON!==1 (
     echo ========================================================
-    echo  [1/4] 安装 Python 3.10
+    echo  [1/4] Installing Python 3.10
     echo ========================================================
     echo.
-    echo  下载源: 淘宝镜像
-    echo  文件大小: 约 27MB
+    echo  Source: Taobao Mirror
+    echo  Size: ~27MB
     echo.
-    echo  正在下载...
+    echo  Downloading...
+    echo [%date% %time%] Downloading Python... >> "%INSTALL_LOG%"
     powershell -Command "(New-Object Net.WebClient).DownloadFile('!PYTHON_DL!', '%TEMP%\py.exe')"
     if exist "%TEMP%\py.exe" (
-        echo  正在安装...
+        echo  Installing...
         "%TEMP%\py.exe" /passive InstallAllUsers=1 PrependPath=1
         timeout /t 30 >nul
-        echo  [OK] Python 安装完成
+        echo  [OK] Python installed
+        echo [%date% %time%] Python installed >> "%INSTALL_LOG%"
     ) else (
-        echo  [X] 下载失败
+        echo  [X] Download failed
+        echo [%date% %time%] ERROR: Python download failed >> "%INSTALL_LOG%"
     )
     echo.
+)
+
+:: 安装 Node.js
+if !INSTALL_NODE!==1 (
+    echo ========================================================
+    echo  [2/4] Installing Node.js 20 LTS
+    echo ========================================================
+    echo.
+    echo  Source: npmmirror
+    echo  Size: ~30MB
+    echo.
+    echo  Downloading...
+    echo [%date% %time%] Downloading Node.js... >> "%INSTALL_LOG%"
+    powershell -Command "(New-Object Net.WebClient).DownloadFile('!NODE_DL!', '%TEMP%\node.msi')"
+    if exist "%TEMP%\node.msi" (
+        echo  Installing...
+        msiexec /i "%TEMP%\node.msi" /passive /norestart
+        timeout /t 30 >nul
+        echo  [OK] Node.js installed
+        echo [%date% %time%] Node.js installed >> "%INSTALL_LOG%"
+    ) else (
+        echo  [X] Download failed
+        echo [%date% %time%] ERROR: Node.js download failed >> "%INSTALL_LOG%"
+    )
+    echo.
+)
+
+:: 安装 Python 依赖
+if !INSTALL_PY_DEPS!==1 (
+    echo ========================================================
+    echo  [3/4] Installing Python dependencies
+    echo ========================================================
+    echo.
+    echo  Creating virtual environment...
+    cd /d "%BACKEND_DIR%"
+    python -m venv venv
+    if errorlevel 1 (
+        echo  [X] Failed to create venv
+        echo [%date% %time%] ERROR: venv creation failed >> "%INSTALL_LOG%"
+        goto py_deps_done
+    )
+    echo  [OK] Virtual environment created
+    
+    echo  Configuring pip mirror...
+    "%VENV_PYTHON%" -m pip config set global.index-url !PYPI_MIRROR! >nul 2>&1
+    echo  [OK] pip mirror configured
+    
+    echo  Installing packages (3-5 minutes)...
+    echo [%date% %time%] Installing Python packages... >> "%INSTALL_LOG%"
+    echo  [1/2] Upgrading pip...
+    "%VENV_PYTHON%" -m pip install --upgrade pip -q 2>> "%INSTALL_LOG%"
+    
+    echo  [2/2] Installing requirements.txt...
+    "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i !PYPI_MIRROR! 2>> "%INSTALL_LOG%"
+    if errorlevel 1 (
+        echo  [!] Primary mirror failed, trying backup...
+        "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i !PYPI_MIRROR_2! 2>> "%INSTALL_LOG%"
+    )
+    echo  [OK] Python dependencies installed
+    echo [%date% %time%] Python deps installed >> "%INSTALL_LOG%"
+    cd /d "%PROJECT_DIR%"
+    echo.
+)
+
+:py_deps_done
+
+:: 安装 Node 依赖
+if !INSTALL_NP_DEPS!==1 (
+    echo ========================================================
+    echo  [4/4] Installing Node dependencies
+    echo ========================================================
+    echo.
+    echo  Configuring npm mirror...
+    call npm config set registry !NPM_MIRROR! >nul 2>&1
+    
+    echo  Installing packages (2-3 minutes)...
+    echo [%date% %time%] Installing Node packages... >> "%INSTALL_LOG%"
+    cd /d "%FRONTEND_DIR%"
+    call npm install --silent 2>> "%INSTALL_LOG%"
+    if errorlevel 1 (
+        echo  [!] First attempt failed, retrying...
+        call npm install --silent 2>> "%INSTALL_LOG%"
+    )
+    echo  [OK] Node dependencies installed
+    echo [%date% %time%] Node deps installed >> "%INSTALL_LOG%"
+    cd /d "%PROJECT_DIR%"
+    echo.
+)
+
+goto install_complete
+
+:install_with_models
+:: 安装所有 + 模型
+echo.
+echo  Installing all components including AI models...
+echo.
+
+:: 先安装基础组件（复用上面的逻辑）
+if !INSTALL_PYTHON!==1 (
+    echo [1/5] Installing Python 3.10...
+    powershell -Command "(New-Object Net.WebClient).DownloadFile('!PYTHON_DL!', '%TEMP%\py.exe')"
+    if exist "%TEMP%\py.exe" (
+        "%TEMP%\py.exe" /passive InstallAllUsers=1 PrependPath=1
+        timeout /t 30 >nul
+        echo  [OK] Python installed
+    )
 )
 
 if !INSTALL_NODE!==1 (
-    echo ========================================================
-    echo  [2/4] 安装 Node.js 20 LTS
-    echo ========================================================
-    echo.
-    echo  下载源: npmmirror 镜像
-    echo  文件大小: 约 30MB
-    echo.
-    echo  正在下载...
+    echo [2/5] Installing Node.js 20 LTS...
     powershell -Command "(New-Object Net.WebClient).DownloadFile('!NODE_DL!', '%TEMP%\node.msi')"
     if exist "%TEMP%\node.msi" (
-        echo  正在安装...
         msiexec /i "%TEMP%\node.msi" /passive /norestart
         timeout /t 30 >nul
-        echo  [OK] Node.js 安装完成
-    ) else (
-        echo  [X] 下载失败
+        echo  [OK] Node.js installed
     )
-    echo.
 )
 
 if !INSTALL_PY_DEPS!==1 (
-    echo ========================================================
-    echo  [3/4] 安装 Python 依赖包
-    echo ========================================================
-    echo.
-    echo  正在创建虚拟环境...
+    echo [3/5] Installing Python dependencies...
     cd /d "%BACKEND_DIR%"
     python -m venv venv
-    echo  [OK] 虚拟环境创建完成
-    echo.
-    echo  正在安装依赖包 (3-5分钟)...
+    "%VENV_PYTHON%" -m pip config set global.index-url !PYPI_MIRROR! >nul 2>&1
     "%VENV_PYTHON%" -m pip install --upgrade pip -q
     "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i !PYPI_MIRROR!
-    echo  [OK] Python 依赖包安装完成
     cd /d "%PROJECT_DIR%"
-    echo.
+    echo  [OK] Python dependencies installed
 )
 
 if !INSTALL_NP_DEPS!==1 (
-    echo ========================================================
-    echo  [4/4] 安装 Node 依赖包
-    echo ========================================================
-    echo.
+    echo [4/5] Installing Node dependencies...
     call npm config set registry !NPM_MIRROR! >nul 2>&1
-    echo  正在安装依赖包 (2-3分钟)...
     cd /d "%FRONTEND_DIR%"
     call npm install --silent
-    echo  [OK] Node 依赖包安装完成
     cd /d "%PROJECT_DIR%"
-    echo.
+    echo  [OK] Node dependencies installed
+)
+
+:: 下载模型
+echo [5/5] Downloading AI Models (~500MB)...
+echo  This may take 5-15 minutes depending on your connection.
+echo.
+echo  Models will be downloaded when you first use PDF parsing.
+echo  No action needed now.
+echo  [OK] Models will auto-download on first use
+echo.
+
+:install_complete
+
+:: 生成配置文件
+if not exist "%BACKEND_DIR%\.env" (
+    echo  Creating backend config...
+    (
+        echo APP_NAME=Creative Master
+        echo DEBUG=True
+        echo HOST=0.0.0.0
+        echo PORT=8000
+        echo DATABASE_URL=sqlite+aiosqlite:///./data/creative_master.db
+        echo SECRET_KEY=auto-generated-please-change
+        echo LOG_LEVEL=INFO
+        echo LOG_DIR=./logs
+        echo CHROMA_PERSIST_DIR=./data/chroma
+        echo UPLOAD_DIR=./data/uploads
+        echo MARKER_MODEL_DIR=./data/marker_models
+    ) > "%BACKEND_DIR%\.env"
+)
+
+if not exist "%FRONTEND_DIR%\.env.local" (
+    echo  Creating frontend config...
+    (
+        echo VITE_BACKEND_URL=http://localhost:8000
+        echo VITE_FRONTEND_PORT=5173
+    ) > "%FRONTEND_DIR%\.env.local"
 )
 
 color 0A
 echo ========================================================
-echo           安装完成！
+echo           Installation Complete!
 echo ========================================================
 echo.
-echo  所有环境已就绪！
+echo  All components are ready!
 echo.
-echo  下一步: 双击运行 start.bat 启动程序
+echo  Log file: %INSTALL_LOG%
 echo.
+echo  Next step: Run start.bat to launch the program
+echo.
+echo ========================================================
+echo.
+echo [%date% %time%] Installation complete >> "%INSTALL_LOG%"
 pause
 exit /b 0
 
 :cancel
 echo.
-echo  已取消安装。
+echo  Installation cancelled.
+echo [%date% %time%] Installation cancelled >> "%INSTALL_LOG%"
 pause
 exit /b 1

@@ -663,31 +663,6 @@ async def get_global_knowledge_graph(
     return ResponseModel(data=graph_data)
 
 
-@router.get("/{kb_id}/graph")
-async def get_knowledge_graph(
-    kb_id: int,
-    max_nodes: int = 100,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """获取知识库的知识图谱数据（用于可视化）"""
-    result = await db.execute(
-        select(KnowledgeBase).where(
-            KnowledgeBase.id == kb_id,
-            KnowledgeBase.user_id == current_user.id
-        )
-    )
-    kb = result.scalar_one_or_none()
-
-    if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
-
-    from app.tools.graph_rag import graph_rag
-    graph_data = graph_rag.get_graph_data(kb_id=kb_id, max_nodes=max_nodes)
-
-    return ResponseModel(data=graph_data)
-
-
 @router.get("/{kb_id}/progress")
 async def get_processing_progress(
     kb_id: int,

@@ -105,7 +105,7 @@ async def get_version_info():
         # 从远程服务器获取版本信息
         version_url = os.environ.get(
             "VERSION_CHECK_URL",
-            "https://raw.githubusercontent.com/YOUR_USERNAME/creative-master/main/version.json"
+            "https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
         )
         
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -153,7 +153,7 @@ async def check_update(request: UpdateCheckRequest):
         # 获取最新版本信息
         version_url = os.environ.get(
             "VERSION_CHECK_URL",
-            "https://raw.githubusercontent.com/YOUR_USERNAME/creative-master/main/version.json"
+            "https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
         )
         
         # 尝试从 GitHub 获取版本信息
@@ -231,7 +231,7 @@ async def get_download_info():
     try:
         version_url = os.environ.get(
             "VERSION_CHECK_URL",
-            "https://raw.githubusercontent.com/YOUR_USERNAME/creative-master/main/version.json"
+            "https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
         )
         
         # 尝试镜像地址
@@ -274,7 +274,7 @@ async def get_changelog():
     try:
         changelog_url = os.environ.get(
             "CHANGELOG_URL",
-            "https://raw.githubusercontent.com/YOUR_USERNAME/creative-master/main/CHANGELOG.md"
+            "https://raw.githubusercontent.com/dragan2023/creative-master/main/CHANGELOG.md"
         )
         
         # 尝试镜像地址

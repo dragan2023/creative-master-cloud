@@ -116,9 +116,16 @@ class LLMManager:
             # 如果用户没有配置，使用系统预置 API Key
             return await self.get_system_provider(provider_name)
 
-        # 解密 API Key
-        decrypted_key = api_key_encryption.decrypt(
-            api_key_config.encrypted_key)
+        # 尝试解密 API Key
+        try:
+            decrypted_key = api_key_encryption.decrypt(
+                api_key_config.encrypted_key)
+        except Exception:
+            # 解密失败（可能是 SECRET_KEY 变更），标记为无效并使用系统预置
+            api_key_config.is_valid = False
+            await db.commit()
+            # 尝试使用系统预置 API Key
+            return await self.get_system_provider(provider_name or api_key_config.provider)
 
         return self.create_provider(
             provider_name=api_key_config.provider,

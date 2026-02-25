@@ -118,11 +118,10 @@
       </el-main>
     </el-container>
     
-    <!-- 更新检查组件 -->
+    <!-- 更新检查组件（仅手动触发，不在页面加载时自动检查） -->
     <UpdateChecker
       ref="updateCheckerRef"
-      :auto-check="true"
-      :auto-check-delay="5"
+      :auto-check="false"
       :current-version="currentVersion"
       :show-manual-check="false"
       @update-available="onUpdateAvailable"
@@ -149,6 +148,7 @@ const appStore = useAppStore()
 const updateCheckerRef = ref(null)
 const checkingUpdate = ref(false)
 const currentVersion = ref('1.0.0')
+const isAutoCheck = ref(false) // 标记是否为自动检查
 
 const collapsed = computed(() => appStore.sidebarCollapsed)
 const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
@@ -171,6 +171,7 @@ async function fetchCurrentVersion() {
 
 // 手动检查更新
 async function handleCheckUpdate() {
+  isAutoCheck.value = false // 手动检查
   checkingUpdate.value = true
   try {
     if (updateCheckerRef.value) {
@@ -181,14 +182,34 @@ async function handleCheckUpdate() {
   }
 }
 
+// 自动检查更新（应用启动时调用）
+async function autoCheckUpdate() {
+  isAutoCheck.value = true // 自动检查
+  checkingUpdate.value = true
+  try {
+    if (updateCheckerRef.value) {
+      await updateCheckerRef.value.checkUpdate()
+    }
+  } catch (error) {
+    // 自动检查失败时静默处理，不影响用户体验
+    console.error('自动检查更新失败:', error)
+  } finally {
+    checkingUpdate.value = false
+  }
+}
+
 // 发现新版本回调
 function onUpdateAvailable(updateInfo) {
   console.log('发现新版本:', updateInfo)
+  // UpdateChecker 组件会自动弹出对话框
 }
 
 // 无新版本回调  
 function onNoUpdate() {
-  ElMessage.success('当前已是最新版本')
+  // 只有手动检查时才显示通知
+  if (!isAutoCheck.value) {
+    ElMessage.success('当前已是最新版本')
+  }
 }
 
 async function handleCommand(command) {
@@ -210,8 +231,13 @@ provide('checkUpdate', handleCheckUpdate)
 provide('checkingUpdate', checkingUpdate)
 provide('currentVersion', currentVersion)
 
-onMounted(() => {
-  fetchCurrentVersion()
+onMounted(async () => {
+  await fetchCurrentVersion()
+  
+  // 延迟 3 秒后自动检查更新（不影响应用启动速度）
+  setTimeout(() => {
+    autoCheckUpdate()
+  }, 3000)
 })
 </script>
 

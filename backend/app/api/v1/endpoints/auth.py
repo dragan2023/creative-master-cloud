@@ -204,21 +204,30 @@ async def get_api_keys(
     )
     api_keys = result.scalars().all()
 
-    data = [
-        APIKeyResponse(
+    data = []
+    for key in api_keys:
+        try:
+            # 尝试解密 API Key
+            decrypted_key = api_key_encryption.decrypt(key.encrypted_key)
+            api_key_masked = mask_api_key(decrypted_key)
+        except Exception:
+            # 解密失败（可能是 SECRET_KEY 变更），标记为无效
+            api_key_masked = "***解密失败***"
+            # 标记为无效
+            key.is_valid = False
+            await db.commit()
+
+        data.append(APIKeyResponse(
             id=key.id,
             provider=key.provider,
             model_name=key.model_name,
-            api_key_masked=mask_api_key(
-                api_key_encryption.decrypt(key.encrypted_key)),
+            api_key_masked=api_key_masked,
             api_base=key.api_base,
             is_default=key.is_default,
             is_valid=key.is_valid,
             last_used_at=str(key.last_used_at) if key.last_used_at else None,
             created_at=str(key.created_at) if key.created_at else None
-        )
-        for key in api_keys
-    ]
+        ))
 
     return ResponseModel(data=data)
 
@@ -555,8 +564,24 @@ async def test_saved_api_key(
     if not api_key_record:
         raise HTTPException(status_code=404, detail="API Key 不存在")
 
-    # 解密API Key
-    decrypted_key = api_key_encryption.decrypt(api_key_record.encrypted_key)
+    # 尝试解密API Key
+    try:
+        decrypted_key = api_key_encryption.decrypt(
+            api_key_record.encrypted_key)
+    except Exception:
+        # 解密失败（可能是 SECRET_KEY 变更）
+        api_key_record.is_valid = False
+        await db.commit()
+        return ResponseModel(
+            code=400,
+            message="API Key 解密失败，请删除后重新添加",
+            data=APIKeyTestResult(
+                success=False,
+                provider=api_key_record.provider,
+                model=api_key_record.model_name,
+                error="API Key 解密失败，可能是系统密钥已变更"
+            )
+        )
 
     try:
         # 获取预置模型配置
@@ -796,7 +821,8 @@ async def test_user_proxy(
             # 从APP_BASE_URL解析主机，或默认使用127.0.0.1
             base_url = settings.APP_BASE_URL
             if "://" in base_url:
-                host_part = base_url.split("://")[1].split("/")[0].split(":")[0]
+                host_part = base_url.split(
+                    "://")[1].split("/")[0].split(":")[0]
                 proxy_host = host_part if host_part != "localhost" else "127.0.0.1"
             else:
                 proxy_host = "127.0.0.1"

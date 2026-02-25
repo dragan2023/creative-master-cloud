@@ -108,25 +108,49 @@ class DocumentPreprocessor:
         self._semantic_chunker = None
 
     def _detect_and_setup_gpu(self):
-        """检测并设置GPU加速 - 强制使用GPU"""
+        """检测并设置GPU加速 - 带详细诊断信息"""
         try:
             import torch
 
-            # 检查是否启用GPU
-            if not self.settings.USE_GPU:
-                if getattr(self.settings, 'FORCE_GPU', True):
-                    raise RuntimeError("FORCE_GPU=True 但 USE_GPU=False，配置冲突")
-                self.device = "cpu"
-                os.environ["TORCH_DEVICE"] = "cpu"
-                return
+            # ========== GPU 诊断信息 ==========
+            self.logger.info("=" * 50)
+            self.logger.info("GPU 环境诊断开始")
+            self.logger.info("=" * 50)
 
-            # 检测CUDA是否可用
-            if torch.cuda.is_available():
+            # PyTorch 版本信息
+            self.logger.info(f"PyTorch 版本: {torch.__version__}")
+
+            # 检查是否为 GPU 版本的 PyTorch
+            torch_cuda_version = getattr(torch.version, 'cuda', None)
+            if torch_cuda_version:
+                self.logger.info(f"PyTorch CUDA 版本: {torch_cuda_version}")
+            else:
+                self.logger.warning("PyTorch 未编译 CUDA 支持（可能是 CPU 版本）")
+
+            # 检查 CUDA 是否可用
+            cuda_available = torch.cuda.is_available()
+            self.logger.info(f"torch.cuda.is_available(): {cuda_available}")
+
+            if cuda_available:
+                # GPU 检测成功
                 gpu_count = torch.cuda.device_count()
+                self.logger.info(f"检测到 {gpu_count} 个 GPU 设备")
+
+                for i in range(gpu_count):
+                    gpu_name = torch.cuda.get_device_name(i)
+                    gpu_memory = torch.cuda.get_device_properties(
+                        i).total_memory / (1024**3)
+                    self.logger.info(
+                        f"  GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)")
+
+                # 选择 GPU
                 device_id = min(self.settings.GPU_DEVICE_ID, gpu_count - 1)
                 self.device = f"cuda:{device_id}"
-                gpu_name = torch.cuda.get_device_name(device_id)
-                self.logger.info(f"GPU加速已启用: {gpu_name}")
+                selected_gpu_name = torch.cuda.get_device_name(device_id)
+
+                self.logger.info(f"选择使用 GPU {device_id}: {selected_gpu_name}")
+                self.logger.info("GPU 加速已启用")
+                self.logger.info("=" * 50)
 
                 # Marker 官方推荐的环境变量设置
                 # TORCH_DEVICE 必须是 "cuda"，不是 "cuda:0"
@@ -136,23 +160,137 @@ class DocumentPreprocessor:
                 # PyTorch 内存管理优化
                 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
             else:
-                # 强制使用GPU模式下，CUDA不可用时报错
+                # ========== CUDA 不可用 - 详细诊断 ==========
+                self.logger.warning("CUDA 不可用，开始详细诊断...")
+
+                # 诊断 1: 检查是否安装了 GPU 版本的 PyTorch
+                if torch_cuda_version is None:
+                    self.logger.error("诊断结果: 安装的是 CPU 版本的 PyTorch")
+                    self.logger.error("解决方案: 请重新安装 GPU 版本:")
+                    self.logger.error("  pip uninstall torch")
+                    self.logger.error(
+                        "  pip install torch --index-url https://download.pytorch.org/whl/cu126")
+                else:
+                    self.logger.info(
+                        f"PyTorch 编译了 CUDA {torch_cuda_version} 支持")
+
+                # 诊断 2: 检查 NVIDIA 驱动
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['nvidia-smi'], capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        self.logger.info("nvidia-smi 检测成功，NVIDIA 驱动已安装")
+                        # 解析驱动版本
+                        for line in result.stdout.split('\n')[:5]:
+                            if 'Driver Version' in line:
+                                self.logger.info(f"  {line.strip()}")
+                                break
+                    else:
+                        self.logger.warning("nvidia-smi 返回错误，可能驱动有问题")
+                except FileNotFoundError:
+                    self.logger.error("诊断结果: nvidia-smi 未找到，NVIDIA 驱动可能未安装")
+                except Exception as e:
+                    self.logger.warning(f"nvidia-smi 检测失败: {e}")
+
+                # 诊断 3: 检查 CUDA_HOME 环境变量
+                cuda_home = os.environ.get(
+                    'CUDA_HOME') or os.environ.get('CUDA_PATH')
+                if cuda_home:
+                    self.logger.info(f"CUDA_HOME: {cuda_home}")
+                else:
+                    self.logger.warning("CUDA_HOME 环境变量未设置（可选）")
+
+                # 诊断 4: 检查 nvcc
+                try:
+                    result = subprocess.run(
+                        ['nvcc', '--version'], capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        self.logger.info(
+                            f"nvcc 检测成功:\n  {result.stdout.strip()}")
+                    else:
+                        self.logger.warning("nvcc 返回错误")
+                except FileNotFoundError:
+                    self.logger.warning(
+                        "nvcc 未找到（CUDA Toolkit 可能未安装或未加入 PATH）")
+                except Exception as e:
+                    self.logger.warning(f"nvcc 检测失败: {e}")
+
+                self.logger.info("=" * 50)
+
+                # 根据配置决定是否报错
                 if getattr(self.settings, 'FORCE_GPU', True):
+                    self.logger.error("=" * 50)
+                    self.logger.error("GPU 检测失败！")
+                    self.logger.error("FORCE_GPU=True，但无法使用 GPU 加速。")
+                    self.logger.error("请检查上述诊断信息，确认问题原因。")
+                    self.logger.error("=" * 50)
                     raise RuntimeError(
-                        "FORCE_GPU=True 但 CUDA 不可用。请检查:\n"
-                        "1. NVIDIA 驱动是否正确安装\n"
-                        "2. PyTorch 是否为 GPU 版本 (pip install torch --index-url https://download.pytorch.org/whl/cu126)\n"
-                        "3. CUDA 版本是否兼容"
+                        "GPU 检测失败，详细诊断信息已输出到日志。\n"
+                        "常见原因:\n"
+                        "1. 安装了 CPU 版本的 PyTorch\n"
+                        "2. NVIDIA 驱动未安装或版本过旧\n"
+                        "3. PyTorch CUDA 版本与系统 CUDA 版本不匹配\n\n"
+                        "解决方案:\n"
+                        "1. 重新安装 GPU 版本 PyTorch:\n"
+                        "   pip uninstall torch\n"
+                        "   pip install torch --index-url https://download.pytorch.org/whl/cu126\n\n"
+                        "2. 或在 .env 文件中设置 FORCE_GPU=False 使用 CPU 模式"
                     )
+
+                # 降级到 CPU
+                self.logger.warning("降级到 CPU 模式运行")
                 self.device = "cpu"
                 os.environ["TORCH_DEVICE"] = "cpu"
 
         except ImportError:
+            self.logger.error("无法导入 torch 模块")
             if getattr(self.settings, 'FORCE_GPU', True):
-                raise RuntimeError("FORCE_GPU=True 但无法导入 torch")
+                raise RuntimeError(
+                    "FORCE_GPU=True 但无法导入 PyTorch。\n"
+                    "请安装 PyTorch:\n"
+                    "  pip install torch --index-url https://download.pytorch.org/whl/cu126"
+                )
+            self.device = "cpu"
+            os.environ["TORCH_DEVICE"] = "cpu"
+        except OSError as e:
+            # DLL 加载失败（通常是 CUDA 版本不匹配）
+            error_str = str(e).lower()
+            self.logger.error(f"PyTorch DLL 加载失败: {str(e)}")
+
+            if "caffe2_nvrtc.dll" in error_str or "nvrtc" in error_str or "cuda" in error_str:
+                self.logger.error("=" * 50)
+                self.logger.error("CUDA 运行时库加载失败！")
+                self.logger.error("这通常是因为 PyTorch CUDA 版本与系统 CUDA 版本不匹配。")
+                self.logger.error("=" * 50)
+
+                if getattr(self.settings, 'FORCE_GPU', True):
+                    raise RuntimeError(
+                        "CUDA 运行时库加载失败。\n\n"
+                        "原因：PyTorch CUDA 版本与系统 CUDA 版本不匹配。\n\n"
+                        "解决方案：\n"
+                        "1. 重新安装匹配的 PyTorch 版本（推荐）：\n"
+                        "   pip uninstall torch torchvision torchaudio\n"
+                        "   pip install torch --index-url https://download.pytorch.org/whl/cu126\n\n"
+                        "2. 或在 .env 文件中设置 FORCE_GPU=False 使用 CPU 模式\n\n"
+                        "3. 运行项目根目录的 check-gpu.py 获取详细诊断信息"
+                    )
+            else:
+                if getattr(self.settings, 'FORCE_GPU', True):
+                    raise RuntimeError(
+                        f"PyTorch DLL 加载失败: {str(e)}\n\n"
+                        "解决方案：\n"
+                        "1. 重新安装 PyTorch:\n"
+                        "   pip uninstall torch torchvision torchaudio\n"
+                        "   pip install torch --index-url https://download.pytorch.org/whl/cu126\n\n"
+                        "2. 或在 .env 文件中设置 FORCE_GPU=False 使用 CPU 模式"
+                    )
+
+            self.logger.warning("降级到 CPU 模式运行")
             self.device = "cpu"
             os.environ["TORCH_DEVICE"] = "cpu"
         except Exception as e:
+            self.logger.error(f"GPU 设置过程中发生错误: {str(e)}")
             if getattr(self.settings, 'FORCE_GPU', True):
                 raise RuntimeError(f"FORCE_GPU=True 但 GPU 设置失败: {str(e)}")
             self.device = "cpu"

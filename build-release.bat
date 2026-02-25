@@ -1,40 +1,46 @@
 @echo off
 setlocal enabledelayedexpansion
-chcp 936 >nul 2>&1
-title 全能创意大师 - 发行版打包工具
+chcp 65001 >nul 2>&1
+title Creative Master - Build Release Tool
 color 0B
 
 echo.
 echo ========================================================
-echo         全能创意大师 - 发行版打包工具 v1.1
+echo         Creative Master - Release Builder v1.3
 echo ========================================================
 echo.
-echo  自动移除开发环境文件，生成纯净发行版
+echo  Building clean release package...
 echo.
 
 set "PROJECT_DIR=%~dp0"
-set "DIST_DIR=%PROJECT_DIR%dist\全能创意大师-发行版"
+set "DIST_DIR=%PROJECT_DIR%dist\creative-master-release"
 
 :: 创建发行版目录
-echo [1/4] 创建发行版目录...
+echo [1/5] Creating release directory...
 if exist "%DIST_DIR%" rmdir /s /q "%DIST_DIR%"
 mkdir "%DIST_DIR%"
-echo   [OK] 完成
+echo   [OK] Done
 echo.
 
 :: 复制根目录文件
-echo [2/4] 复制根目录文件...
+echo [2/5] Copying root files...
+copy "%PROJECT_DIR%启动.bat" "%DIST_DIR%\" >nul 2>&1
 copy "%PROJECT_DIR%start.bat" "%DIST_DIR%\" >nul
+copy "%PROJECT_DIR%start.ps1" "%DIST_DIR%\" >nul 2>&1
+copy "%PROJECT_DIR%run-backend.bat" "%DIST_DIR%\" >nul
+copy "%PROJECT_DIR%run-frontend.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%smart-install.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%stop.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%docker-compose.yml" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%.env.example" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%.gitignore" "%DIST_DIR%\" >nul
-echo   [OK] 完成
+copy "%PROJECT_DIR%version.json" "%DIST_DIR%\" >nul
+copy "%PROJECT_DIR%check-gpu.py" "%DIST_DIR%\" >nul 2>&1
+echo   [OK] Done
 echo.
 
 :: 复制后端（排除开发环境）
-echo [3/4] 复制后端代码...
+echo [3/5] Copying backend code...
 mkdir "%DIST_DIR%\backend"
 
 :: 复制必要目录
@@ -54,14 +60,27 @@ mkdir "%DIST_DIR%\backend\data\knowledge_graphs"
 mkdir "%DIST_DIR%\backend\data\marker_models"
 mkdir "%DIST_DIR%\backend\logs"
 
-:: 复制 .env.example 作为模板
-copy "%PROJECT_DIR%backend\.env" "%DIST_DIR%\backend\.env.example" >nul 2>&1
+:: 生成 UTF-8 编码的 .env 文件（避免中文编码问题）
+echo   Generating backend .env file...
+(
+echo APP_NAME=Creative Master
+echo DEBUG=True
+echo HOST=0.0.0.0
+echo PORT=8000
+echo DATABASE_URL=sqlite+aiosqlite:///./data/creative_master.db
+echo SECRET_KEY=auto-generated-please-change
+echo LOG_LEVEL=INFO
+echo LOG_DIR=./logs
+echo CHROMA_PERSIST_DIR=./data/chroma
+echo UPLOAD_DIR=./data/uploads
+echo MARKER_MODEL_DIR=./data/marker_models
+) > "%DIST_DIR%\backend\.env"
 
-echo   [OK] 完成
+echo   [OK] Backend copied
 echo.
 
 :: 复制前端（排除 node_modules）
-echo [4/4] 复制前端代码...
+echo [4/5] Copying frontend code...
 mkdir "%DIST_DIR%\frontend"
 
 xcopy "%PROJECT_DIR%frontend\src" "%DIST_DIR%\frontend\src\" /E /I /Q
@@ -71,24 +90,65 @@ copy "%PROJECT_DIR%frontend\package.json" "%DIST_DIR%\frontend\" >nul
 copy "%PROJECT_DIR%frontend\package-lock.json" "%DIST_DIR%\frontend\" >nul
 copy "%PROJECT_DIR%frontend\vite.config.js" "%DIST_DIR%\frontend\" >nul
 copy "%PROJECT_DIR%frontend\index.html" "%DIST_DIR%\frontend\" >nul
-copy "%PROJECT_DIR%frontend\.env.example" "%DIST_DIR%\frontend\" >nul 2>&1
 
-echo   [OK] 完成
+:: 生成前端 .env.local 文件
+echo   Generating frontend .env.local file...
+(
+echo # 前端环境配置
+echo VITE_BACKEND_URL=http://127.0.0.1:8000
+echo VITE_FRONTEND_PORT=5173
+) > "%DIST_DIR%\frontend\.env.local"
+
+echo   [OK] Frontend copied
 echo.
+
+:: 创建启动脚本（确保用户友好）
+echo [5/5] Creating startup scripts...
+
+:: 创建 启动.bat（用户友好入口）
+(
+echo @echo off
+echo setlocal enabledelayedexpansion
+echo chcp 65001 ^>nul 2^>^&1
+echo title Creative Master
+echo color 0A
+echo echo.
+echo echo ========================================================
+echo echo         Creative Master - Starting...
+echo echo ========================================================
+echo echo.
+echo call "%%~dp0start.bat"
+echo exit /b %%errorlevel%%
+) > "%DIST_DIR%\启动.bat"
+
+echo   [OK] Startup scripts created
+echo.
+
+:: 创建安装日志目录
+echo. 2>"%DIST_DIR%\install.log"
 
 :: 计算大小
 echo ========================================================
 echo.
 color 0A
 echo ========================================================
-echo           打包完成！发行版已就绪
+echo           Build Complete! Release Ready
 echo ========================================================
 echo.
-echo  发行版位置: %DIST_DIR%
+echo  Release location: %DIST_DIR%
 echo.
-echo  用户使用方法:
-echo    方式一: 双击 start.bat 自动安装并启动
-echo    方式二: 先运行 smart-install.bat 安装环境，再运行 start.bat
+echo  Included files:
+echo    - start.bat (Main launcher with auto-setup)
+echo    - 启动.bat (Chinese-friendly launcher)
+echo    - run-backend.bat (Backend service)
+echo    - run-frontend.bat (Frontend service)
+echo    - smart-install.bat (Dependency installer)
+echo    - stop.bat (Service stopper)
+echo.
+echo  Next steps:
+echo    1. Test by running start.bat
+echo    2. Compress the release folder to ZIP
+echo    3. Upload to GitHub Releases
 echo.
 echo ========================================================
 echo.

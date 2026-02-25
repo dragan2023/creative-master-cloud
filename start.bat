@@ -1,216 +1,167 @@
 @echo off
 setlocal enabledelayedexpansion
-chcp 936 >nul 2>&1
-title 全能创意大师 - 智能启动助手
-color 0A
 
-echo.
-echo ========================================================
-echo         全能创意大师 - 智能启动助手 v5.0
-echo ========================================================
-echo.
-echo  本程序将自动检测并安装运行所需的所有环境
-echo.
+:: ============================================================
+:: 全能创意大师 - 发行版启动脚本 v7.0
+:: 功能：环境检测、依赖安装、端口检测、服务启动
+:: ============================================================
 
+title 全能创意大师 - 启动脚本
+
+:: 设置项目路径
 set "PROJECT_DIR=%~dp0"
 set "BACKEND_DIR=%PROJECT_DIR%backend"
 set "FRONTEND_DIR=%PROJECT_DIR%frontend"
-set "VENV_PYTHON=%BACKEND_DIR%\venv\Scripts\python.exe"
-set "DATA_DIR=%BACKEND_DIR%\data"
-set "LOG_DIR=%BACKEND_DIR%\logs"
-set "MODEL_DIR=%DATA_DIR%\marker_models"
+set "DATA_DIR=%BACKEND_DIR%data"
 
-set "PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
-set "NPM_MIRROR=https://registry.npmmirror.com"
-set "PYTHON_DL=https://npm.taobao.org/mirrors/python/3.10.11/python-3.10.11-amd64.exe"
-set "NODE_DL=https://npmmirror.com/mirrors/node/v20.11.0/node-v20.11.0-x64.msi"
-
+echo.
 echo ========================================================
-echo  [第一步] 检测 Python 环境
+echo     全能创意大师 - 智能内容生成平台
 echo ========================================================
 echo.
-echo  Python 是本软件的核心运行环境，用于处理 AI 对话、
-echo  文档解析等智能功能。
-echo.
-echo  正在检测 Python 是否已安装...
-echo.
 
-python --version 2>nul
-if errorlevel 1 goto no_python
+:: [第零步] 检测并配置 PowerShell 环境
+echo ========================================================
+echo  [步骤 0/7] 检测 PowerShell 环境
+echo ========================================================
 
-for /f "tokens=2" %%v in ('python --version 2^>^&1') do set "PY_VER=%%v"
-echo  [OK] Python 已安装，版本: !PY_VER!
-goto check_node
+set "PS_OK=0"
+set "PS_PATH="
 
-:no_python
-color 0E
-echo  [X] 未检测到 Python 环境
-echo.
-echo  可能的原因:
-echo    1. 电脑尚未安装 Python
-echo    2. Python 已安装但未添加到系统路径
-echo.
-echo  请选择操作:
-echo    [Y] 自动下载安装（推荐）
-echo    [N] 查看手动安装指南
-echo    [S] 跳过检测（已安装但未配置路径）
-echo.
-choice /c YNS /n /m "  请按键选择: "
-if errorlevel 3 goto skip_python
-if errorlevel 2 goto manual_python
-if errorlevel 1 goto auto_python
-
-:auto_python
-echo.
-echo  正在准备自动安装 Python 3.10...
-echo  下载源: 淘宝镜像（国内加速）
-echo  文件大小: 约 27MB
-echo  预计时间: 30秒 - 2分钟
-echo.
-echo  正在下载，请耐心等待...
-echo.
-
-powershell -Command "& { $url='!PYTHON_DL!'; $out='%TEMP%\py.exe'; try { $wc=New-Object Net.WebClient; $wc.DownloadFile($url,$out); if(Test-Path $out){Write-Host '[OK] 下载完成'}else{Write-Host '[X] 下载失败'} } catch { Write-Host '[X] 下载出错:' $_.Exception.Message } }"
-
-if exist "%TEMP%\py.exe" (
-    echo.
-    echo  正在安装 Python...
-    echo  安装选项: 自动添加到系统路径
-    echo.
-    "%TEMP%\py.exe" /passive InstallAllUsers=1 PrependPath=1 Include_test=0
-    echo  等待安装完成...
-    timeout /t 30 >nul
-    echo.
-    echo  [OK] Python 安装完成！
-    echo  [!] 如系统未识别，请重启电脑后重试
-) else (
-    echo.
-    echo  [X] 自动下载失败，请尝试手动安装
-    goto manual_python
+:: 首先检查 PowerShell 是否已经在 PATH 中可用
+powershell -Command "Get-Host" >nul 2>&1
+if not errorlevel 1 (
+    set "PS_OK=1"
+    echo  [OK] PowerShell 已在系统 PATH 中可用
+    goto ps_done
 )
-goto check_node
 
-:manual_python
-echo.
-echo  ========================================================
-echo           Python 手动安装指南
-echo  ========================================================
-echo.
-echo  1. 访问官网下载: https://www.python.org/downloads/
-echo  2. 下载 Python 3.10 版本
-echo  3. 运行安装程序时，务必勾选:
-echo     [Add Python to PATH] - 非常重要！
-echo  4. 安装完成后，重新运行本程序
-echo.
-pause
-exit /b 1
+echo  [!] PowerShell 未在 PATH 中找到，正在搜索...
 
-:skip_python
-echo.
-echo  已跳过 Python 检测
-echo  如果 Python 未正确安装，后续步骤可能会失败
-echo.
-
-:check_node
-echo.
-echo ========================================================
-echo  [第二步] 检测 Node.js 环境
-echo ========================================================
-echo.
-echo  Node.js 是前端界面的运行环境，负责显示网页操作界面。
-echo.
-echo  正在检测 Node.js 是否已安装...
-echo.
-
-node --version 2>nul
-if errorlevel 1 goto no_node
-
-for /f "tokens=*" %%v in ('node --version 2^>^&1') do set "NODE_VER=%%v"
-echo  [OK] Node.js 已安装，版本: !NODE_VER!
-goto create_config
-
-:no_node
-color 0E
-echo  [X] 未检测到 Node.js 环境
-echo.
-echo  请选择操作:
-echo    [Y] 自动下载安装（推荐）
-echo    [N] 查看手动安装指南
-echo    [S] 跳过检测
-echo.
-choice /c YNS /n /m "  请按键选择: "
-if errorlevel 3 goto skip_node
-if errorlevel 2 goto manual_node
-if errorlevel 1 goto auto_node
-
-:auto_node
-echo.
-echo  正在准备自动安装 Node.js 20 LTS...
-echo  下载源: npmmirror 镜像（国内加速）
-echo  文件大小: 约 30MB
-echo  预计时间: 30秒 - 2分钟
-echo.
-echo  正在下载，请耐心等待...
-echo.
-
-powershell -Command "& { $url='!NODE_DL!'; $out='%TEMP%\node.msi'; try { $wc=New-Object Net.WebClient; $wc.DownloadFile($url,$out); if(Test-Path $out){Write-Host '[OK] 下载完成'}else{Write-Host '[X] 下载失败'} } catch { Write-Host '[X] 下载出错:' $_.Exception.Message } }"
-
-if exist "%TEMP%\node.msi" (
-    echo.
-    echo  正在安装 Node.js...
-    msiexec /i "%TEMP%\node.msi" /passive /norestart
-    echo  等待安装完成...
-    timeout /t 30 >nul
-    echo.
-    echo  [OK] Node.js 安装完成！
-) else (
-    echo.
-    echo  [X] 自动下载失败，请尝试手动安装
-    goto manual_node
+:: 搜索常见的 PowerShell 安装位置
+if exist "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" (
+    set "PS_PATH=%SystemRoot%\System32\WindowsPowerShell\v1.0"
+    goto found_ps
 )
-goto create_config
 
-:manual_node
-echo.
-echo  ========================================================
-echo           Node.js 手动安装指南
-echo  ========================================================
-echo.
-echo  1. 访问官网下载: https://nodejs.org/zh-cn/download/
-echo  2. 下载 LTS 长期支持版
-echo  3. 安装完成后，重新运行本程序
-echo.
-pause
-exit /b 1
+if exist "%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe" (
+    set "PS_PATH=%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0"
+    goto found_ps
+)
 
-:skip_node
-echo.
-echo  已跳过 Node.js 检测
+if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" (
+    set "PS_PATH=%ProgramFiles%\PowerShell\7"
+    goto found_ps
+)
+
+if exist "%ProgramFiles(x86)%\PowerShell\7\pwsh.exe" (
+    set "PS_PATH=%ProgramFiles(x86)%\PowerShell\7"
+    goto found_ps
+)
+
+echo  [ERROR] 未找到 PowerShell，请确保 Windows 系统完整
+goto skip_ps_config
+
+:found_ps
+echo  [OK] 找到 PowerShell: !PS_PATH!
+
+set "PS_EXE=powershell.exe"
+if exist "!PS_PATH!\pwsh.exe" set "PS_EXE=pwsh.exe"
+
+echo  [*] 正在将 PowerShell 添加到用户 PATH 环境变量...
+"!PS_PATH!\!PS_EXE!" -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';!PS_PATH!', 'User')" 2>nul
+
+set "PATH=!PATH!;!PS_PATH!"
+echo  [OK] PowerShell 已添加到 PATH（重启终端后永久生效）
+
+:ps_done
+:skip_ps_config
 echo.
 
-:create_config
-echo.
+:: [第一步] 检测 Python 环境
 echo ========================================================
-echo  [第三步] 创建配置文件和数据目录
+echo  [步骤 1/7] 检测 Python 环境
 echo ========================================================
+
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo  [ERROR] 未检测到 Python
+    echo.
+    echo  请安装 Python 3.10 或更高版本
+    echo  下载地址: https://www.python.org/downloads/
+    echo.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set PYTHON_VERSION=%%v
+echo  [OK] Python 版本: !PYTHON_VERSION!
+
+for /f "tokens=1,2 delims=." %%a in ("!PYTHON_VERSION!") do (
+    set PY_MAJOR=%%a
+    set PY_MINOR=%%b
+)
+
+if !PY_MAJOR! LSS 3 (
+    echo  [ERROR] Python 版本过低，需要 3.10 或更高版本
+    pause
+    exit /b 1
+)
+
+if !PY_MAJOR! EQU 3 (
+    if !PY_MINOR! LSS 10 (
+        echo  [ERROR] Python 版本过低，需要 3.10 或更高版本
+        pause
+        exit /b 1
+    )
+)
+
 echo.
-echo  正在创建必要的数据存储目录...
+
+:: [第二步] 检测 Node.js 环境
+echo ========================================================
+echo  [步骤 2/7] 检测 Node.js 环境
+echo ========================================================
+
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo  [ERROR] 未检测到 Node.js
+    echo.
+    echo  请安装 Node.js 20 或更高版本
+    echo  下载地址: https://nodejs.org/
+    echo.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=1 delims=v" %%v in ('node --version 2^>^&1') do set NODE_VERSION=%%v
+echo  [OK] Node.js 版本: !NODE_VERSION!
+
+for /f "tokens=1 delims=." %%a in ("!NODE_VERSION!") do set NODE_MAJOR=%%a
+
+if !NODE_MAJOR! LSS 20 (
+    echo  [WARNING] Node.js 版本过低，建议使用 20 或更高版本
+)
+
 echo.
+
+:: [第三步] 创建必要的目录和配置文件
+echo ========================================================
+echo  [步骤 3/7] 创建必要的目录和配置文件
+echo ========================================================
 
 if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
 if not exist "%DATA_DIR%\chroma" mkdir "%DATA_DIR%\chroma"
 if not exist "%DATA_DIR%\uploads" mkdir "%DATA_DIR%\uploads"
 if not exist "%DATA_DIR%\knowledge_graphs" mkdir "%DATA_DIR%\knowledge_graphs"
-if not exist "%MODEL_DIR%" mkdir "%MODEL_DIR%"
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+if not exist "%BACKEND_DIR%\logs" mkdir "%BACKEND_DIR%\logs"
 
 echo  [OK] 数据目录创建完成
-echo.
 
 if not exist "%BACKEND_DIR%\.env" (
-    echo  正在生成后端配置文件...
+    echo  [*] 正在生成后端配置文件...
     (
-        echo APP_NAME=全能创意大师
+        echo APP_NAME=Creative Master
         echo DEBUG=True
         echo HOST=0.0.0.0
         echo PORT=8000
@@ -222,128 +173,207 @@ if not exist "%BACKEND_DIR%\.env" (
         echo UPLOAD_DIR=./data/uploads
         echo MARKER_MODEL_DIR=./data/marker_models
     ) > "%BACKEND_DIR%\.env"
-    echo  [OK] 后端配置已生成
+    echo  [OK] 后端配置文件已生成
+) else (
+    echo  [OK] 后端配置文件已存在
 )
 
 if not exist "%FRONTEND_DIR%\.env.local" (
-    echo  正在生成前端配置文件...
+    echo  [*] 正在生成前端配置文件...
     (
         echo VITE_BACKEND_URL=http://localhost:8000
         echo VITE_FRONTEND_PORT=5173
     ) > "%FRONTEND_DIR%\.env.local"
-    echo  [OK] 前端配置已生成
+    echo  [OK] 前端配置文件已生成
+) else (
+    echo  [OK] 前端配置文件已存在
 )
 
-call npm config set registry !NPM_MIRROR! >nul 2>&1
-echo  [OK] npm 镜像源已配置
-
-echo.
-echo ========================================================
-echo  [第四步] 检测并安装依赖包
-echo ========================================================
-echo.
-echo  依赖包是软件运行所需的"零件库"，首次运行需要下载。
 echo.
 
-if not exist "%VENV_PYTHON%" (
-    echo  正在创建 Python 虚拟环境...
-    echo  虚拟环境是一个独立的"沙盒"，不会影响其他程序。
-    echo.
+:: [第四步] 检查并安装依赖
+echo ========================================================
+echo  [步骤 4/7] 检查并安装依赖
+echo ========================================================
+
+if not exist "%BACKEND_DIR%\venv" (
+    echo  [*] 正在创建 Python 虚拟环境...
     cd /d "%BACKEND_DIR%"
     python -m venv venv
     echo  [OK] 虚拟环境创建完成
-    echo.
-    
-    echo  正在配置 pip 下载源...
-    "%VENV_PYTHON%" -m pip config set global.index-url !PYPI_MIRROR! >nul 2>&1
-    echo  [OK] pip 已配置清华镜像源
-    echo.
-    
-    echo  正在安装后端依赖包...
-    echo  需要下载约 200+ 个模块，预计 3-5 分钟
-    echo.
-    echo  [1/2] 升级 pip...
-    "%VENV_PYTHON%" -m pip install --upgrade pip -q
-    
-    echo  [2/2] 安装功能模块...
-    "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i !PYPI_MIRROR!
-    
+)
+
+call "%BACKEND_DIR%\venv\Scripts\activate.bat"
+
+echo  [*] 正在检查后端依赖...
+pip show fastapi >nul 2>&1
+if errorlevel 1 (
+    echo  [*] 正在安装后端依赖（使用国内镜像加速）...
+    pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
     if errorlevel 1 (
-        echo  [!] 安装遇到问题，尝试备用镜像源...
-        "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i https://mirrors.aliyun.com/pypi/simple/
+        echo  [WARNING] 国内镜像安装失败，尝试默认源...
+        pip install -r requirements.txt
     )
-    
     echo  [OK] 后端依赖安装完成
-    cd /d "%PROJECT_DIR%"
-) else (
-    echo  [OK] Python 虚拟环境已存在
-)
-
-if not exist "%FRONTEND_DIR%\node_modules" (
-    echo.
-    echo  正在安装前端依赖包...
-    echo  需要下载约 1000+ 个模块，预计 2-3 分钟
-    echo.
-    cd /d "%FRONTEND_DIR%"
-    call npm install --silent
     
-    if errorlevel 1 (
-        echo  [!] 安装遇到问题，尝试重新安装...
-        call npm install --silent
+    :: 检测 GPU 并安装对应版本的 PyTorch
+    echo.
+    echo  [*] 正在检测 GPU 环境...
+    nvidia-smi >nul 2>&1
+    if not errorlevel 1 (
+        echo  [OK] 检测到 NVIDIA GPU，正在安装 GPU 版本 PyTorch...
+        pip uninstall torch torchvision torchaudio -y >nul 2>&1
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126 -i https://pypi.tuna.tsinghua.edu.cn/simple
+        if errorlevel 1 (
+            echo  [WARNING] GPU 版本安装失败，尝试默认源...
+            pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+        )
+        echo  [OK] GPU 版本 PyTorch 安装完成
+    ) else (
+        echo  [INFO] 未检测到 NVIDIA GPU，使用 CPU 版本 PyTorch
     )
-    
-    echo  [OK] 前端依赖安装完成
-    cd /d "%PROJECT_DIR%"
 ) else (
-    echo  [OK] 前端依赖包已存在
+    echo  [OK] 后端依赖已安装
+    
+    :: 检查 PyTorch CUDA 支持（使用虚拟环境中的 Python）
+    "%BACKEND_DIR%\venv\Scripts\python.exe" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" >nul 2>&1
+    if errorlevel 1 (
+        echo  [!] 当前 PyTorch 不支持 CUDA，检查是否有 GPU...
+        nvidia-smi >nul 2>&1
+        if not errorlevel 1 (
+            echo  [OK] 检测到 NVIDIA GPU，正在更新为 GPU 版本 PyTorch...
+            "%BACKEND_DIR%\venv\Scripts\pip.exe" uninstall torch torchvision torchaudio -y >nul 2>&1
+            "%BACKEND_DIR%\venv\Scripts\pip.exe" install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+            echo  [OK] GPU 版本 PyTorch 安装完成
+        )
+    ) else (
+        echo  [OK] PyTorch GPU 加速已就绪
+    )
+)
+
+cd /d "%FRONTEND_DIR%"
+if not exist "node_modules" (
+    echo  [*] 正在安装前端依赖（使用国内镜像加速）...
+    call npm config set registry https://registry.npmmirror.com
+    echo  [*] 开始安装，请耐心等待...
+    call npm install
+    if errorlevel 1 (
+        echo  [WARNING] 安装失败，请手动运行: cd frontend ^&^& npm install
+    ) else (
+        echo  [OK] 前端依赖安装完成
+    )
+) else (
+    echo  [OK] 前端依赖已安装
 )
 
 echo.
+
+:: [第五步] 检测端口占用
 echo ========================================================
-echo  [第五步] 启动服务
+echo  [步骤 5/7] 检测端口占用
 echo ========================================================
+
+:: 使用更简单的端口检测方法
+set BACKEND_PORT=8000
+echo  [*] 检测后端端口 !BACKEND_PORT!...
+netstat -ano 2>nul | find ":%BACKEND_PORT% " >nul
+if not errorlevel 1 (
+    echo  [!] 端口 !BACKEND_PORT! 已被占用，尝试下一个端口...
+    set /a BACKEND_PORT=8001
+)
+echo  [OK] 后端将使用端口: !BACKEND_PORT!
+
+set FRONTEND_PORT=5173
+echo  [*] 检测前端端口 !FRONTEND_PORT!...
+netstat -ano 2>nul | find ":%FRONTEND_PORT% " >nul
+if not errorlevel 1 (
+    echo  [!] 端口 !FRONTEND_PORT! 已被占用，尝试下一个端口...
+    set /a FRONTEND_PORT=5174
+)
+echo  [OK] 前端将使用端口: !FRONTEND_PORT!
+
+(
+    echo APP_NAME=Creative Master
+    echo DEBUG=True
+    echo HOST=0.0.0.0
+    echo PORT=!BACKEND_PORT!
+    echo DATABASE_URL=sqlite+aiosqlite:///./data/creative_master.db
+    echo SECRET_KEY=auto-generated-please-change
+    echo LOG_LEVEL=INFO
+    echo LOG_DIR=./logs
+    echo CHROMA_PERSIST_DIR=./data/chroma
+    echo UPLOAD_DIR=./data/uploads
+    echo MARKER_MODEL_DIR=./data/marker_models
+) > "%BACKEND_DIR%\.env"
+
+(
+    echo VITE_BACKEND_URL=http://localhost:!BACKEND_PORT!
+    echo VITE_FRONTEND_PORT=!FRONTEND_PORT!
+) > "%FRONTEND_DIR%\.env.local"
+
 echo.
-echo  正在清理可能存在的旧进程...
-taskkill /F /IM python.exe >nul 2>&1
-taskkill /F /IM node.exe >nul 2>&1
-timeout /t 2 >nul
+
+:: [第六步] 启动服务
+echo ========================================================
+echo  [步骤 6/7] 启动服务
+echo ========================================================
+
+echo  [*] 清理旧进程...
+taskkill /f /im python.exe >nul 2>&1
+taskkill /f /im node.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
 echo  [OK] 清理完成
+
+echo  [*] 正在启动后端服务（端口 !BACKEND_PORT!）...
+start "全能创意大师 - 后端服务" cmd /k "cd /d "%BACKEND_DIR%" && call venv\Scripts\activate.bat && venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port !BACKEND_PORT! --reload"
+
+echo  [*] 等待后端服务启动...
+set BACKEND_READY=0
+for /l %%i in (1,1,45) do (
+    timeout /t 1 /nobreak >nul
+    curl -s http://localhost:!BACKEND_PORT!/api/v1/health >nul 2>&1
+    if not errorlevel 1 (
+        set BACKEND_READY=1
+        echo  [OK] 后端服务启动成功
+        goto backend_done
+    )
+    echo  等待后端启动中... (%%i/45^)
+)
+
+:backend_done
+if !BACKEND_READY! EQU 0 (
+    echo  [WARNING] 后端启动超时，请检查日志
+)
+
+echo  [*] 正在启动前端服务（端口 !FRONTEND_PORT!）...
+start "全能创意大师 - 前端服务" cmd /k "cd /d "%FRONTEND_DIR%" && npm run dev"
+
+echo  [*] 等待前端服务启动...
+timeout /t 5 /nobreak >nul
+echo  [OK] 前端服务启动中...
+
 echo.
 
-echo  正在启动后端服务...
-echo  端口: 8000 - AI 核心引擎
-cd /d "%BACKEND_DIR%"
-start /B "" "%VENV_PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-timeout /t 3 >nul
-
-echo  正在启动前端服务...
-echo  端口: 5173 - 网页操作界面
-cd /d "%FRONTEND_DIR%"
-start /B "" npm run dev
-timeout /t 3 >nul
-
-cd /d "%PROJECT_DIR%"
-
-color 0B
-echo.
+:: [第七步] 完成
 echo ========================================================
-echo            启动完成！系统已就绪
+echo  [步骤 7/7] 启动完成
 echo ========================================================
 echo.
-echo  访问地址:
-echo    主界面: http://localhost:5173
-echo    API文档: http://localhost:8000/docs
+echo  ========================================
+echo    全能创意大师 启动成功！
+echo  ========================================
 echo.
-echo  注意事项:
-echo    - 请勿关闭此窗口，否则服务将停止
-echo    - 按 Ctrl+C 可停止服务
-echo    - 下次启动将更快（依赖包已安装）
+echo  后端地址: http://localhost:!BACKEND_PORT!
+echo  前端地址: http://localhost:!FRONTEND_PORT!
 echo.
-echo  浏览器将在 5 秒后自动打开...
-timeout /t 5 >nul
-start http://localhost:5173
+echo  浏览器将自动打开前端页面
+echo  如果没有自动打开，请手动访问上述地址
+echo.
+echo  按 Ctrl+C 可以停止服务
+echo ========================================
+echo.
 
-echo.
-:WAIT
-timeout /t 60 >nul
-goto WAIT
+:: Vite 会自动打开浏览器（vite.config.js 中配置了 open: true）
+:: 无需在此手动打开浏览器，否则会打开两个窗口
+
+pause

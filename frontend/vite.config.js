@@ -16,13 +16,14 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: parseInt(env.VITE_FRONTEND_PORT || '5173'),
-      strictPort: true,  // 端口被占用时报错而不是自动切换
+      strictPort: false,  // 端口被占用时自动尝试下一个端口
       proxy: {
         '/api': {
           target: env.VITE_BACKEND_URL || 'http://localhost:8000',
           changeOrigin: true
         }
-      }
+      },
+      open: true  // 启动时自动打开浏览器
     }
   }
 })
