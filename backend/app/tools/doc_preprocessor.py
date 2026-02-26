@@ -85,11 +85,22 @@ class DocumentPreprocessor:
         os.environ["HF_HOME"] = chonkie_model_dir
         os.environ["TRANSFORMERS_CACHE"] = chonkie_model_dir
 
-        # 设置 Hugging Face 镜像（如果配置了）
-        hf_endpoint = os.getenv("HF_ENDPOINT")
-        if hf_endpoint:
-            os.environ["HF_ENDPOINT"] = hf_endpoint
-            self.logger.info(f"使用 Hugging Face 镜像: {hf_endpoint}")
+        # 设置 Hugging Face 镜像（默认使用国内镜像）
+        hf_endpoint = os.getenv(
+            "HF_ENDPOINT") or self.settings.HF_ENDPOINT or "https://hf-mirror.com"
+        os.environ["HF_ENDPOINT"] = hf_endpoint
+        self.logger.info(f"使用 Hugging Face 镜像: {hf_endpoint}")
+
+        # 精简 Hugging Face 下载日志输出
+        # 设置日志级别为 warning，减少进度条等冗余信息
+        os.environ["HF_HUB_VERBOSITY"] = "warning"
+        # 禁用 tqdm 进度条的详细输出（保留基本状态）
+        os.environ["TQDM_MININTERVAL"] = "5"  # 每5秒更新一次进度
+        # 静默 huggingface_hub 的日志输出
+        import logging
+        logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("filelock").setLevel(logging.WARNING)
 
         # 设置代理（如果配置了）
         http_proxy = self.settings.HTTP_PROXY
@@ -219,7 +230,7 @@ class DocumentPreprocessor:
                 self.logger.info("=" * 50)
 
                 # 根据配置决定是否报错
-                if getattr(self.settings, 'FORCE_GPU', True):
+                if getattr(self.settings, 'FORCE_GPU', False):
                     self.logger.error("=" * 50)
                     self.logger.error("GPU 检测失败！")
                     self.logger.error("FORCE_GPU=True，但无法使用 GPU 加速。")
@@ -245,7 +256,7 @@ class DocumentPreprocessor:
 
         except ImportError:
             self.logger.error("无法导入 torch 模块")
-            if getattr(self.settings, 'FORCE_GPU', True):
+            if getattr(self.settings, 'FORCE_GPU', False):
                 raise RuntimeError(
                     "FORCE_GPU=True 但无法导入 PyTorch。\n"
                     "请安装 PyTorch:\n"
@@ -264,7 +275,7 @@ class DocumentPreprocessor:
                 self.logger.error("这通常是因为 PyTorch CUDA 版本与系统 CUDA 版本不匹配。")
                 self.logger.error("=" * 50)
 
-                if getattr(self.settings, 'FORCE_GPU', True):
+                if getattr(self.settings, 'FORCE_GPU', False):
                     raise RuntimeError(
                         "CUDA 运行时库加载失败。\n\n"
                         "原因：PyTorch CUDA 版本与系统 CUDA 版本不匹配。\n\n"
@@ -276,7 +287,7 @@ class DocumentPreprocessor:
                         "3. 运行项目根目录的 check-gpu.py 获取详细诊断信息"
                     )
             else:
-                if getattr(self.settings, 'FORCE_GPU', True):
+                if getattr(self.settings, 'FORCE_GPU', False):
                     raise RuntimeError(
                         f"PyTorch DLL 加载失败: {str(e)}\n\n"
                         "解决方案：\n"
@@ -291,7 +302,7 @@ class DocumentPreprocessor:
             os.environ["TORCH_DEVICE"] = "cpu"
         except Exception as e:
             self.logger.error(f"GPU 设置过程中发生错误: {str(e)}")
-            if getattr(self.settings, 'FORCE_GPU', True):
+            if getattr(self.settings, 'FORCE_GPU', False):
                 raise RuntimeError(f"FORCE_GPU=True 但 GPU 设置失败: {str(e)}")
             self.device = "cpu"
             os.environ["TORCH_DEVICE"] = "cpu"
@@ -478,6 +489,16 @@ class DocumentPreprocessor:
         except ImportError:
             self.logger.info("marker-pdf 未安装，使用基本PDF解析")
             return await self._parse_with_fallback(file_path)
+        except OSError as dll_error:
+            # DLL 加载失败（通常是 CUDA 版本不匹配或依赖缺失）
+            error_str = str(dll_error).lower()
+            if "onnxruntime" in error_str or "dll" in error_str:
+                self.logger.warning(f"DLL 加载失败，可能缺少依赖: {str(dll_error)[:100]}")
+                self.logger.warning(
+                    "建议安装 onnxruntime: pip install onnxruntime")
+            else:
+                self.logger.warning(f"系统依赖缺失: {str(dll_error)[:100]}")
+            return await self._parse_with_fallback(file_path)
         except Exception as e:
             self.logger.warning(f"Marker 转换跳过: {str(e)[:100]}，使用基本解析")
             return await self._parse_with_fallback(file_path)
@@ -545,6 +566,30 @@ class DocumentPreprocessor:
         确保每个 Chunk 都是信息丰富的"干货"
         """
         try:
+            # 检查 onnxruntime 是否真正可用（chonkie 语义切片必需）
+            # 注意：onnxruntime 包可能存在但 DLL 依赖缺失，需要实际加载测试
+            try:
+                import onnxruntime
+                # 尝试获取版本号，这会触发实际的 DLL 加载
+                _ = onnxruntime.__version__
+                self.logger.debug(f"onnxruntime 版本: {onnxruntime.__version__}")
+            except ImportError:
+                self.logger.warning("onnxruntime 未安装，语义切片需要此依赖")
+                self.logger.info("跳过语义切片，使用固定大小切片")
+                return self._fallback_chunk(text)
+            except OSError as dll_error:
+                # DLL 加载失败（缺少 Visual C++ Redistributable 等）
+                self.logger.warning(
+                    f"onnxruntime DLL 加载失败: {str(dll_error)[:100]}")
+                self.logger.warning(
+                    "可能缺少 Visual C++ Redistributable，请安装: https://aka.ms/vs/17/release/vc_redist.x64.exe")
+                self.logger.info("跳过语义切片，使用固定大小切片")
+                return self._fallback_chunk(text)
+            except Exception as e:
+                self.logger.warning(f"onnxruntime 加载异常: {str(e)[:100]}")
+                self.logger.info("跳过语义切片，使用固定大小切片")
+                return self._fallback_chunk(text)
+
             # 延迟导入（chonkie 是可选依赖）
             from chonkie import SemanticChunker
 
@@ -565,11 +610,34 @@ class DocumentPreprocessor:
 
             return result
 
-        except ImportError:
-            self.logger.info("chonkie 未安装，使用固定大小切片")
+        except ImportError as e:
+            self.logger.info(f"chonkie 未安装，使用固定大小切片: {str(e)[:50]}")
+            return self._fallback_chunk(text)
+        except OSError as e:
+            # DLL 加载失败等系统错误
+            self.logger.warning(f"语义切片系统错误: {str(e)[:100]}")
+            self.logger.info("跳过语义切片，使用固定大小切片")
+            return self._fallback_chunk(text)
+        except ValueError as e:
+            # chonkie 内部检测到 onnxruntime 问题时抛出 ValueError
+            error_msg = str(e).lower()
+            if "onnxruntime" in error_msg or "onnx" in error_msg:
+                self.logger.warning(
+                    f"chonkie 检测到 onnxruntime 问题: {str(e)[:100]}")
+                self.logger.warning(
+                    "可能原因: 1) onnxruntime 未安装 2) DLL 依赖缺失 3) Python 版本不兼容")
+                self.logger.info("跳过语义切片，使用固定大小切片")
+            else:
+                self.logger.warning(f"语义切片值错误: {str(e)[:100]}")
             return self._fallback_chunk(text)
         except Exception as e:
-            self.logger.info(f"语义切片跳过: {str(e)}，使用固定大小切片")
+            error_msg = str(e).lower()
+            if "onnxruntime" in error_msg or "onnx" in error_msg:
+                self.logger.warning(f"onnxruntime 相关错误: {str(e)[:100]}")
+                self.logger.warning("建议执行: pip install onnxruntime")
+            else:
+                self.logger.warning(f"语义切片跳过: {str(e)[:100]}")
+            self.logger.info("使用固定大小切片作为降级方案")
             return self._fallback_chunk(text)
 
     def _fallback_chunk(self, text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:

@@ -6,14 +6,27 @@ color 0B
 
 echo.
 echo ========================================================
-echo         Creative Master - Release Builder v1.3
+echo         Creative Master - Release Builder v1.4
 echo ========================================================
 echo.
 echo  Building clean release package...
 echo.
 
 set "PROJECT_DIR=%~dp0"
-set "DIST_DIR=%PROJECT_DIR%dist\creative-master-release"
+
+:: 从 version.json 读取版本号
+set "VERSION_FILE=%PROJECT_DIR%version.json"
+if exist "%VERSION_FILE%" (
+    for /f "tokens=2 delims=:," %%a in ('findstr /c:"\"current_version\"" "%VERSION_FILE%"') do (
+        set "VERSION=%%a"
+        set "VERSION=!VERSION:\"=!"
+        set "VERSION=!VERSION: =!"
+    )
+)
+if not defined VERSION set "VERSION=1.0.0"
+echo  Version: %VERSION%
+
+set "DIST_DIR=%PROJECT_DIR%dist\creative-master-release-v%VERSION%"
 
 :: 创建发行版目录
 echo [1/5] Creating release directory...
@@ -24,7 +37,6 @@ echo.
 
 :: 复制根目录文件
 echo [2/5] Copying root files...
-copy "%PROJECT_DIR%启动.bat" "%DIST_DIR%\" >nul 2>&1
 copy "%PROJECT_DIR%start.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%start.ps1" "%DIST_DIR%\" >nul 2>&1
 copy "%PROJECT_DIR%run-backend.bat" "%DIST_DIR%\" >nul
@@ -32,8 +44,6 @@ copy "%PROJECT_DIR%run-frontend.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%smart-install.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%stop.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%docker-compose.yml" "%DIST_DIR%\" >nul
-copy "%PROJECT_DIR%.env.example" "%DIST_DIR%\" >nul
-copy "%PROJECT_DIR%.gitignore" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%version.json" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%check-gpu.py" "%DIST_DIR%\" >nul 2>&1
 echo   [OK] Done
@@ -102,28 +112,6 @@ echo VITE_FRONTEND_PORT=5173
 echo   [OK] Frontend copied
 echo.
 
-:: 创建启动脚本（确保用户友好）
-echo [5/5] Creating startup scripts...
-
-:: 创建 启动.bat（用户友好入口）
-(
-echo @echo off
-echo setlocal enabledelayedexpansion
-echo chcp 65001 ^>nul 2^>^&1
-echo title Creative Master
-echo color 0A
-echo echo.
-echo echo ========================================================
-echo echo         Creative Master - Starting...
-echo echo ========================================================
-echo echo.
-echo call "%%~dp0start.bat"
-echo exit /b %%errorlevel%%
-) > "%DIST_DIR%\启动.bat"
-
-echo   [OK] Startup scripts created
-echo.
-
 :: 创建安装日志目录
 echo. 2>"%DIST_DIR%\install.log"
 
@@ -139,11 +127,11 @@ echo  Release location: %DIST_DIR%
 echo.
 echo  Included files:
 echo    - start.bat (Main launcher with auto-setup)
-echo    - 启动.bat (Chinese-friendly launcher)
 echo    - run-backend.bat (Backend service)
 echo    - run-frontend.bat (Frontend service)
 echo    - smart-install.bat (Dependency installer)
 echo    - stop.bat (Service stopper)
+echo    - check-gpu.py (GPU diagnostic tool)
 echo.
 echo  Next steps:
 echo    1. Test by running start.bat

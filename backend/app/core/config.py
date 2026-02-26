@@ -71,15 +71,15 @@ class Settings(BaseSettings):
     # GPU 加速配置
     USE_GPU: bool = True  # 是否启用GPU加速（自动检测）
     GPU_DEVICE_ID: int = 0  # GPU设备ID
-    FORCE_GPU: bool = True  # 强制使用GPU，如果GPU不可用则报错而不是降级到CPU
+    FORCE_GPU: bool = False  # 强制使用GPU，如果GPU不可用则报错而不是降级到CPU（默认False，允许自动降级）
 
     # 代理配置
     HTTP_PROXY: Optional[str] = None  # HTTP代理地址，如 http://127.0.0.1:7890
     HTTPS_PROXY: Optional[str] = None  # HTTPS代理地址，如 http://127.0.0.1:7890
 
     # Hugging Face 配置
-    # Hugging Face 镜像地址，如 https://hf-mirror.com
-    HF_ENDPOINT: Optional[str] = None
+    # Hugging Face 镜像地址，默认使用国内镜像加速
+    HF_ENDPOINT: Optional[str] = "https://hf-mirror.com"
 
     # 日志配置
     LOG_LEVEL: str = "INFO"

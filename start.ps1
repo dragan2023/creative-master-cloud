@@ -221,7 +221,7 @@ try {
         Push-Location $BackendDir
         & python -m venv venv
         & $VenvPython -m pip install --upgrade pip -q
-        & $VenvPython -m pip install -r requirements.txt -q
+        & $VenvPython -m pip install -r (Join-Path $BackendDir "requirements.txt") -q
         Pop-Location
         
         if ($LASTEXITCODE -ne 0) {
@@ -253,7 +253,7 @@ try {
     
     # 等待后端就绪
     Write-Host "  等待后端服务就绪..." -NoNewline
-    if (Wait-ForService -Url "$BackendUrl/docs" -TimeoutSeconds 30) {
+    if (Wait-ForService -Url "$BackendUrl/health" -TimeoutSeconds 30) {
         Write-ColorHost " [OK]" $ColorSuccess
     } else {
         Write-ColorHost " [超时]" $ColorError
