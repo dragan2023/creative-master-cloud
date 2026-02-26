@@ -1,6 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 
+REM Python UTF-8 encoding fix for Windows Chinese systems
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
+
 :: ============================================================
 :: 全能创意大师 - 发行版启动脚本 v8.0
 :: 功能：环境检测、端口清理、依赖安装、服务启动
