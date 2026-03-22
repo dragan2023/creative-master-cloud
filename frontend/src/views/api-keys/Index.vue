@@ -28,6 +28,12 @@
         <el-radio-button label="image">
           <el-icon><Picture /></el-icon> 图像模型
         </el-radio-button>
+        <el-radio-button label="video">
+          <el-icon><VideoCamera /></el-icon> 视频模型
+        </el-radio-button>
+        <el-radio-button label="search">
+          <el-icon><Search /></el-icon> 搜索服务
+        </el-radio-button>
       </el-radio-group>
     </div>
     
@@ -63,6 +69,12 @@
               <el-tag v-if="getProviderType(key.provider) === 'image'" type="warning" size="small">
                 <el-icon><Picture /></el-icon> 图像
               </el-tag>
+              <el-tag v-else-if="getProviderType(key.provider) === 'video'" type="danger" size="small">
+                <el-icon><VideoCamera /></el-icon> 视频
+              </el-tag>
+              <el-tag v-else-if="getProviderType(key.provider) === 'search'" type="info" size="small">
+                <el-icon><Search /></el-icon> 搜索
+              </el-tag>
               <el-tag v-else type="primary" size="small">
                 <el-icon><EditPen /></el-icon> 文本
               </el-tag>
@@ -82,6 +94,10 @@
             <div class="info-row">
               <span class="label">模型</span>
               <span class="value">{{ key.model_name }}</span>
+            </div>
+            <div class="info-row" v-if="key.channel && key.channel !== 'default'">
+              <span class="label">分组</span>
+              <span class="value channel-badge">{{ getChannelName(key.provider, key.channel) }}</span>
             </div>
             <div class="info-row" v-if="key.api_base">
               <span class="label">API地址</span>
@@ -149,10 +165,16 @@
             <el-radio-button label="image">
               <el-icon><Picture /></el-icon> 图像模型
             </el-radio-button>
+            <el-radio-button label="video">
+              <el-icon><VideoCamera /></el-icon> 视频模型
+            </el-radio-button>
+            <el-radio-button label="search">
+              <el-icon><Search /></el-icon> 搜索服务
+            </el-radio-button>
           </el-radio-group>
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
-            <span>文本模型用于创意生成，图像模型用于图片生成/编辑</span>
+            <span>文本模型用于创意生成，图像模型用于图片生成，视频模型用于视频生成，搜索服务用于热点聚合</span>
           </div>
         </el-form-item>
         
@@ -174,6 +196,32 @@
             <el-icon><WarningFilled /></el-icon>
             <span>{{ currentProviderNotice }}</span>
           </div>
+          <!-- 贞贞AI工坊分组配置提示 -->
+          <div class="provider-notice t8star-tip" v-if="form.provider && form.provider.startsWith('t8star')">
+            <el-icon><InfoFilled /></el-icon>
+            <span>分组配置：请登录 <a href="https://ai.t8star.cn" target="_blank">贞贞工坊官网</a> → 令牌管理 → 编辑令牌 → 添加分组。系统会自动在您选择的分组中查找可用渠道。</span>
+          </div>
+        </el-form-item>
+        
+        <!-- 渠道分组选择 - 仅当提供商支持分组时显示 -->
+        <el-form-item label="渠道分组" v-if="currentProviderChannels.length > 0">
+          <el-select v-model="form.channel" placeholder="选择渠道分组" style="width: 100%">
+            <el-option
+              v-for="ch in currentProviderChannels"
+              :key="ch.id"
+              :label="ch.name"
+              :value="ch.id"
+            >
+              <div class="channel-option">
+                <span class="channel-name">{{ ch.name }}</span>
+                <span class="channel-desc">{{ ch.description }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <div class="form-tip">
+            <el-icon><InfoFilled /></el-icon>
+            <span>不同分组价格和成功率不同，详情请查看官网</span>
+          </div>
         </el-form-item>
         
         <!-- API Base - 用户自行填写 -->
@@ -189,8 +237,8 @@
           </div>
         </el-form-item>
         
-        <!-- 模型名称 - 用户自行填写 -->
-        <el-form-item label="模型名称" prop="model_name">
+        <!-- 模型名称 - 用户自行填写（搜索服务隐藏） -->
+        <el-form-item label="模型名称" prop="model_name" v-if="form.model_type !== 'search'">
           <el-select 
             v-model="form.model_name" 
             placeholder="选择或直接输入模型名称" 
@@ -220,6 +268,14 @@
           <div class="form-tip">
             <el-icon><InfoFilled /></el-icon>
             <span>可直接输入自定义模型名称（如豆包的Endpoint ID）</span>
+          </div>
+        </el-form-item>
+        
+        <!-- 搜索服务说明 -->
+        <el-form-item label="服务说明" v-if="form.model_type === 'search'">
+          <div class="search-service-info">
+            <el-icon><InfoFilled /></el-icon>
+            <span>搜索服务无需选择模型，系统将自动使用对应服务的搜索API</span>
           </div>
         </el-form-item>
         
@@ -271,6 +327,7 @@ const form = ref({
   provider: '',
   api_base: '',
   model_name: '',
+  channel: 'default',
   api_key: '',
   is_default: true
 })
@@ -312,6 +369,12 @@ const availableModels = computed(() => {
   return provider?.models || []
 })
 
+// 获取当前提供商的渠道分组列表
+const currentProviderChannels = computed(() => {
+  const provider = LLM_PROVIDERS.find(p => p.value === form.value.provider)
+  return provider?.channels || []
+})
+
 onMounted(async () => {
   await apiKeyStore.fetchApiKeys()
 })
@@ -325,6 +388,7 @@ function onModelTypeChange() {
   form.value.provider = ''
   form.value.model_name = ''
   form.value.api_base = ''
+  form.value.channel = 'default'
 }
 
 function onProviderChange() {
@@ -332,6 +396,12 @@ function onProviderChange() {
   // 自动填充默认API地址
   const provider = LLM_PROVIDERS.find(p => p.value === form.value.provider)
   form.value.api_base = provider?.api_base || ''
+  // 设置默认渠道分组
+  if (provider?.channels && provider.channels.length > 0) {
+    form.value.channel = 'default'
+  } else {
+    form.value.channel = 'default'
+  }
 }
 
 async function testConnection(key) {
@@ -367,7 +437,8 @@ async function testBeforeAdd() {
       provider: form.value.provider,
       model_name: form.value.model_name,
       api_key: form.value.api_key,
-      api_base: form.value.api_base || null
+      api_base: form.value.api_base || null,
+      channel: form.value.channel
     })
     
     if (res.data?.success) {
@@ -384,6 +455,11 @@ async function testBeforeAdd() {
 }
 
 async function handleAdd() {
+  // 搜索服务自动设置model_name
+  if (form.value.model_type === 'search' && !form.value.model_name) {
+    form.value.model_name = form.value.provider === 'bocha' ? 'bocha-web-search' : 'baidu-ai-search'
+  }
+  
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
   
@@ -394,6 +470,7 @@ async function handleAdd() {
       model_name: form.value.model_name,
       api_key: form.value.api_key,
       api_base: form.value.api_base || null,
+      channel: form.value.channel,
       is_default: form.value.is_default
     })
     ElMessage.success('添加成功')
@@ -430,6 +507,7 @@ function resetForm() {
     provider: '',
     api_base: '',
     model_name: '',
+    channel: 'default',
     api_key: '',
     is_default: false
   }
@@ -452,9 +530,24 @@ function getProviderColor(provider) {
     doubao: '#ff4d4f',
     'doubao-image': '#ff7875',
     siliconflow: '#2f54eb',
-    openrouter: '#10a37f'
+    openrouter: '#10a37f',
+    'openrouter-image': '#20c997',
+    bocha: '#1890ff',
+    baidu: '#2932e1',
+    // 贞贞AI工坊
+    t8star: '#ff6b35',
+    't8star-image': '#f7931e',
+    't8star-video': '#e74c3c'
   }
   return colors[provider] || '#909399'
+}
+
+// 获取渠道分组名称
+function getChannelName(provider, channel) {
+  const p = LLM_PROVIDERS.find(p => p.value === provider)
+  if (!p?.channels) return channel
+  const ch = p.channels.find(c => c.id === channel)
+  return ch?.name || channel
 }
 
 function formatDate(dateStr) {
@@ -595,6 +688,14 @@ function formatDate(dateStr) {
           font-size: 12px;
           color: #909399;
         }
+        
+        &.channel-badge {
+          background: #fff7e6;
+          color: #fa8c16;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+        }
       }
     }
   }
@@ -646,6 +747,21 @@ function formatDate(dateStr) {
   span {
     line-height: 1.5;
   }
+  
+  // 贞贞工坊分组提示特殊样式
+  &.t8star-tip {
+    background: #ecf5ff;
+    color: #409eff;
+    
+    a {
+      color: #409eff;
+      font-weight: 500;
+      
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
 }
 
 // 模型选择器样式
@@ -676,6 +792,39 @@ function formatDate(dateStr) {
     color: #909399;
     margin-top: 4px;
     line-height: 1.4;
+  }
+}
+
+// 渠道分组选择器样式
+.channel-option {
+  padding: 4px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  .channel-name {
+    font-weight: 500;
+  }
+  
+  .channel-desc {
+    font-size: 12px;
+    color: #909399;
+  }
+}
+
+// 搜索服务说明样式
+.search-service-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #e6f7ff;
+  border-radius: 6px;
+  color: #1890ff;
+  font-size: 14px;
+  
+  .el-icon {
+    font-size: 18px;
   }
 }
 </style>

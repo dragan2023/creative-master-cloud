@@ -10,9 +10,35 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import time
 import os
+import sys
+import signal
+import threading
 
 from app.core.config import get_settings
 from app.core.logger import init_logging, get_logger
+
+
+def _open_browser_delayed(frontend_url: str, delay: float = 3.0):
+    """延迟打开浏览器的后台线程函数"""
+    import time
+    import webbrowser
+    time.sleep(delay)  # 等待服务完全就绪
+    try:
+        print(f"\n[INFO] 正在打开浏览器访问前端: {frontend_url}")
+        webbrowser.open(frontend_url)
+    except Exception as e:
+        print(f"[WARN] 打开浏览器失败: {e}")
+
+
+def _start_browser_opener():
+    """启动后台线程自动打开浏览器"""
+    frontend_url = "http://localhost:8000"
+    thread = threading.Thread(
+        target=_open_browser_delayed,
+        args=(frontend_url, 3.0),
+        daemon=True
+    )
+    thread.start()
 
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
@@ -54,6 +80,74 @@ async def lifespan(app: FastAPI):
     from app.core.database import init_db
     await init_db()
     logger.info("数据库表初始化完成")
+
+    # 清理上次服务器退出时遗留的幽灵运行任务
+    # 服务器重启后，内存中的任务状态丢失，数据库中残留 running 状态的任务已无法继续
+    # 将其标记为 failed，避免前端页面刷新后误认为任务仍在运行
+    try:
+        from sqlalchemy import update
+        from app.core.database import async_session_maker
+        from app.models.novel_project import NovelProject
+        async with async_session_maker() as db:
+            result = await db.execute(
+                update(NovelProject)
+                .where(NovelProject.generation_task_status == 'running')
+                .values(generation_task_status='failed')
+            )
+            await db.commit()
+            if result.rowcount > 0:
+                logger.warning(
+                    f"清理了 {result.rowcount} 个遗留的幽灵运行任务（已标记为 failed）")
+    except Exception as e:
+        logger.warning(f"清理幽灵任务失败（不影响启动）: {e}")
+
+    # ChromaDB 向量库健康检查和数据完整性验证
+    try:
+        from app.core.vector_store import get_vector_store
+        vector_store = get_vector_store()
+        health = vector_store.health_check()
+
+        if health["healthy"]:
+            logger.info(f"ChromaDB 健康检查通过，集合数: {len(health['collections'])}")
+
+            # 检查数据完整性：对比向量库数据与图谱文件
+            for coll_info in health["collections"]:
+                coll_name = coll_info["name"]
+                coll_count = coll_info.get("count", 0)
+
+                # 只检查项目知识库集合
+                if coll_name.startswith("project_") and coll_name.endswith("_kb"):
+                    # 提取项目ID
+                    try:
+                        project_id = int(coll_name.replace(
+                            "project_", "").replace("_kb", ""))
+
+                        # 检查图谱文件是否存在
+                        settings = get_settings()
+                        graph_dir = settings.get_knowledge_graph_dir()
+                        global_graph_path = os.path.join(
+                            graph_dir, f"project_{project_id}_global_graph.json")
+
+                        if os.path.exists(global_graph_path) and coll_count == 0:
+                            logger.warning(
+                                f"检测到向量库数据丢失: collection={coll_name}, "
+                                f"图谱文件存在但向量库为空。数据将在下次知识库构建时恢复。"
+                            )
+                    except (ValueError, Exception) as e:
+                        logger.debug(f"解析项目ID失败: {coll_name}, error={e}")
+        else:
+            logger.warning(f"ChromaDB 健康检查发现问题: {health['errors']}")
+            # 尝试自动修复
+            repair_report = vector_store.repair_all_collections()
+            if repair_report["repaired"] > 0:
+                logger.info(f"ChromaDB 自动修复完成: {repair_report}")
+            elif repair_report["failed"] > 0:
+                logger.warning(f"ChromaDB 自动修复部分失败: {repair_report}")
+    except Exception as e:
+        logger.warning(f"ChromaDB 健康检查失败（不影响启动）: {e}")
+
+    # 启动后自动打开浏览器
+    _start_browser_opener()
 
     yield
 
@@ -105,6 +199,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     import traceback
     error_detail = f"{type(exc).__name__}: {str(exc)}"
     full_traceback = traceback.format_exc()
+    # 记录完整的异常堆栈
     logger.error(f"未处理的异常: {error_detail}\n{full_traceback}")
 
     return JSONResponse(
@@ -112,7 +207,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "code": 500,
             "message": "服务器内部错误",
-            "detail": error_detail if settings.DEBUG else None
+            "detail": error_detail if settings.DEBUG else None,
+            "traceback": full_traceback if settings.DEBUG else None
         }
     )
 
@@ -128,17 +224,79 @@ async def health_check():
     }
 
 
+# 退出程序端点
+@app.post("/api/v1/system/exit", tags=["系统"])
+async def exit_application():
+    """
+    退出程序接口
+    执行清理操作后关闭应用程序
+    """
+    logger = get_logger("system")
+    logger.info("收到退出程序请求，开始执行清理操作...")
+
+    try:
+        # 1. 关闭数据库引擎（会自动关闭所有连接）
+        try:
+            from app.core.database import engine
+            await engine.dispose()
+            logger.info("数据库连接已关闭")
+        except Exception as e:
+            logger.warning(f"关闭数据库连接时出错: {e}")
+
+        # 2. 关闭Redis连接（如果存在）
+        try:
+            from app.core.redis_client import redis_manager
+            if redis_manager and hasattr(redis_manager, 'close'):
+                await redis_manager.close()
+                logger.info("Redis连接已关闭")
+        except ImportError:
+            pass  # Redis模块不存在
+        except Exception as e:
+            logger.warning(f"关闭Redis连接时出错: {e}")
+
+        logger.info("清理操作完成，准备退出程序...")
+
+    except Exception as e:
+        logger.error(f"退出清理过程中发生错误: {e}")
+
+    # 在后台线程中延迟退出，确保HTTP响应能够返回
+    def do_exit():
+        import time
+        time.sleep(0.5)  # 等待HTTP响应发送完成
+        logger.info("程序退出")
+        os._exit(0)  # 强制退出，确保所有线程终止
+
+    exit_thread = threading.Thread(target=do_exit, daemon=True)
+    exit_thread.start()
+
+    return {"code": 0, "message": "程序正在退出...", "success": True}
+
+
 # 注册路由
 app.include_router(api_router, prefix="/api/v1")
 
 
 # 托管前端静态文件（生产环境）
-# 获取前端构建目录 - backend 目录的兄弟目录 frontend/dist
+# 优先使用 backend/app/static 目录（开发时 Vite 构建输出）
+# 如果不存在，则尝试 frontend/dist（发行版结构）
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
-FRONTEND_DIST = os.path.join(PROJECT_ROOT, "frontend", "dist")
 
-if os.path.exists(FRONTEND_DIST):
+# 静态文件目录优先级
+STATIC_DIRS = [
+    os.path.join(BACKEND_DIR, "app", "static"),  # 开发环境：backend/app/static
+    os.path.join(PROJECT_ROOT, "frontend", "dist")  # 发行版：frontend/dist
+]
+
+FRONTEND_DIST = None
+for static_dir in STATIC_DIRS:
+    if os.path.exists(static_dir):
+        FRONTEND_DIST = static_dir
+        break
+
+if FRONTEND_DIST:
+    print(f"[INFO] 前端静态文件目录：{FRONTEND_DIST}")
+
     # 挂载静态资源目录
     assets_dir = os.path.join(FRONTEND_DIST, "assets")
     if os.path.exists(assets_dir):

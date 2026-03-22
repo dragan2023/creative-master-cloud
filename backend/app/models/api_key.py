@@ -24,6 +24,9 @@ class UserAPIKey(BaseModel):
                         nullable=False, comment="是否默认模型")
     is_valid = Column(Boolean, default=True, nullable=False, comment="是否有效")
     last_used_at = Column(String(30), nullable=True, comment="最后使用时间")
+    # 渠道分组（贞贞AI工坊等支持多分组）
+    channel = Column(String(50), nullable=True, default="default",
+                     comment="渠道分组(default/sora-vip/gemini-premium等)")
     # 自定义Provider支持
     is_custom = Column(Boolean, default=False,
                        nullable=False, comment="是否自定义Provider")

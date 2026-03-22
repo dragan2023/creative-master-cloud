@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 创建默认数据目录（可通过挂载卷覆盖）
-RUN mkdir -p /app/logs /app/data/chroma /app/data/uploads /app/data/knowledge_graphs /app/data/marker_models
+RUN mkdir -p /app/logs /app/data/chroma /app/data/uploads /app/data/knowledge_graphs
 
 # 暴露端口（可通过环境变量 PORT 覆盖）
 EXPOSE 8000

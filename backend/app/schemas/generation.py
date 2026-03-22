@@ -2,6 +2,7 @@
 创意生成相关 Schema
 """
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -13,6 +14,7 @@ class GenerationModule(str, Enum):
     NOVEL = "novel"
     PRINT_AD = "print_ad"
     TVC = "tvc"
+    ORIGINAL_IP = "original_ip"
 
 
 class GenerationStatus(str, Enum):
@@ -33,10 +35,17 @@ class ShortVideoInput(BaseModel):
     platform: str = Field(default="抖音", description="发布平台")
     style: str = Field(default="轻松有趣", description="风格调性")
     duration: int = Field(default=60, description="视频时长(秒)")
+    mode: Optional[str] = Field(
+        default="virtual", description="生成模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI生成）")
     generate_ai_prompt: Optional[str] = Field(None, description="是否生成AI视频提示")
     ai_platforms: Optional[str] = Field(None, description="AI视频平台")
+    generate_storyboard_images: Optional[str] = Field(
+        default="否", description="是否生成分镜图提示词（用于AI绘图生成参考图）")
     reference_video: Optional[str] = Field(
         None, description="参考视频URL（仅Gemini 1.5 Pro/Flash支持）")
+    # 参考资料上传功能
+    reference_materials: Optional[str] = Field(
+        None, description="参考资料URL（用户上传的文本文件，包含创作参考素材）")
     # 运营相关自定义变量
     account_tone: Optional[str] = Field(
         None, description="账号调性（如：专业干货型、搞笑娱乐型、情感治愈型等）")
@@ -65,6 +74,17 @@ class ScriptInput(BaseModel):
     episode_count: Optional[str] = Field(None, description="集数")
     custom_outline: Optional[str] = Field(
         None, description="自写大纲URL（用户上传的文本文件）")
+    # 剧本专业配置参数（与正文生成板块对齐）
+    episode_duration_range: Optional[str] = Field(
+        default="30-45分钟", description="每集时长区间（如：5-15分钟）")
+    scenes_per_episode_range: Optional[str] = Field(
+        default="AI自动设计", description="每集场景数范围")
+    format_standard: Optional[str] = Field(
+        default="标准格式", description="剧本格式标准")
+    dialogue_narration_ratio: Optional[str] = Field(
+        default="均衡", description="对白与叙述比例")
+    target_broadcast: Optional[str] = Field(
+        default="未指定", description="目标投放平台")
 
 
 # ==================== 小说大纲 ====================
@@ -90,8 +110,10 @@ class NovelInput(BaseModel):
 # ==================== 平面广告 ====================
 
 class PrintAdInput(BaseModel):
-    """平面广告输入"""
+    """平面设计输入"""
     title: Optional[str] = Field(None, description="标题/主题")
+    design_category: Optional[str] = Field(
+        default="商业广告", description="设计类别（logo设计/商业广告/宣传单页/公益广告/政府宣传/海报设计/展架设计/包装设计/其他设计）")
     brand_product: str = Field(..., description="品牌/产品名称（具体品牌+产品，新品牌需说明调性）")
     ad_purpose: str = Field(..., description="广告目的")
     core_message: str = Field(..., description="核心信息（如果受众看完只记住一件事，必须用一句话说清楚）")
@@ -164,10 +186,15 @@ class GenerationHistoryResponse(BaseModel):
     model_name: Optional[str] = None
     token_count: int
     duration_ms: int
-    created_at: str
+    created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True,  # 枚举类型序列化为字符串值
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class SessionCreateResponse(BaseModel):
@@ -203,10 +230,15 @@ class UserActionResponse(BaseModel):
     module: str
     action: ActionType
     content_snippet: Optional[str] = None
-    created_at: str
+    created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True,  # 枚举类型序列化为字符串值
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class ActionStatsResponse(BaseModel):
@@ -217,3 +249,63 @@ class ActionStatsResponse(BaseModel):
     regenerate_count: int
     copy_rate: float  # 复制率 = 复制数/总生成数
     download_rate: float  # 下载率 = 下载数/总生成数
+
+
+# ==================== 提示词优化 ====================
+
+class OptimizeModule(str, Enum):
+    """支持的优化模块"""
+    SHORT_VIDEO = "short_video"
+    SCRIPT = "script"
+    NOVEL = "novel"
+    PRINT_AD = "print_ad"
+    TVC = "tvc"
+    ORIGINAL_IP = "original_ip"
+
+
+class OptimizeRequest(BaseModel):
+    """提示词优化请求"""
+    module: str = Field(
+        ...,
+        description="模块名称（short_video/script/novel/print_ad/tvc/original_ip）"
+    )
+    original_text: str = Field(
+        ...,
+        description="原始描述文本，最少5个字符"
+    )
+
+
+class OptimizeResponse(BaseModel):
+    """提示词优化响应"""
+    optimized_text: str = Field(..., description="优化后的文本")
+    original_length: int = Field(..., description="原始文本长度")
+    optimized_length: int = Field(..., description="优化后文本长度")
+    module: str = Field(..., description="模块名称")
+    module_name: str = Field(..., description="模块中文名称")
+
+
+# ==================== 原创IP计划 ====================
+
+class OriginalIPInput(BaseModel):
+    """原创IP计划输入（简化版 - 用户只需提供概括性描述）"""
+    ip_description: str = Field(
+        ...,
+        description="IP角色概括性描述（自由文本，AI将自动解析并补足各维度信息）",
+        min_length=10
+    )
+    target_platform: Optional[str] = Field(
+        None,
+        description="目标平台（漫画/动画/游戏/周边/短视频/综合）"
+    )
+    reference_ip: Optional[str] = Field(
+        None,
+        description="参考的知名IP（可选，用于风格借鉴）"
+    )
+    commercial_goal: Optional[str] = Field(
+        None,
+        description="商业目标（可选，如：品牌代言、周边开发、内容IP化等）"
+    )
+    custom_requirements: Optional[str] = Field(
+        None,
+        description="其他特殊要求（可选）"
+    )

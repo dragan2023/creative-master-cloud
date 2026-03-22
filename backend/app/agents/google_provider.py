@@ -7,9 +7,25 @@ from typing import AsyncGenerator, Optional, Dict, List, Any
 from google import genai
 from google.genai import types
 import os
+import logging
 
 from app.agents.base_provider import BaseLLMProvider, LLMResponse
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+# Google Gemini 模型最大输出 token 映射
+GOOGLE_MAX_OUTPUT_TOKENS = {
+    "gemini-3.1-pro-preview": 65536,
+    "gemini-3.1-pro": 65536,
+    "gemini-3-pro": 65536,
+    "gemini-2.5-pro": 65536,
+    "gemini-2.5-flash": 65536,
+    "gemini-2.0-flash": 32768,
+    "gemini-pro": 32768,
+    "gemini-pro-vision": 32768,
+}
 
 
 class GoogleProvider(BaseLLMProvider):
@@ -42,6 +58,28 @@ class GoogleProvider(BaseLLMProvider):
         if self._client is None:
             self._client = genai.Client(api_key=self.api_key)
         return self._client
+
+    def get_max_output_tokens(self) -> int:
+        """
+        获取当前模型支持的最大输出 token 数
+
+        Returns:
+            最大输出 token 数
+        """
+        model_lower = self.model_name.lower()
+        # 去除可能的前缀
+        model_id = model_lower.split(
+            "/")[-1] if "/" in model_lower else model_lower
+
+        # 精确匹配
+        if model_id in GOOGLE_MAX_OUTPUT_TOKENS:
+            return GOOGLE_MAX_OUTPUT_TOKENS[model_id]
+        # 模糊匹配
+        for key, value in GOOGLE_MAX_OUTPUT_TOKENS.items():
+            if key in model_id or model_id in key:
+                return value
+        # 默认值
+        return self.DEFAULT_MAX_OUTPUT_TOKENS
 
     def _build_multimodal_content(
         self,
@@ -190,7 +228,7 @@ class GoogleProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -232,7 +270,7 @@ class GoogleProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -254,19 +292,32 @@ class GoogleProvider(BaseLLMProvider):
         else:
             contents = prompt
 
-        async for chunk in await self.client.aio.models.generate_content_stream(
-            model=self.model_name,
-            contents=contents,
-            config=config
-        ):
-            if chunk.text:
-                yield chunk.text
+        try:
+            stream = await self.client.aio.models.generate_content_stream(
+                model=self.model_name,
+                contents=contents,
+                config=config
+            )
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 chunk 有 text 属性且不为空
+                    if hasattr(chunk, 'text') and chunk.text:
+                        yield chunk.text
+                except (AttributeError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(
+                        f"Google generate_stream chunk解析异常: {e}")
+                    continue
+
+        except Exception as e:
+            logger.exception(f"Google generate_stream 未知异常: {e}")
+            raise
 
     async def chat(
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> LLMResponse:
         """多轮对话（支持多模态消息）"""
@@ -316,7 +367,7 @@ class GoogleProvider(BaseLLMProvider):
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式多轮对话（支持多模态消息）"""
@@ -345,10 +396,22 @@ class GoogleProvider(BaseLLMProvider):
                 contents.append(types.Content(role=role, parts=[
                                 types.Part(text=str(content))]))
 
-        async for chunk in await self.client.aio.models.generate_content_stream(
-            model=self.model_name,
-            contents=contents,
-            config=config
-        ):
-            if chunk.text:
-                yield chunk.text
+        try:
+            stream = await self.client.aio.models.generate_content_stream(
+                model=self.model_name,
+                contents=contents,
+                config=config
+            )
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 chunk 有 text 属性且不为空
+                    if hasattr(chunk, 'text') and chunk.text:
+                        yield chunk.text
+                except (AttributeError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(f"Google chat_stream chunk解析异常: {e}")
+                    continue
+
+        except Exception as e:
+            logger.exception(f"Google chat_stream 未知异常: {e}")
+            raise

@@ -2,6 +2,7 @@
 知识库相关 Schema
 """
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -29,6 +30,7 @@ class KnowledgeBaseCategory(str, Enum):
     PRINT_AD = "print-ad"
     TVC = "tvc"
     GENERAL = "general"
+    USER_SPECIFIC = "user-specific"
     MANUAL = "manual"
 
 
@@ -50,10 +52,15 @@ class KnowledgeBaseResponse(BaseModel):
     file_size: int = 0
     document_count: int = 0
     preprocessor_metadata: Optional[Dict[str, Any]] = None
-    created_at: str
+    created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True,  # 枚举类型序列化为字符串值
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class KnowledgeBaseUploadResponse(BaseModel):
@@ -86,11 +93,16 @@ class StaticKnowledgeBaseResponse(BaseModel):
     file_size: int = 0
     document_count: int = 0
     preprocessor_metadata: Optional[Dict[str, Any]] = None
-    created_at: str
-    updated_at: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True,  # 枚举类型序列化为字符串值
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class StaticKnowledgeBaseListResponse(BaseModel):
@@ -123,11 +135,16 @@ class APIKnowledgeBaseResponse(BaseModel):
     status: KnowledgeBaseStatus
     api_config: Optional[Dict[str, Any]] = None
     document_count: int = 0
-    created_at: str
-    last_sync: Optional[str] = None
+    created_at: datetime
+    last_sync: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True,  # 枚举类型序列化为字符串值
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class KnowledgeBaseSyncRequest(BaseModel):

@@ -1,0 +1,56 @@
+# ========================================
+# 全能创意大师 - 生产环境Dockerfile
+# 优化构建，移除调试工具
+# ========================================
+
+FROM python:3.10-slim
+
+# 设置工作目录
+WORKDIR /app
+
+# 设置环境变量
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 安装系统依赖（仅保留运行时必需的）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 创建虚拟环境
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装Python依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制应用代码
+COPY . .
+
+# 创建必要的目录
+RUN mkdir -p /app/logs /app/data/chroma /app/data/uploads /app/data/knowledge_graphs
+
+# 移除敏感文件（如果有）
+RUN rm -rf /app/.git /app/.env /app/.env.local 2>/dev/null || true
+
+# 创建非root用户
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# 暴露端口
+EXPOSE 8000
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 启动命令（多worker模式）
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

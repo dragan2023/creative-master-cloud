@@ -6,8 +6,15 @@
 """
 from typing import AsyncGenerator, Optional, Dict, List, Any, Union
 from openai import AsyncOpenAI
+from openai import (
+    APIConnectionError, RateLimitError, APIStatusError,
+    InternalServerError, APITimeoutError
+)
 
 from app.agents.base_provider import BaseLLMProvider, LLMResponse
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # 豆包支持视觉能力的模型（包括多模态模型）
@@ -21,6 +28,18 @@ DOUBAO_VISION_MODELS = [
     "seed-2-0-pro",         # 简写形式
     "seed-2-0"              # 简写形式
 ]
+
+# 豆包模型最大输出 token 映射
+DOUBAO_MAX_OUTPUT_TOKENS = {
+    "doubao-seed-2-0-pro": 32768,
+    "doubao-seed-2-0-pro-260215": 32768,
+    "seed-2-0-pro": 32768,
+    "doubao-1-5-pro": 32768,
+    "doubao-pro-32k": 32768,
+    "doubao-pro-128k": 32768,
+    "deepseek-v3-2": 32768,
+    "deepseek-v3-2-251201": 32768,
+}
 
 
 class DoubaoProvider(BaseLLMProvider):
@@ -60,6 +79,24 @@ class DoubaoProvider(BaseLLMProvider):
         if "vision" in model_lower or "seed" in model_lower:
             return True
         return False
+
+    def get_max_output_tokens(self) -> int:
+        """
+        获取当前模型支持的最大输出 token 数
+
+        Returns:
+            最大输出 token 数
+        """
+        model_lower = self.model_name.lower()
+        # 精确匹配
+        if model_lower in DOUBAO_MAX_OUTPUT_TOKENS:
+            return DOUBAO_MAX_OUTPUT_TOKENS[model_lower]
+        # 模糊匹配
+        for key, value in DOUBAO_MAX_OUTPUT_TOKENS.items():
+            if key in model_lower or model_lower in key:
+                return value
+        # 默认值
+        return self.DEFAULT_MAX_OUTPUT_TOKENS
 
     def _build_content(
         self,
@@ -113,7 +150,7 @@ class DoubaoProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -153,7 +190,7 @@ class DoubaoProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -168,24 +205,52 @@ class DoubaoProvider(BaseLLMProvider):
         user_content = self._build_content(prompt, images, videos)
         messages.append({"role": "user", "content": user_content})
 
-        stream = await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                **kwargs
+            )
 
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 choices 列表不为空且 delta 存在
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta and hasattr(delta, 'content') and delta.content:
+                            yield delta.content
+                except (AttributeError, IndexError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(f"Doubao流式生成chunk解析异常: {e}")
+                    continue
+
+        except APIConnectionError as e:
+            logger.error(f"Doubao API连接错误: {e}")
+            raise ConnectionError(f"无法连接到豆包API服务: {str(e)}")
+        except RateLimitError as e:
+            logger.error(f"Doubao API速率限制: {e}")
+            raise RuntimeError(f"豆包API请求频率超限，请稍后重试: {str(e)}")
+        except APITimeoutError as e:
+            logger.error(f"Doubao API超时: {e}")
+            raise TimeoutError(f"豆包API请求超时: {str(e)}")
+        except InternalServerError as e:
+            logger.error(f"Doubao服务器内部错误: {e}")
+            raise RuntimeError(f"豆包服务器内部错误: {str(e)}")
+        except APIStatusError as e:
+            logger.error(f"Doubao API状态错误 [{e.status_code}]: {e.message}")
+            raise RuntimeError(f"豆包API错误 [{e.status_code}]: {e.message}")
+        except Exception as e:
+            logger.exception(f"Doubao流式生成未知异常: {e}")
+            raise
 
     async def chat(
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> LLMResponse:
         """多轮对话（支持多模态消息）"""
@@ -213,19 +278,48 @@ class DoubaoProvider(BaseLLMProvider):
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式多轮对话（支持多模态消息）"""
-        stream = await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                **kwargs
+            )
 
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 choices 列表不为空且 delta 存在
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta and hasattr(delta, 'content') and delta.content:
+                            yield delta.content
+                except (AttributeError, IndexError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(f"Doubao chat_stream chunk解析异常: {e}")
+                    continue
+
+        except APIConnectionError as e:
+            logger.error(f"Doubao chat_stream API连接错误: {e}")
+            raise ConnectionError(f"无法连接到豆包API服务: {str(e)}")
+        except RateLimitError as e:
+            logger.error(f"Doubao chat_stream API速率限制: {e}")
+            raise RuntimeError(f"豆包API请求频率超限，请稍后重试: {str(e)}")
+        except APITimeoutError as e:
+            logger.error(f"Doubao chat_stream API超时: {e}")
+            raise TimeoutError(f"豆包API请求超时: {str(e)}")
+        except InternalServerError as e:
+            logger.error(f"Doubao chat_stream 服务器内部错误: {e}")
+            raise RuntimeError(f"豆包服务器内部错误: {str(e)}")
+        except APIStatusError as e:
+            logger.error(
+                f"Doubao chat_stream API状态错误 [{e.status_code}]: {e.message}")
+            raise RuntimeError(f"豆包API错误 [{e.status_code}]: {e.message}")
+        except Exception as e:
+            logger.exception(f"Doubao chat_stream 未知异常: {e}")
+            raise

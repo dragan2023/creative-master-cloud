@@ -1,5 +1,6 @@
 """
-用户认证 API 端点
+用户配置和 API Key 管理 API 端点
+（已移除用户认证系统，所有操作使用默认用户）
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,23 +8,16 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.security import (
-    verify_password,
-    get_password_hash,
-    create_access_token,
     mask_api_key,
     api_key_encryption
 )
 from app.core.config import get_settings
 from app.core.logger import get_logger
 from app.api.deps import get_current_user
-from app.models import User, UserRole, UserAPIKey
+from app.models import User, UserAPIKey
 from app.schemas.common import ResponseModel
 from app.schemas.user import (
-    UserCreate,
     UserResponse,
-    UserUpdate,
-    UserLogin,
-    TokenResponse,
     APIKeyCreate,
     APIKeyResponse,
     APIKeyTest,
@@ -53,114 +47,17 @@ class ProxyConfigResponse(BaseModel):
 class PreprocessorConfig(BaseModel):
     """文档预处理配置"""
     doc_preprocessor_enabled: bool = Field(True, description="是否启用文档预处理")
-    marker_enabled: bool = Field(True, description="是否启用Marker")
-    semantic_chunk_enabled: bool = Field(True, description="是否启用语义分块")
-    semantic_chunk_size: int = Field(1024, description="语义分块大小")
-    semantic_threshold: float = Field(0.7, description="语义阈值")
-    summarization_enabled: bool = Field(False, description="是否启用摘要")
     graphrag_enabled: bool = Field(True, description="是否启用GraphRAG知识图谱")
 
 
 class PreprocessorConfigResponse(BaseModel):
     """文档预处理配置响应"""
     doc_preprocessor_enabled: bool = True
-    marker_enabled: bool = True
-    semantic_chunk_enabled: bool = True
-    semantic_chunk_size: int = 1024
-    semantic_threshold: float = 0.7
-    summarization_enabled: bool = False
     graphrag_enabled: bool = True
-    marker_model_dir: str = ""
 
 
-router = APIRouter(prefix="/auth", tags=["认证"])
+router = APIRouter(prefix="/auth", tags=["配置"])
 settings = get_settings()
-
-
-# ==================== 用户注册/登录 ====================
-
-@router.post("/register", response_model=ResponseModel[UserResponse])
-async def register(
-    user_data: UserCreate,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    用户注册
-
-    Args:
-        user_data: 用户注册数据
-        db: 数据库会话
-
-    Returns:
-        用户信息
-    """
-    logger = get_logger("auth")
-
-    # 检查用户名是否存在
-    result = await db.execute(select(User).where(User.username == user_data.username))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="用户名已存在")
-
-    # 检查邮箱是否存在
-    result = await db.execute(select(User).where(User.email == user_data.email))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="邮箱已被注册")
-
-    # 创建用户
-    user = User(
-        username=user_data.username,
-        email=user_data.email,
-        nickname=user_data.nickname or user_data.username,
-        hashed_password=get_password_hash(user_data.password),
-        role=UserRole.USER
-    )
-
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-
-    logger.info(f"新用户注册: {user.username}")
-
-    return ResponseModel(data=UserResponse.model_validate(user))
-
-
-@router.post("/login", response_model=ResponseModel[TokenResponse])
-async def login(
-    credentials: UserLogin,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    用户登录
-
-    Args:
-        credentials: 登录凭据
-        db: 数据库会话
-
-    Returns:
-        Token 和用户信息
-    """
-    logger = get_logger("auth")
-
-    # 查询用户
-    result = await db.execute(select(User).where(User.username == credentials.username))
-    user = result.scalar_one_or_none()
-
-    if not user or not verify_password(credentials.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
-
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="用户已被禁用")
-
-    # 创建 Token
-    access_token = create_access_token(subject=user.id)
-
-    logger.info(f"用户登录: {user.username}")
-
-    return ResponseModel(data=TokenResponse(
-        access_token=access_token,
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user)
-    ))
 
 
 # ==================== 用户信息 ====================
@@ -169,25 +66,7 @@ async def login(
 async def get_current_user_info(
     current_user: User = Depends(get_current_user)
 ):
-    """获取当前用户信息"""
-    return ResponseModel(data=UserResponse.model_validate(current_user))
-
-
-@router.put("/me", response_model=ResponseModel[UserResponse])
-async def update_current_user(
-    user_data: UserUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """更新当前用户信息"""
-    if user_data.nickname:
-        current_user.nickname = user_data.nickname
-    if user_data.avatar:
-        current_user.avatar = user_data.avatar
-
-    await db.commit()
-    await db.refresh(current_user)
-
+    """获取当前用户信息（返回默认用户）"""
     return ResponseModel(data=UserResponse.model_validate(current_user))
 
 
@@ -223,6 +102,7 @@ async def get_api_keys(
             model_name=key.model_name,
             api_key_masked=api_key_masked,
             api_base=key.api_base,
+            channel=key.channel if hasattr(key, 'channel') else "default",
             is_default=key.is_default,
             is_valid=key.is_valid,
             last_used_at=str(key.last_used_at) if key.last_used_at else None,
@@ -262,6 +142,7 @@ async def create_api_key(
         model_name=key_data.model_name,
         encrypted_key=encrypted_key,
         api_base=key_data.api_base,
+        channel=getattr(key_data, 'channel', 'default'),
         is_default=key_data.is_default
     )
 
@@ -307,6 +188,7 @@ async def update_api_key(
     api_key.model_name = key_data.model_name
     api_key.encrypted_key = api_key_encryption.encrypt(key_data.api_key)
     api_key.api_base = key_data.api_base
+    api_key.channel = getattr(key_data, 'channel', 'default')
 
     if key_data.is_default:
         # 取消其他默认
@@ -330,6 +212,7 @@ async def update_api_key(
         model_name=api_key.model_name,
         api_key_masked=mask_api_key(key_data.api_key),
         api_base=api_key.api_base,
+        channel=getattr(api_key, 'channel', 'default'),
         is_default=api_key.is_default,
         is_valid=api_key.is_valid,
         last_used_at=api_key.last_used_at
@@ -400,6 +283,7 @@ async def set_default_api_key(
         model_name=api_key.model_name,
         api_key_masked=mask_api_key(api_key.encrypted_key),
         api_base=api_key.api_base,
+        channel=getattr(api_key, 'channel', 'default'),
         is_default=api_key.is_default,
         is_valid=api_key.is_valid,
         last_used_at=api_key.last_used_at
@@ -413,12 +297,55 @@ async def test_api_key(
 ):
     """测试 API Key 是否有效（真实调用API验证）"""
     from app.agents import get_llm_manager
+    from app.core.config import PRESET_MODELS
     import httpx
     import asyncio
 
     logger = get_logger(str(current_user.id))
 
+    # 获取模型类型
+    def get_model_type(provider: str, model_name: str) -> str:
+        """获取模型类型 (text/image/video/search)"""
+        preset = PRESET_MODELS.get(provider, {})
+        models = preset.get("models", [])
+        for m in models:
+            if m.get("id") == model_name:
+                return m.get("type", "text")
+        return "text"
+
+    # 根据模型类型获取测试配置
+    def get_test_config(model_type: str) -> dict:
+        """根据模型类型返回测试配置（含提示词和超时时间）"""
+        configs = {
+            "text": {
+                "prompt": "Hello, this is a connection test. Please respond with 'OK'.",
+                "max_tokens": 50,
+                "timeout": 30.0  # 文本模型 30 秒
+            },
+            "image": {
+                # 图像生成模型使用简洁、明确的提示词
+                "prompt": "A simple red circle on white background",
+                "max_tokens": None,  # 图像生成不需要 max_tokens
+                "timeout": 120.0  # 图像模型 2 分钟
+            },
+            "video": {
+                "prompt": "A peaceful sunset over the ocean",
+                "max_tokens": None,
+                "timeout": 300.0  # 视频模型 5 分钟
+            }
+        }
+        return configs.get(model_type, configs["text"])
+
     try:
+        # 搜索服务API Key测试（支持博查AI和百度搜索）
+        if test_data.provider in ["bocha", "baidu"]:
+            return await _test_search_api_key(test_data.provider, test_data.api_key, logger)
+
+        # 获取模型类型和测试配置
+        model_type = get_model_type(test_data.provider, test_data.model_name)
+        test_config = get_test_config(model_type)
+        test_message = test_config["prompt"]
+
         llm_manager = get_llm_manager()
         provider = llm_manager.create_provider(
             provider_name=test_data.provider,
@@ -430,8 +357,13 @@ async def test_api_key(
         # 获取模型信息
         model_info = provider.get_model_info()
 
-        # 真实API调用测试
-        test_message = "Hello, this is a connection test. Please respond with 'OK'."
+        # 根据模型类型记录日志
+        if model_type == "image":
+            logger.info(
+                f"图像模型测试: provider={test_data.provider}, model={test_data.model_name}")
+        elif model_type == "video":
+            logger.info(
+                f"视频模型测试: provider={test_data.provider}, model={test_data.model_name}")
 
         if test_data.provider == "google":
             # Google Gemini API测试
@@ -463,44 +395,79 @@ async def test_api_key(
                 "Content-Type": "application/json"
             }
 
+            # 根据模型类型构建 payload
             payload = {
                 "model": test_data.model_name,
-                "messages": [{"role": "user", "content": test_message}],
-                "max_tokens": 50
+                "messages": [{"role": "user", "content": test_message}]
             }
+            # 文本模型需要 max_tokens 限制
+            if test_config.get("max_tokens"):
+                payload["max_tokens"] = test_config["max_tokens"]
 
             # 硬编码代理路由：根据域名列表判断是否需要代理
             from app.tools.proxy_router import get_proxy_for_url
             proxy = get_proxy_for_url(f"{api_base}/chat/completions")
 
-            logger.info(f"API测试: provider={test_data.provider}, proxy={proxy}")
+            logger.info(
+                f"API测试: provider={test_data.provider}, model_type={model_type}, proxy={proxy}")
 
             # 国内服务商：trust_env=False 禁用环境变量代理，确保直连
             # 国外服务商：proxy=proxy_url 使用代理
+            # 使用模型类型对应的超时时间
             if proxy:
-                async with httpx.AsyncClient(timeout=30.0, proxy=proxy) as client:
+                async with httpx.AsyncClient(timeout=test_config["timeout"], proxy=proxy) as client:
                     response = await client.post(
                         f"{api_base}/chat/completions",
                         headers=headers,
                         json=payload
                     )
             else:
-                async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=test_config["timeout"], trust_env=False) as client:
                     response = await client.post(
                         f"{api_base}/chat/completions",
                         headers=headers,
                         json=payload
                     )
 
-                if response.status_code != 200:
-                    error_detail = response.json().get("error", {}).get("message", response.text)
-                    return ResponseModel(data=APIKeyTestResult(
-                        success=False,
-                        message=f"API调用失败: {error_detail}",
-                        model_info=model_info
-                    ))
+            # 检查响应状态
+            if response.status_code == 404 and model_type == "video":
+                # 视频模型可能需要使用 /v2/videos/generations 端点（如 sora 系列）
+                logger.info(
+                    f"chat/completions 返回 404，尝试 /v2/videos/generations 端点")
+                video_payload = {
+                    "model": test_data.model_name,
+                    "prompt": test_message
+                }
+                if proxy:
+                    async with httpx.AsyncClient(timeout=test_config["timeout"], proxy=proxy) as client:
+                        response = await client.post(
+                            f"{api_base}/v2/videos/generations",
+                            headers=headers,
+                            json=video_payload
+                        )
+                else:
+                    async with httpx.AsyncClient(timeout=test_config["timeout"], trust_env=False) as client:
+                        response = await client.post(
+                            f"{api_base}/v2/videos/generations",
+                            headers=headers,
+                            json=video_payload
+                        )
 
-                result = response.json()
+            if response.status_code != 200:
+                error_detail = response.json().get("error", {}).get("message", response.text)
+                return ResponseModel(data=APIKeyTestResult(
+                    success=False,
+                    message=f"API调用失败: {error_detail}",
+                    model_info=model_info
+                ))
+
+            result = response.json()
+            # 视频端点返回格式不同，检查 status 字段
+            if model_type == "video" and result.get("status"):
+                # /v2/videos/generations 端点返回格式
+                test_result = f"视频任务已创建: {result.get('id', 'unknown')}"
+            else:
+                # /chat/completions 端点返回格式
                 test_result = result.get("choices", [{}])[0].get(
                     "message", {}).get("content", "")
 
@@ -584,12 +551,50 @@ async def test_saved_api_key(
         )
 
     try:
+        # 搜索服务API Key测试（支持博查AI和百度搜索）
+        if api_key_record.provider in ["bocha", "baidu"]:
+            return await _test_search_api_key(api_key_record.provider, decrypted_key, logger)
+
         # 获取预置模型配置
         from app.core.config import PRESET_MODELS
         preset = PRESET_MODELS.get(api_key_record.provider, {})
         api_base = api_key_record.api_base or preset.get("api_base")
 
-        test_message = "Hello, this is a connection test. Please respond with 'OK'."
+        # 获取模型类型和测试配置
+        def get_model_type(provider: str, model_name: str) -> str:
+            """获取模型类型 (text/image/video/search)"""
+            preset = PRESET_MODELS.get(provider, {})
+            models = preset.get("models", [])
+            for m in models:
+                if m.get("id") == model_name:
+                    return m.get("type", "text")
+            return "text"
+
+        def get_test_config(model_type: str) -> dict:
+            """根据模型类型返回测试配置（含提示词和超时时间）"""
+            configs = {
+                "text": {
+                    "prompt": "Hello, this is a connection test. Please respond with 'OK'.",
+                    "max_tokens": 50,
+                    "timeout": 30.0  # 文本模型 30 秒
+                },
+                "image": {
+                    "prompt": "A simple red circle on white background",
+                    "max_tokens": None,
+                    "timeout": 120.0  # 图像模型 2 分钟
+                },
+                "video": {
+                    "prompt": "A peaceful sunset over the ocean",
+                    "max_tokens": None,
+                    "timeout": 300.0  # 视频模型 5 分钟
+                }
+            }
+            return configs.get(model_type, configs["text"])
+
+        model_type = get_model_type(
+            api_key_record.provider, api_key_record.model_name)
+        test_config = get_test_config(model_type)
+        test_message = test_config["prompt"]
 
         if api_key_record.provider == "google":
             import google.generativeai as genai
@@ -636,35 +641,61 @@ async def test_saved_api_key(
 
             payload = {
                 "model": api_key_record.model_name,
-                "messages": [{"role": "user", "content": test_message}],
-                "max_tokens": 50
+                "messages": [{"role": "user", "content": test_message}]
             }
+            # 文本模型需要 max_tokens 限制
+            if test_config.get("max_tokens"):
+                payload["max_tokens"] = test_config["max_tokens"]
 
             # 硬编码代理路由：根据域名列表判断是否需要代理
             from app.tools.proxy_router import get_proxy_for_url
             proxy = get_proxy_for_url(f"{api_base}/chat/completions")
 
             logger.info(
-                f"API测试: provider={api_key_record.provider}, proxy={proxy}")
+                f"API测试: provider={api_key_record.provider}, model_type={model_type}, proxy={proxy}")
 
             # 国内服务商：trust_env=False 禁用环境变量代理，确保直连
             # 国外服务商：proxy=proxy_url 使用代理
+            # 使用模型类型对应的超时时间
             if proxy:
-                async with httpx.AsyncClient(timeout=30.0, proxy=proxy) as client:
+                async with httpx.AsyncClient(timeout=test_config["timeout"], proxy=proxy) as client:
                     response = await client.post(
                         f"{api_base}/chat/completions",
                         headers=headers,
                         json=payload
                     )
             else:
-                async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=test_config["timeout"], trust_env=False) as client:
                     response = await client.post(
                         f"{api_base}/chat/completions",
                         headers=headers,
                         json=payload
                     )
 
-            # 检查响应状态（无论是否使用代理都需要检查）
+            # 检查响应状态
+            if response.status_code == 404 and model_type == "video":
+                # 视频模型可能需要使用 /v2/videos/generations 端点（如 sora 系列）
+                logger.info(
+                    f"chat/completions 返回 404，尝试 /v2/videos/generations 端点")
+                video_payload = {
+                    "model": api_key_record.model_name,
+                    "prompt": test_message
+                }
+                if proxy:
+                    async with httpx.AsyncClient(timeout=test_config["timeout"], proxy=proxy) as client:
+                        response = await client.post(
+                            f"{api_base}/v2/videos/generations",
+                            headers=headers,
+                            json=video_payload
+                        )
+                else:
+                    async with httpx.AsyncClient(timeout=test_config["timeout"], trust_env=False) as client:
+                        response = await client.post(
+                            f"{api_base}/v2/videos/generations",
+                            headers=headers,
+                            json=video_payload
+                        )
+
             if response.status_code != 200:
                 error_detail = response.json().get("error", {}).get("message", response.text)
                 api_key_record.is_valid = False
@@ -675,8 +706,14 @@ async def test_saved_api_key(
                 ))
 
             result = response.json()
-            test_result = result.get("choices", [{}])[0].get(
-                "message", {}).get("content", "")
+            # 视频端点返回格式不同，检查 status 字段
+            if model_type == "video" and result.get("status"):
+                # /v2/videos/generations 端点返回格式
+                test_result = f"视频任务已创建: {result.get('id', 'unknown')}"
+            else:
+                # /chat/completions 端点返回格式
+                test_result = result.get("choices", [{}])[0].get(
+                    "message", {}).get("content", "")
 
         # 更新状态
         api_key_record.is_valid = True
@@ -733,8 +770,8 @@ async def get_user_proxy_config(
             proxy_config.http_proxy = data.get("http_proxy")
             proxy_config.https_proxy = data.get("https_proxy")
             proxy_config.is_enabled = config.is_enabled
-        except:
-            pass
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"解析代理配置失败: {str(e)}")
 
     return ResponseModel(data=proxy_config)
 
@@ -868,13 +905,7 @@ async def get_user_preprocessor_config(
 
     default_config = PreprocessorConfigResponse(
         doc_preprocessor_enabled=True,
-        marker_enabled=True,
-        semantic_chunk_enabled=True,
-        semantic_chunk_size=1024,
-        semantic_threshold=0.7,
-        summarization_enabled=False,
-        graphrag_enabled=True,
-        marker_model_dir=settings.MARKER_MODEL_DIR or ""
+        graphrag_enabled=True
     )
 
     if config and config.config_value:
@@ -882,19 +913,10 @@ async def get_user_preprocessor_config(
             data = json.loads(config.config_value)
             default_config.doc_preprocessor_enabled = data.get(
                 "doc_preprocessor_enabled", True)
-            default_config.marker_enabled = data.get("marker_enabled", True)
-            default_config.semantic_chunk_enabled = data.get(
-                "semantic_chunk_enabled", True)
-            default_config.semantic_chunk_size = data.get(
-                "semantic_chunk_size", 1024)
-            default_config.semantic_threshold = data.get(
-                "semantic_threshold", 0.7)
-            default_config.summarization_enabled = data.get(
-                "summarization_enabled", False)
             default_config.graphrag_enabled = data.get(
                 "graphrag_enabled", True)
-        except:
-            pass
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"解析预处理器配置失败: {str(e)}")
 
     return ResponseModel(data=default_config)
 
@@ -919,11 +941,6 @@ async def set_user_preprocessor_config(
 
     config_value = json.dumps({
         "doc_preprocessor_enabled": config_data.doc_preprocessor_enabled,
-        "marker_enabled": config_data.marker_enabled,
-        "semantic_chunk_enabled": config_data.semantic_chunk_enabled,
-        "semantic_chunk_size": config_data.semantic_chunk_size,
-        "semantic_threshold": config_data.semantic_threshold,
-        "summarization_enabled": config_data.summarization_enabled,
         "graphrag_enabled": config_data.graphrag_enabled
     })
 
@@ -942,3 +959,122 @@ async def set_user_preprocessor_config(
     logger.info(f"用户预处理配置已保存: {current_user.username}")
 
     return ResponseModel(message="预处理配置已保存")
+
+
+# ==================== 搜索服务API Key测试 ====================
+
+async def _test_search_api_key(provider: str, api_key: str, logger) -> ResponseModel:
+    """测试搜索服务API Key是否有效（支持博查AI和百度搜索）"""
+    import httpx
+    from app.core.config import SEARCH_PROVIDERS
+
+    provider_config = SEARCH_PROVIDERS.get(provider)
+    if not provider_config:
+        return ResponseModel(data=APIKeyTestResult(
+            success=False,
+            message=f"未知的搜索服务提供商: {provider}"
+        ))
+
+    api_base = provider_config["api_base"]
+
+    try:
+        if provider == "bocha":
+            # 博查AI搜索API测试
+            async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
+                response = await client.post(
+                    f"{api_base}/web-search",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "query": "test",
+                        "count": 1,
+                        "summary": False
+                    }
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"博查AI API Key 测试成功")
+                    return ResponseModel(data=APIKeyTestResult(
+                        success=True,
+                        message="博查AI搜索 API Key 配置正确，连接测试成功",
+                        provider=provider
+                    ))
+                elif response.status_code == 401:
+                    return ResponseModel(data=APIKeyTestResult(
+                        success=False,
+                        message="API Key 无效，请检查是否正确",
+                        provider=provider
+                    ))
+                else:
+                    error_msg = response.text
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("message", error_msg)
+                    except (json.JSONDecodeError, ValueError):
+                        pass  # 保持原始错误文本
+                    return ResponseModel(data=APIKeyTestResult(
+                        success=False,
+                        message=f"博查AI API 调用失败: {error_msg}",
+                        provider=provider
+                    ))
+
+        elif provider == "baidu":
+            # 百度AI搜索API测试
+            async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
+                response = await client.post(
+                    f"{api_base}/ai_search/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "messages": [{"role": "user", "content": "test"}],
+                        "search_source": "baidu_search_v2",
+                        "search_filter": {"search_type": "web", "top_k": 1},
+                        "stream": False
+                    }
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"百度搜索 API Key 测试成功")
+                    return ResponseModel(data=APIKeyTestResult(
+                        success=True,
+                        message="百度搜索 API Key 配置正确，连接测试成功",
+                        provider=provider
+                    ))
+                elif response.status_code == 401:
+                    return ResponseModel(data=APIKeyTestResult(
+                        success=False,
+                        message="API Key 无效或格式错误，百度API Key格式应为：bce-v3/ALTAK-xxx/xxx",
+                        provider=provider
+                    ))
+                else:
+                    error_msg = response.text
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get(
+                            "error", {}).get("message", error_msg)
+                    except (json.JSONDecodeError, ValueError):
+                        pass  # 保持原始错误文本
+                    return ResponseModel(data=APIKeyTestResult(
+                        success=False,
+                        message=f"百度搜索 API 调用失败: {error_msg}",
+                        provider=provider
+                    ))
+
+    except httpx.TimeoutException:
+        logger.error(f"搜索服务API Key 测试超时: {provider}")
+        return ResponseModel(data=APIKeyTestResult(
+            success=False,
+            message="连接超时，请检查网络",
+            provider=provider
+        ))
+    except Exception as e:
+        logger.error(f"搜索服务API Key 测试失败: {str(e)}", exc_info=True)
+        return ResponseModel(data=APIKeyTestResult(
+            success=False,
+            message=f"测试失败: {str(e)}",
+            provider=provider
+        ))

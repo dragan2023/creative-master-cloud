@@ -5,9 +5,16 @@ OpenAI LLM 提供者
 """
 from typing import AsyncGenerator, Optional, Dict, List, Any, Union
 from openai import AsyncOpenAI
+from openai import (
+    APIConnectionError, RateLimitError, APIStatusError,
+    InternalServerError, APITimeoutError
+)
 
 from app.agents.base_provider import BaseLLMProvider, LLMResponse
 from app.core.config import get_settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # 支持视觉能力的模型列表
@@ -15,6 +22,32 @@ OPENAI_VISION_MODELS = [
     "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-vision",
     "gpt-5.2", "gpt-5.2-pro", "gpt-5-mini"
 ]
+
+# OpenAI 模型最大输出 token 映射（也适用于 OpenRouter 和其他兼容平台）
+OPENAI_MAX_OUTPUT_TOKENS = {
+    # OpenAI GPT 系列
+    "gpt-5.2-pro": 32768,
+    "gpt-5.2-thinking": 16384,
+    "gpt-5.2": 16384,
+    "gpt-5-mini": 16384,
+    "gpt-4o": 16384,
+    "gpt-4o-mini": 16384,
+    "gpt-4-turbo": 4096,
+    "gpt-4": 4096,
+    "gpt-3.5-turbo": 4096,
+    # Google Gemini（通过 OpenRouter）
+    "gemini-3.1-pro-preview": 65536,
+    "gemini-3.1-pro": 65536,
+    "gemini-2.5-pro": 65536,
+    "gemini-2.0-flash": 8192,
+    # Anthropic Claude（通过 OpenRouter）
+    "claude-opus-4-5-20251101": 16384,
+    "claude-sonnet-4": 16384,
+    "claude-3-opus": 4096,
+    "claude-3-sonnet": 4096,
+    # 其他模型
+    "glm-5": 8192,
+}
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -52,6 +85,28 @@ class OpenAIProvider(BaseLLMProvider):
 
             self._client = AsyncOpenAI(**client_kwargs)
         return self._client
+
+    def get_max_output_tokens(self) -> int:
+        """
+        获取当前模型支持的最大输出 token 数
+
+        Returns:
+            最大输出 token 数
+        """
+        model_lower = self.model_name.lower()
+        # 去除可能的前缀（如 openrouter 上的 "openai/" 或 "google/"）
+        model_id = model_lower.split(
+            "/")[-1] if "/" in model_lower else model_lower
+
+        # 精确匹配
+        if model_id in OPENAI_MAX_OUTPUT_TOKENS:
+            return OPENAI_MAX_OUTPUT_TOKENS[model_id]
+        # 模糊匹配
+        for key, value in OPENAI_MAX_OUTPUT_TOKENS.items():
+            if key in model_id or model_id in key:
+                return value
+        # 默认值
+        return self.DEFAULT_MAX_OUTPUT_TOKENS
 
     def _supports_vision(self) -> bool:
         """检查当前模型是否支持视觉"""
@@ -91,7 +146,7 @@ class OpenAIProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -132,7 +187,7 @@ class OpenAIProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -148,24 +203,52 @@ class OpenAIProvider(BaseLLMProvider):
         user_content = self._build_content(prompt, images)
         messages.append({"role": "user", "content": user_content})
 
-        stream = await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                **kwargs
+            )
 
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 choices 列表不为空且 delta 存在
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta and hasattr(delta, 'content') and delta.content:
+                            yield delta.content
+                except (AttributeError, IndexError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(f"OpenAI流式生成chunk解析异常: {e}")
+                    continue
+
+        except APIConnectionError as e:
+            logger.error(f"OpenAI API连接错误: {e}")
+            raise ConnectionError(f"无法连接到OpenAI API服务: {str(e)}")
+        except RateLimitError as e:
+            logger.error(f"OpenAI API速率限制: {e}")
+            raise RuntimeError(f"OpenAI API请求频率超限，请稍后重试: {str(e)}")
+        except APITimeoutError as e:
+            logger.error(f"OpenAI API超时: {e}")
+            raise TimeoutError(f"OpenAI API请求超时: {str(e)}")
+        except InternalServerError as e:
+            logger.error(f"OpenAI服务器内部错误: {e}")
+            raise RuntimeError(f"OpenAI服务器内部错误: {str(e)}")
+        except APIStatusError as e:
+            logger.error(f"OpenAI API状态错误 [{e.status_code}]: {e.message}")
+            raise RuntimeError(f"OpenAI API错误 [{e.status_code}]: {e.message}")
+        except Exception as e:
+            logger.exception(f"OpenAI流式生成未知异常: {e}")
+            raise
 
     async def chat(
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> LLMResponse:
         """多轮对话（支持多模态消息）"""
@@ -193,19 +276,48 @@ class OpenAIProvider(BaseLLMProvider):
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式多轮对话（支持多模态消息）"""
-        stream = await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                **kwargs
+            )
 
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 choices 列表不为空且 delta 存在
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta and hasattr(delta, 'content') and delta.content:
+                            yield delta.content
+                except (AttributeError, IndexError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(f"OpenAI chat_stream chunk解析异常: {e}")
+                    continue
+
+        except APIConnectionError as e:
+            logger.error(f"OpenAI chat_stream API连接错误: {e}")
+            raise ConnectionError(f"无法连接到OpenAI API服务: {str(e)}")
+        except RateLimitError as e:
+            logger.error(f"OpenAI chat_stream API速率限制: {e}")
+            raise RuntimeError(f"OpenAI API请求频率超限，请稍后重试: {str(e)}")
+        except APITimeoutError as e:
+            logger.error(f"OpenAI chat_stream API超时: {e}")
+            raise TimeoutError(f"OpenAI API请求超时: {str(e)}")
+        except InternalServerError as e:
+            logger.error(f"OpenAI chat_stream 服务器内部错误: {e}")
+            raise RuntimeError(f"OpenAI服务器内部错误: {str(e)}")
+        except APIStatusError as e:
+            logger.error(
+                f"OpenAI chat_stream API状态错误 [{e.status_code}]: {e.message}")
+            raise RuntimeError(f"OpenAI API错误 [{e.status_code}]: {e.message}")
+        except Exception as e:
+            logger.exception(f"OpenAI chat_stream 未知异常: {e}")
+            raise

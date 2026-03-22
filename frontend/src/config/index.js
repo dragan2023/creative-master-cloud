@@ -7,7 +7,8 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 export const MODEL_TYPES = {
   TEXT: 'text',      // 文本模型（支持多模态输入）
   IMAGE: 'image',    // 图像生成模型
-  VIDEO: 'video'     // 视频生成模型
+  VIDEO: 'video',    // 视频生成模型
+  SEARCH: 'search'   // 搜索服务（用于热点聚合等）
 }
 
 // LLM提供商配置（2026年最新）
@@ -182,6 +183,196 @@ export const LLM_PROVIDERS = [
         description: 'Google最新图像生成模型，支持文本生成高质量图像'
       }
     ]
+  },
+  
+  // ==================== 贞贞AI工坊（平价API聚合平台）====================
+  {
+    value: 't8star',
+    label: '贞贞AI工坊',
+    doc_url: 'https://ai.t8star.cn/about',
+    api_base: 'https://ai.t8star.cn/v1',
+    notice: '平价API聚合平台，支持500+模型。分组需在官网令牌后台配置。',
+    type: 'text',
+    // 分组在贞贞工坊网站后台配置，无需在此选择
+    channels: [],
+    models: [
+      { 
+        id: 'gpt-5.2-pro', 
+        name: 'GPT-5.2 Pro', 
+        context: '400K', 
+        vision: true,
+        type: 'text',
+        description: 'OpenAI旗舰模型，40万token上下文'
+      },
+      { 
+        id: 'gpt-5.2-thinking', 
+        name: 'GPT-5.2 Thinking', 
+        context: '200K', 
+        vision: true,
+        type: 'text',
+        description: 'OpenAI深度思考模型'
+      },
+      { 
+        id: 'claude-opus-4-5-20251101', 
+        name: 'Claude 4.5 Opus', 
+        context: '200K', 
+        vision: true,
+        type: 'text',
+        description: 'Anthropic最强推理模型'
+      },
+      { 
+        id: 'glm-5', 
+        name: 'GLM-5', 
+        context: '128K', 
+        vision: false,
+        type: 'text',
+        description: '智谱AI SOTA模型，支持缓存计费'
+      }
+    ]
+  },
+  // 贞贞AI工坊-图像生成
+  {
+    value: 't8star-image',
+    label: '贞贞AI工坊-图像生成',
+    doc_url: 'https://ai.t8star.cn/about',
+    api_base: 'https://ai.t8star.cn/v1',
+    notice: '图像生成模型，支持Nano Banana 2、Gemini等。分组需在官网令牌后台配置。',
+    type: 'image',
+    // 分组在贞贞工坊网站后台配置，无需在此选择
+    channels: [],
+    models: [
+      { 
+        id: 'gemini-3-pro-image-preview', 
+        name: 'Gemini 3 Pro Image', 
+        context: '-', 
+        vision: false,
+        type: 'image',
+        description: 'Google图像生成，支持高分辨率'
+      },
+      { 
+        id: 'nano-banana-2', 
+        name: 'Nano Banana 2', 
+        context: '-', 
+        vision: false,
+        type: 'image',
+        description: '支持2K/4K高清'
+      },
+      { 
+        id: 'nano-banana-2-2k', 
+        name: 'Nano Banana 2 (2K)', 
+        context: '-', 
+        vision: false,
+        type: 'image',
+        description: '固定2K分辨率'
+      },
+      { 
+        id: 'nano-banana-2-4k', 
+        name: 'Nano Banana 2 (4K)', 
+        context: '-', 
+        vision: false,
+        type: 'image',
+        description: '固定4K分辨率'
+      },
+      { 
+        id: 'doubao-seedream-4-5', 
+        name: '豆包Seedream 4.5', 
+        context: '-', 
+        vision: false,
+        type: 'image',
+        description: '人物一致性好'
+      }
+    ]
+  },
+  // 贞贞AI工坊-视频生成
+  {
+    value: 't8star-video',
+    label: '贞贞AI工坊-视频生成',
+    doc_url: 'https://ai.t8star.cn/about',
+    api_base: 'https://ai.t8star.cn/v1',
+    notice: '视频生成模型，Sora2/Veo3.1等。分组需在官网令牌后台配置。',
+    type: 'video',
+    // 分组在贞贞工坊网站后台配置，无需在此选择
+    channels: [],
+    models: [
+      { 
+        id: 'sora-2', 
+        name: 'Sora 2', 
+        context: '-', 
+        vision: false,
+        type: 'video',
+        description: 'OpenAI视频生成，支持15秒'
+      },
+      { 
+        id: 'sora-2-pro', 
+        name: 'Sora 2 Pro', 
+        context: '-', 
+        vision: false,
+        type: 'video',
+        description: '高清无水印版本'
+      },
+      { 
+        id: 'veo3.1', 
+        name: 'Veo3.1', 
+        context: '-', 
+        vision: false,
+        type: 'video',
+        description: 'Google视频生成'
+      },
+      { 
+        id: 'veo3.1-pro', 
+        name: 'Veo3.1 Pro', 
+        context: '-', 
+        vision: false,
+        type: 'video',
+        description: 'Google高质量视频'
+      },
+      { 
+        id: 'grok-video-3', 
+        name: 'Grok Video 3', 
+        context: '-', 
+        vision: false,
+        type: 'video',
+        description: '支持中文配音，10秒视频'
+      }
+    ]
+  },
+  
+  // ==================== 搜索服务 ====================
+  {
+    value: 'bocha',
+    label: '博查AI搜索',
+    doc_url: 'https://open.bochaai.com',
+    api_base: 'https://api.bochaai.com/v1',
+    notice: '国内AI搜索服务，专为AI应用优化。无需代理，直连可用。高质量多模态搜索。',
+    type: 'search',
+    models: [
+      { 
+        id: 'bocha-web-search', 
+        name: '博查Web搜索', 
+        context: '-', 
+        vision: false,
+        type: 'search',
+        description: '高质量多模态AI搜索引擎，支持自然语言搜索，专为AI应用优化'
+      }
+    ]
+  },
+  {
+    value: 'baidu',
+    label: '百度搜索',
+    doc_url: 'https://ai.baidu.com/ai-doc/AppBuilder/pmaxd1hvy',
+    api_base: 'https://qianfan.baidubce.com/v2',
+    notice: '百度官方搜索API，中文搜索质量最高。免费额度：100次/天，超出后按量付费。',
+    type: 'search',
+    models: [
+      { 
+        id: 'baidu-ai-search', 
+        name: '百度AI搜索', 
+        context: '-', 
+        vision: false,
+        type: 'search',
+        description: '百度智能搜索，支持网页、图片、视频多模态搜索，中文内容覆盖最全'
+      }
+    ]
   }
 ]
 
@@ -189,7 +380,8 @@ export const LLM_PROVIDERS = [
 export const PROVIDERS_BY_TYPE = {
   text: LLM_PROVIDERS.filter(p => p.type === 'text'),
   image: LLM_PROVIDERS.filter(p => p.type === 'image'),
-  video: LLM_PROVIDERS.filter(p => p.type === 'video')
+  video: LLM_PROVIDERS.filter(p => p.type === 'video'),
+  search: LLM_PROVIDERS.filter(p => p.type === 'search')
 }
 
 // 创意生成模块配置
@@ -217,9 +409,9 @@ export const CREATIVE_MODULES = [
   },
   {
     key: 'print-ad',
-    title: '平面广告',
+    title: '平面设计',
     icon: 'Picture',
-    description: '海报、宣传单、户外广告文案',
+    description: 'Logo、海报、宣传单、包装等多类型平面设计',
     color: '#96CEB4'
   },
   {
@@ -228,5 +420,12 @@ export const CREATIVE_MODULES = [
     icon: 'Film',
     description: '电视广告、商业视频脚本',
     color: '#FFEAA7'
+  },
+  {
+    key: 'original-ip',
+    title: '原创IP计划',
+    icon: 'Avatar',
+    description: '从概念到落地的完整角色IP构建',
+    color: '#A855F7'
   }
 ]

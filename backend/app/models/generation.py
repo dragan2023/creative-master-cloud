@@ -16,6 +16,7 @@ class GenerationModule(str, enum.Enum):
     NOVEL = "novel"                 # 小说大纲
     PRINT_AD = "print_ad"           # 平面广告
     TVC = "tvc"                     # TVC广告脚本
+    ORIGINAL_IP = "original_ip"     # 原创IP计划
 
 
 class GenerationStatus(str, enum.Enum):

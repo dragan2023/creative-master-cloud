@@ -9,6 +9,7 @@ T = TypeVar("T")
 
 class ResponseModel(BaseModel, Generic[T]):
     """通用响应模型"""
+    success: bool = Field(default=True, description="是否成功")
     code: int = Field(default=200, description="状态码")
     message: str = Field(default="success", description="消息")
     data: Optional[T] = Field(default=None, description="数据")

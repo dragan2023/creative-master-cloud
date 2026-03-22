@@ -5,14 +5,31 @@ DeepSeek LLM 提供者
 """
 from typing import AsyncGenerator, Optional, Dict, List, Any, Union
 from openai import AsyncOpenAI
+from openai import (
+    APIConnectionError, RateLimitError, APIStatusError,
+    InternalServerError, APITimeoutError
+)
 
 from app.agents.base_provider import BaseLLMProvider, LLMResponse
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # DeepSeek支持视觉的模型
 DEEPSEEK_VISION_MODELS = [
     "deepseek-vl", "deepseek-vl2"
 ]
+
+# DeepSeek模型最大输出 token 映射
+DEEPSEEK_MAX_OUTPUT_TOKENS = {
+    "deepseek-chat": 32768,
+    "deepseek-coder": 32768,
+    "deepseek-reasoner": 32768,
+    "deepseek-v3": 32768,
+    "deepseek-v3-2": 32768,
+    "deepseek-ai/deepseek-v3.2": 32768,
+}
 
 
 class DeepSeekProvider(BaseLLMProvider):
@@ -40,6 +57,24 @@ class DeepSeekProvider(BaseLLMProvider):
                 base_url=self.api_base
             )
         return self._client
+
+    def get_max_output_tokens(self) -> int:
+        """
+        获取当前模型支持的最大输出 token 数
+
+        Returns:
+            最大输出 token 数
+        """
+        model_lower = self.model_name.lower()
+        # 精确匹配
+        if model_lower in DEEPSEEK_MAX_OUTPUT_TOKENS:
+            return DEEPSEEK_MAX_OUTPUT_TOKENS[model_lower]
+        # 模糊匹配
+        for key, value in DEEPSEEK_MAX_OUTPUT_TOKENS.items():
+            if key in model_lower or model_lower in key:
+                return value
+        # 默认值
+        return self.DEFAULT_MAX_OUTPUT_TOKENS
 
     def _supports_vision(self) -> bool:
         """检查当前模型是否支持视觉"""
@@ -69,7 +104,7 @@ class DeepSeekProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -110,7 +145,7 @@ class DeepSeekProvider(BaseLLMProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -126,24 +161,53 @@ class DeepSeekProvider(BaseLLMProvider):
         user_content = self._build_content(prompt, images)
         messages.append({"role": "user", "content": user_content})
 
-        stream = await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                **kwargs
+            )
 
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 choices 列表不为空且 delta 存在
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta and hasattr(delta, 'content') and delta.content:
+                            yield delta.content
+                except (AttributeError, IndexError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(f"DeepSeek流式生成chunk解析异常: {e}")
+                    continue
+
+        except APIConnectionError as e:
+            logger.error(f"DeepSeek API连接错误: {e}")
+            raise ConnectionError(f"无法连接到DeepSeek API服务: {str(e)}")
+        except RateLimitError as e:
+            logger.error(f"DeepSeek API速率限制: {e}")
+            raise RuntimeError(f"DeepSeek API请求频率超限，请稍后重试: {str(e)}")
+        except APITimeoutError as e:
+            logger.error(f"DeepSeek API超时: {e}")
+            raise TimeoutError(f"DeepSeek API请求超时: {str(e)}")
+        except InternalServerError as e:
+            logger.error(f"DeepSeek服务器内部错误: {e}")
+            raise RuntimeError(f"DeepSeek服务器内部错误: {str(e)}")
+        except APIStatusError as e:
+            logger.error(f"DeepSeek API状态错误 [{e.status_code}]: {e.message}")
+            raise RuntimeError(
+                f"DeepSeek API错误 [{e.status_code}]: {e.message}")
+        except Exception as e:
+            logger.exception(f"DeepSeek流式生成未知异常: {e}")
+            raise
 
     async def chat(
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> LLMResponse:
         """多轮对话（支持多模态消息）"""
@@ -171,19 +235,49 @@ class DeepSeekProvider(BaseLLMProvider):
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式多轮对话（支持多模态消息）"""
-        stream = await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                **kwargs
+            )
 
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            async for chunk in stream:
+                try:
+                    # 安全检查：确保 choices 列表不为空且 delta 存在
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta and hasattr(delta, 'content') and delta.content:
+                            yield delta.content
+                except (AttributeError, IndexError, TypeError) as e:
+                    # 记录异常但不中断流式生成
+                    logger.warning(f"DeepSeek chat_stream chunk解析异常: {e}")
+                    continue
+
+        except APIConnectionError as e:
+            logger.error(f"DeepSeek chat_stream API连接错误: {e}")
+            raise ConnectionError(f"无法连接到DeepSeek API服务: {str(e)}")
+        except RateLimitError as e:
+            logger.error(f"DeepSeek chat_stream API速率限制: {e}")
+            raise RuntimeError(f"DeepSeek API请求频率超限，请稍后重试: {str(e)}")
+        except APITimeoutError as e:
+            logger.error(f"DeepSeek chat_stream API超时: {e}")
+            raise TimeoutError(f"DeepSeek API请求超时: {str(e)}")
+        except InternalServerError as e:
+            logger.error(f"DeepSeek chat_stream 服务器内部错误: {e}")
+            raise RuntimeError(f"DeepSeek服务器内部错误: {str(e)}")
+        except APIStatusError as e:
+            logger.error(
+                f"DeepSeek chat_stream API状态错误 [{e.status_code}]: {e.message}")
+            raise RuntimeError(
+                f"DeepSeek API错误 [{e.status_code}]: {e.message}")
+        except Exception as e:
+            logger.exception(f"DeepSeek chat_stream 未知异常: {e}")
+            raise

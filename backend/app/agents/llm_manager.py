@@ -21,7 +21,7 @@ class LLMManager:
     """LLM 管理器"""
 
     # 提供者映射（所有OpenAI兼容API都使用OpenAIProvider）
-    # 2026年最新配置：只保留通义千问、豆包、硅基流动、OpenRouter
+    # 2026年最新配置：只保留通义千问、豆包、硅基流动、OpenRouter、贞贞AI工坊
     PROVIDER_CLASSES = {
         # 通义千问（文本模型）
         "qianwen": QianwenProvider,
@@ -34,6 +34,10 @@ class LLMManager:
         # OpenRouter
         "openrouter": OpenAIProvider,
         "openrouter-image": OpenAIProvider,  # 图像生成模型
+        # 贞贞AI工坊（OpenAI兼容）
+        "t8star": OpenAIProvider,
+        "t8star-image": OpenAIProvider,
+        "t8star-video": OpenAIProvider,
     }
 
     def __init__(self):
@@ -184,3 +188,33 @@ llm_manager = LLMManager()
 def get_llm_manager() -> LLMManager:
     """获取 LLM 管理器实例"""
     return llm_manager
+
+
+# 为 LLMManager 添加 get_default_provider 方法（解决方法名不匹配问题）
+def _get_default_provider(self, provider_name: str = "qianwen") -> BaseLLMProvider:
+    """
+    获取默认的 LLM 提供者（同步版本，用于无数据库会话的场景）
+
+    Args:
+        provider_name: 提供者名称（默认使用 qianwen）
+
+    Returns:
+        LLM 提供者实例
+
+    Raises:
+        ValueError: 如果系统未配置该提供者的 API Key
+    """
+    settings = get_settings()
+
+    # 获取系统预置 API Key
+    api_key = getattr(
+        settings, f"{provider_name.upper().replace('-', '_')}_API_KEY", None)
+
+    if not api_key:
+        raise ValueError(f"系统未配置 {provider_name} 的 API Key")
+
+    return self.create_provider(provider_name, api_key)
+
+
+# 动态添加方法到 LLMManager 类
+LLMManager.get_default_provider = _get_default_provider

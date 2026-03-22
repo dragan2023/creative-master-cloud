@@ -1,60 +1,8 @@
 <template>
   <div class="profile-page">
-    <h1 class="page-title">个人设置</h1>
+    <h1 class="page-title">系统设置</h1>
     
     <div class="profile-container">
-      <!-- 基本信息 -->
-      <div class="profile-section">
-        <h3>基本信息</h3>
-        <el-form
-          ref="profileFormRef"
-          :model="profileForm"
-          :rules="profileRules"
-          label-width="100px"
-        >
-          <el-form-item label="用户名">
-            <el-input :model-value="userStore.userInfo?.username" disabled />
-          </el-form-item>
-          <el-form-item label="邮箱" prop="email">
-            <el-input v-model="profileForm.email" />
-          </el-form-item>
-          <el-form-item label="昵称" prop="nickname">
-            <el-input v-model="profileForm.nickname" placeholder="设置您的昵称" />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" :loading="saving" @click="saveProfile">
-              保存修改
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </div>
-      
-      <!-- 修改密码 -->
-      <div class="profile-section">
-        <h3>修改密码</h3>
-        <el-form
-          ref="passwordFormRef"
-          :model="passwordForm"
-          :rules="passwordRules"
-          label-width="100px"
-        >
-          <el-form-item label="当前密码" prop="old_password">
-            <el-input v-model="passwordForm.old_password" type="password" show-password />
-          </el-form-item>
-          <el-form-item label="新密码" prop="new_password">
-            <el-input v-model="passwordForm.new_password" type="password" show-password />
-          </el-form-item>
-          <el-form-item label="确认密码" prop="confirm_password">
-            <el-input v-model="passwordForm.confirm_password" type="password" show-password />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" :loading="changingPassword" @click="changePassword">
-              修改密码
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </div>
-      
       <!-- 网络代理设置 -->
       <div class="profile-section">
         <h3>
@@ -194,89 +142,14 @@
           </el-form-item>
         </el-form>
       </div>
-      
-      <!-- 账户信息 -->
-      <div class="profile-section">
-        <h3>账户信息</h3>
-        <div class="account-info">
-          <div class="info-row">
-            <span class="label">注册时间</span>
-            <span class="value">{{ formatDate(userStore.userInfo?.created_at) }}</span>
-          </div>
-          <div class="info-row">
-            <span class="label">账户类型</span>
-            <span class="value">
-              <el-tag v-if="userStore.isAdmin" type="danger">管理员</el-tag>
-              <el-tag v-else>普通用户</el-tag>
-            </span>
-          </div>
-        </div>
-      </div>
-      
-      <!-- 危险操作 -->
-      <div class="profile-section danger-zone">
-        <h3>危险操作</h3>
-        <p class="warning-text">以下操作不可逆，请谨慎操作</p>
-        <el-button type="danger" plain @click="confirmDeleteAccount">
-          删除账户
-        </el-button>
-      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { useUserStore } from '@/stores'
-import { authApi, userConfigApi } from '@/api'
-
-const router = useRouter()
-const userStore = useUserStore()
-
-const saving = ref(false)
-const changingPassword = ref(false)
-const profileFormRef = ref()
-const passwordFormRef = ref()
-
-const profileForm = reactive({
-  email: '',
-  nickname: ''
-})
-
-const passwordForm = reactive({
-  old_password: '',
-  new_password: '',
-  confirm_password: ''
-})
-
-const profileRules = {
-  email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
-  ]
-}
-
-const validateConfirmPassword = (rule, value, callback) => {
-  if (value !== passwordForm.new_password) {
-    callback(new Error('两次输入的密码不一致'))
-  } else {
-    callback()
-  }
-}
-
-const passwordRules = {
-  old_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
-  new_password: [
-    { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '密码至少6位', trigger: 'blur' }
-  ],
-  confirm_password: [
-    { required: true, message: '请确认新密码', trigger: 'blur' },
-    { validator: validateConfirmPassword, trigger: 'blur' }
-  ]
-}
+import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { userConfigApi } from '@/api'
 
 // 代理配置
 const proxyLoading = ref(false)
@@ -305,64 +178,9 @@ const preprocessorConfig = ref({
 })
 
 onMounted(() => {
-  if (userStore.userInfo) {
-    profileForm.email = userStore.userInfo.email || ''
-    profileForm.nickname = userStore.userInfo.nickname || ''
-  }
   loadProxyConfig()
   loadPreprocessorConfig()
 })
-
-async function saveProfile() {
-  const valid = await profileFormRef.value.validate().catch(() => false)
-  if (!valid) return
-  
-  saving.value = true
-  try {
-    await userStore.updateProfile(profileForm)
-    ElMessage.success('保存成功')
-  } catch (error) {
-    console.error('保存失败:', error)
-  } finally {
-    saving.value = false
-  }
-}
-
-async function changePassword() {
-  const valid = await passwordFormRef.value.validate().catch(() => false)
-  if (!valid) return
-  
-  changingPassword.value = true
-  try {
-    await authApi.changePassword({
-      old_password: passwordForm.old_password,
-      new_password: passwordForm.new_password
-    })
-    ElMessage.success('密码修改成功，请重新登录')
-    userStore.logout()
-    router.push('/login')
-  } catch (error) {
-    console.error('修改密码失败:', error)
-  } finally {
-    changingPassword.value = false
-  }
-}
-
-async function confirmDeleteAccount() {
-  await ElMessageBox.confirm(
-    '删除账户将清除所有数据，此操作不可恢复。确定要继续吗？',
-    '警告',
-    { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消' }
-  )
-  
-  await ElMessageBox.prompt('请输入您的密码确认删除', '确认删除', {
-    inputType: 'password',
-    confirmButtonText: '确定删除',
-    cancelButtonText: '取消'
-  })
-  
-  ElMessage.info('功能暂未开放')
-}
 
 // 加载代理配置
 async function loadProxyConfig() {

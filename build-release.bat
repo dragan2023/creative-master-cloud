@@ -6,9 +6,10 @@ color 0B
 
 echo.
 echo ========================================================
-echo         Creative Master - Release Builder v1.4
+echo         Creative Master - Release Builder v2.0
 echo ========================================================
 echo.
+
 echo  Building clean release package...
 echo.
 
@@ -46,6 +47,7 @@ copy "%PROJECT_DIR%stop.bat" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%docker-compose.yml" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%version.json" "%DIST_DIR%\" >nul
 copy "%PROJECT_DIR%check-gpu.py" "%DIST_DIR%\" >nul 2>&1
+copy "%PROJECT_DIR%使用手册.txt" "%DIST_DIR%\" >nul
 echo   [OK] Done
 echo.
 
@@ -67,7 +69,6 @@ copy "%PROJECT_DIR%backend\Dockerfile" "%DIST_DIR%\backend\" >nul
 mkdir "%DIST_DIR%\backend\data\chroma"
 mkdir "%DIST_DIR%\backend\data\uploads"
 mkdir "%DIST_DIR%\backend\data\knowledge_graphs"
-mkdir "%DIST_DIR%\backend\data\marker_models"
 mkdir "%DIST_DIR%\backend\logs"
 
 :: 生成 UTF-8 编码的 .env 文件（避免中文编码问题）
@@ -83,7 +84,12 @@ echo LOG_LEVEL=INFO
 echo LOG_DIR=./logs
 echo CHROMA_PERSIST_DIR=./data/chroma
 echo UPLOAD_DIR=./data/uploads
-echo MARKER_MODEL_DIR=./data/marker_models
+echo.
+echo # ==================== 批量生成速率控制 ====================
+echo BATCH_REQUEST_INTERVAL=1.5
+echo BATCH_RETRY_ON_RATE_LIMIT=true
+echo BATCH_MAX_RETRIES=3
+echo BATCH_RETRY_BASE_DELAY=2.0
 ) > "%DIST_DIR%\backend\.env"
 
 echo   [OK] Backend copied
@@ -145,3 +151,4 @@ echo.
 explorer "%DIST_DIR%"
 
 pause
+exit /b 0

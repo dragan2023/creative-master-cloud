@@ -85,8 +85,18 @@ class RedisManager:
 
         try:
             settings = get_settings()
+            redis_url = settings.REDIS_URL
+
+            # 检查是否显式禁用 Redis（使用 memory:// 协议）
+            if redis_url.startswith("memory://"):
+                logger.info("Redis 已禁用，使用内存存储（配置: memory://）")
+                self._use_memory = True
+                self._memory_storage = MemoryStorage()
+                self._connection_checked = True
+                return False
+
             client = redis.from_url(
-                settings.REDIS_URL,
+                redis_url,
                 encoding="utf-8",
                 decode_responses=True
             )
@@ -95,7 +105,7 @@ class RedisManager:
             self._client = client
             self._use_memory = False
             self._connection_checked = True
-            logger.info(f"Redis 连接成功: {settings.REDIS_URL}")
+            logger.info(f"Redis 连接成功: {redis_url}")
             return True
         except Exception as e:
             logger.warning(f"Redis 连接失败，使用内存存储: {e}")
@@ -200,6 +210,19 @@ class RedisManager:
         if self._use_memory:
             return await self._memory_storage.expire(key, seconds)
         return await self._client.expire(key, seconds)
+
+    def is_available(self) -> bool:
+        """
+        检查 Redis 是否可用（同步方法）
+
+        Returns:
+            是否使用 Redis（False 表示使用内存存储）
+        """
+        # 如果还没有检查过连接，返回 True 让异步方法去检查
+        # 如果已经检查过，返回是否使用 Redis
+        if not self._connection_checked:
+            return True  # 让调用者使用异步方法
+        return not self._use_memory
 
 
 # 全局 Redis 管理器实例

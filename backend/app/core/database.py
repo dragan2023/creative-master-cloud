@@ -127,8 +127,38 @@ async def run_migrations() -> None:
                 if 'api_config' not in kb_columns:
                     await conn.execute(text("ALTER TABLE knowledge_bases ADD COLUMN api_config TEXT"))
 
+                # === user_api_keys 表迁移 ===
+                result = await conn.execute(text("PRAGMA table_info(user_api_keys)"))
+                uak_columns = [row[1] for row in result.fetchall()]
+
+                if 'channel' not in uak_columns:
+                    await conn.execute(text("ALTER TABLE user_api_keys ADD COLUMN channel VARCHAR(50) DEFAULT 'default'"))
+
+                # === novel_projects 表迁移（生成任务状态字段）===
+                result = await conn.execute(text("PRAGMA table_info(novel_projects)"))
+                np_columns = [row[1] for row in result.fetchall()]
+
+                if 'generation_task_type' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_type VARCHAR(50)"))
+                if 'generation_task_status' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_status VARCHAR(20)"))
+                if 'generation_task_total' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_total INTEGER DEFAULT 0"))
+                if 'generation_task_completed' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_completed INTEGER DEFAULT 0"))
+                if 'generation_task_failed' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_failed INTEGER DEFAULT 0"))
+                if 'generation_task_skipped' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_skipped INTEGER DEFAULT 0"))
+                if 'generation_task_current' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_current INTEGER"))
+                if 'generation_task_started_at' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_started_at VARCHAR(50)"))
+                if 'generation_task_updated_at' not in np_columns:
+                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_updated_at VARCHAR(50)"))
+
                 print(
-                    f"Migration completed: system_versions columns={columns}, knowledge_bases columns={kb_columns}")
+                    f"Migration completed: system_versions columns={columns}, knowledge_bases columns={kb_columns}, user_api_keys columns={uak_columns}, novel_projects columns={np_columns}")
             except Exception as e:
                 print(f"Migration error: {e}")
         else:
@@ -158,6 +188,16 @@ async def run_migrations() -> None:
                     await conn.execute(text("ALTER TABLE knowledge_bases ADD COLUMN category VARCHAR(50) DEFAULT 'general'"))
                 if 'api_config' not in kb_columns:
                     await conn.execute(text("ALTER TABLE knowledge_bases ADD COLUMN api_config TEXT"))
+
+                # user_api_keys 表迁移
+                result = await conn.execute(text("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'user_api_keys'
+                """))
+                uak_columns = [row[0] for row in result.fetchall()]
+
+                if 'channel' not in uak_columns:
+                    await conn.execute(text("ALTER TABLE user_api_keys ADD COLUMN channel VARCHAR(50) DEFAULT 'default'"))
 
             except Exception as e:
                 print(f"Migration error: {e}")

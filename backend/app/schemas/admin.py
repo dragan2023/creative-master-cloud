@@ -59,11 +59,15 @@ class PromptTemplateResponse(BaseModel):
     variables: Optional[List[str]] = None
     version: str
     is_active: bool
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class PromptTemplateListResponse(BaseModel):
@@ -95,11 +99,16 @@ class LogResponse(BaseModel):
     action: Optional[str] = None
     message: str
     request_id: Optional[str] = None
-    created_at: str
+    created_at: datetime
     extra_data: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True,  # 枚举类型序列化为字符串值
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class LogListResponse(BaseModel):
@@ -129,13 +138,17 @@ class VersionResponse(BaseModel):
     changelog: Optional[str] = None
     is_released: bool
     is_current: bool
-    released_at: Optional[str] = None
-    created_at: str
+    released_at: Optional[datetime] = None
+    created_at: datetime
     backup_path: Optional[str] = None
     backup_size: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class VersionListResponse(BaseModel):
@@ -151,11 +164,15 @@ class VersionBackupResponse(BaseModel):
     name: str
     backup_path: Optional[str] = None
     backup_size: Optional[int] = None
-    created_at: str
+    created_at: datetime
     is_current: bool
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    }
 
 
 class VersionBackupListResponse(BaseModel):

@@ -98,10 +98,19 @@ def stop_kb_processing(kb_id: int) -> bool:
         stop_event = task_info.get("stop_event")
         if stop_event:
             stop_event.set()
+            logger.info(f"已设置停止信号: kb_id={kb_id}")
         # 更新进度状态为已终止
         update_kb_progress(kb_id, "处理已终止", 0, 0, error="用户手动终止")
-        unregister_kb_task(kb_id)
+        # 注意：不在此处注销任务，让线程完成时自行注销
         return True
+
+    # 即使任务不在列表中，也检查进度状态
+    progress = get_kb_progress(kb_id)
+    if progress.get("is_processing", False):
+        # 更新进度状态为已终止
+        update_kb_progress(kb_id, "处理已终止", 0, 0, error="用户手动终止")
+        return True
+
     return False
 
 
@@ -238,10 +247,12 @@ async def upload_knowledge_base(
             unregister_kb_task(kb.id)
 
     thread = threading.Thread(target=run_async_task, daemon=True)
-    thread.start()
 
-    # 注册任务
+    # 注册任务（在线程启动前注册，确保停止功能可用）
     register_kb_task(kb.id, thread, stop_event)
+
+    # 启动线程
+    thread.start()
 
     logger.info(f"知识库上传成功: {name}, 开始后台处理")
 
@@ -451,6 +462,15 @@ async def process_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
 
         logger.info(f"知识库处理完成: {kb.name}, 文档数: {len(chunks)}")
 
+    except InterruptedError as e:
+        # 用户手动终止
+        logger.warning(f"知识库处理被终止: {kb_id}, 原因: {str(e)}")
+        kb = session.query(KnowledgeBase).filter(
+            KnowledgeBase.id == kb_id).first()
+        if kb:
+            kb.status = KnowledgeBaseStatus.FAILED
+            session.commit()
+        update_kb_progress(kb_id, "处理已终止", 0, 0, error="用户手动终止")
     except Exception as e:
         logger.error(f"知识库处理失败: {str(e)}", exc_info=True)
         update_kb_progress(kb_id, f"处理失败: {str(e)}", 0, 0, error=str(e))

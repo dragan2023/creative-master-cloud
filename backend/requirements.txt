@@ -32,6 +32,7 @@ langchain-google-genai>=1.0.0
 # LLM API 客户端
 openai>=1.10.0
 dashscope>=1.14.1
+google-genai>=1.0.0
 
 # 日志
 loguru>=0.7.2
@@ -41,15 +42,10 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 bcrypt==4.0.1
 
-# 文件处理
+# 文档预处理
+# pypdf用于PDF解析
 pypdf>=4.0.0
 python-docx>=1.1.0
-
-# 文档预处理 (GraphRAG增强)
-marker-pdf>=1.10.0
-chonkie[semantic]>=0.2.0
-onnxruntime>=1.16.0
-huggingface_hub>=0.20.0
 
 # HTTP 客户端
 requests>=2.31.0
@@ -67,3 +63,9 @@ readability-lxml>=0.8.1
 # 数据处理
 numpy>=1.24.0
 pyyaml>=6.0
+
+# ==================== 可选依赖 ====================
+# torch - GPU加速支持（可选，用于深度学习相关功能）
+# 安装GPU版本: pip install torch --index-url https://download.pytorch.org/whl/cu126
+# 安装CPU版本: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# torch>=2.0.0

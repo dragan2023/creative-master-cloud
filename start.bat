@@ -6,8 +6,9 @@ set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 
 :: ============================================================
-:: 全能创意大师 - 发行版启动脚本 v8.0
-:: 功能：环境检测、端口清理、依赖安装、服务启动
+:: 全能创意大师 - 发行版启动脚本 v9.0
+:: 功能：环境检测、端口清理、依赖安装、后端服务启动
+:: 特点：前端由后端统一托管，启动后自动打开浏览器
 :: ============================================================
 
 title 全能创意大师 - 启动脚本
@@ -15,12 +16,10 @@ title 全能创意大师 - 启动脚本
 :: 设置项目路径
 set "PROJECT_DIR=%~dp0"
 set "BACKEND_DIR=%PROJECT_DIR%backend"
-set "FRONTEND_DIR=%PROJECT_DIR%frontend"
-set "DATA_DIR=%BACKEND_DIR%data"
+set "DATA_DIR=%BACKEND_DIR%\data"
 
 :: 端口配置
 set "BACKEND_PORT=8000"
-set "FRONTEND_PORT=5173"
 
 echo.
 echo ========================================================
@@ -30,7 +29,7 @@ echo.
 
 :: [第零步] 检测并配置 PowerShell 环境
 echo ========================================================
-echo  [步骤 0/8] 检测 PowerShell 环境
+echo  [步骤 0/7] 检测 PowerShell 环境
 echo ========================================================
 
 set "PS_OK=0"
@@ -88,7 +87,7 @@ echo.
 
 :: [第一步] 检测 Python 环境
 echo ========================================================
-echo  [步骤 1/8] 检测 Python 环境
+echo  [步骤 1/7] 检测 Python 环境
 echo ========================================================
 
 python --version >nul 2>&1
@@ -128,7 +127,7 @@ echo.
 
 :: [第二步] 检测 Node.js 环境
 echo ========================================================
-echo  [步骤 2/8] 检测 Node.js 环境
+echo  [步骤 2/7] 检测 Node.js 环境
 echo ========================================================
 
 node --version >nul 2>&1
@@ -156,7 +155,7 @@ echo.
 :: [第2.5步] 检测 Visual C++ Redistributable
 REM Visual C++ Redistributable 是 onnxruntime 等依赖的必需组件
 echo ========================================================
-echo  [步骤 2.5/8] 检测 Visual C++ Redistributable
+echo  [步骤 2.5/7] 检测 Visual C++ Redistributable
 echo ========================================================
 
 set "VCPP_OK=0"
@@ -199,18 +198,9 @@ if "!VCPP_OK!"=="0" (
     echo.
     echo  缺少此组件可能导致程序运行时出现 DLL 加载失败错误。
     echo.
-    echo  请下载并安装 Visual C++ Redistributable:
+    echo  建议下载并安装 Visual C++ Redistributable:
     echo  下载地址: https://aka.ms/vs/17/release/vc_redist.x64.exe
     echo.
-    echo  安装完成后，重新运行此脚本。
-    echo.
-    REM 不强制退出，允许用户选择继续（某些功能可能不可用）
-    choice /c YN /m "是否继续运行（某些功能可能不可用）"
-    if errorlevel 2 (
-        echo  用户选择退出
-        pause
-        exit /b 1
-    )
     echo  [INFO] 继续运行，部分功能可能受限
 )
 
@@ -218,20 +208,38 @@ echo.
 
 :: [第三步] 检测并清理端口占用（提前执行）
 echo ========================================================
-echo  [步骤 3/8] 检测并清理端口占用
+echo  [步骤 3/7] 检测并清理端口占用
 echo ========================================================
 echo.
 
-:: 调用端口清理函数
-call :CleanPort !BACKEND_PORT! "后端服务"
-call :CleanPort !FRONTEND_PORT! "前端服务"
+:: 清理后端端口（8000-8005）
+echo  [*] 清理后端服务端口范围 (8000-8005)...
+for /l %%p in (8000,1,8005) do (
+    call :CleanPort %%p "后端服务" 0
+)
+
+:: 清理残留的 Node.js 和 Python 进程（本项目相关）
+echo  [*] 清理残留的 Node.js 进程...
+for /f "tokens=2" %%i in ('tasklist /fi "imagename eq node.exe" /fo list 2^>nul ^| findstr "PID:"') do (
+    echo  [!] 发现 Node.js 进程 PID=%%i，正在终止...
+    taskkill /f /pid %%i >nul 2>&1
+)
+echo  [*] 清理残留的 Python 进程（uvicorn相关）...
+for /f "tokens=2" %%i in ('tasklist /fi "imagename eq python.exe" /fo list 2^>nul ^| findstr "PID:"') do (
+    echo  [!] 发现 Python 进程 PID=%%i，正在终止...
+    taskkill /f /pid %%i >nul 2>&1
+)
+
+:: 等待端口完全释放
+echo  [*] 等待端口完全释放...
+timeout /t 3 /nobreak >nul
 
 echo  [OK] 端口清理完成
 echo.
 
 :: [第四步] 创建必要的目录和配置文件
 echo ========================================================
-echo  [步骤 4/8] 创建必要的目录和配置文件
+echo  [步骤 4/7] 创建必要的目录和配置文件
 echo ========================================================
 
 if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
@@ -255,29 +263,17 @@ if not exist "%BACKEND_DIR%\.env" (
         echo LOG_DIR=./logs
         echo CHROMA_PERSIST_DIR=./data/chroma
         echo UPLOAD_DIR=./data/uploads
-        echo MARKER_MODEL_DIR=./data/marker_models
     ) > "%BACKEND_DIR%\.env"
     echo  [OK] 后端配置文件已生成
 ) else (
     echo  [OK] 后端配置文件已存在
 )
 
-if not exist "%FRONTEND_DIR%\.env.local" (
-    echo  [*] 正在生成前端配置文件...
-    (
-        echo VITE_BACKEND_URL=http://localhost:!BACKEND_PORT!
-        echo VITE_FRONTEND_PORT=!FRONTEND_PORT!
-    ) > "%FRONTEND_DIR%\.env.local"
-    echo  [OK] 前端配置文件已生成
-) else (
-    echo  [OK] 前端配置文件已存在
-)
-
 echo.
 
 :: [第五步] 检查并安装依赖
 echo ========================================================
-echo  [步骤 5/8] 检查并安装依赖
+echo  [步骤 5/7] 检查并安装依赖
 echo ========================================================
 
 if not exist "%BACKEND_DIR%\venv" (
@@ -334,8 +330,6 @@ if errorlevel 1 (
         echo  [OK] huggingface_hub 已安装
     )
     echo  [OK] 关键依赖验证完成
-    
-    goto gpu_check
 ) else (
     echo  [OK] 后端依赖已安装
     
@@ -357,9 +351,9 @@ if errorlevel 1 (
         echo  [OK] huggingface_hub 已安装
     )
     echo  [OK] 关键依赖验证完成
-    
-    goto gpu_check_skip_install
 )
+
+goto deps_ok
 
 :deps_failed
 echo  [ERROR] 依赖安装失败，请手动安装依赖后重试
@@ -367,54 +361,7 @@ echo  [INFO] 手动安装命令: cd backend ^&^& venv\Scripts\pip install -r requireme
 pause
 exit /b 1
 
-:gpu_check
-:: 检测 GPU 并安装对应版本的 PyTorch
-echo.
-echo  [*] 正在检测 GPU 环境...
-nvidia-smi >nul 2>&1
-if not errorlevel 1 (
-    echo  [OK] 检测到 NVIDIA GPU，正在安装 GPU 版本 PyTorch...
-    "%VENV_PIP%" uninstall torch torchvision torchaudio -y >nul 2>&1
-    "%VENV_PIP%" install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-    echo  [OK] GPU 版本 PyTorch 安装完成
-) else (
-    echo  [INFO] 未检测到 NVIDIA GPU，安装 CPU 版本 PyTorch...
-    "%VENV_PIP%" uninstall torch torchvision torchaudio -y >nul 2>&1
-    "%VENV_PIP%" install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-    echo  [OK] CPU 版本 PyTorch 安装完成
-)
-goto after_gpu_check
-
-:gpu_check_skip_install
-:: 检查 PyTorch 是否能正常加载（检测 DLL 问题）
-"%VENV_PYTHON%" -c "import torch; print('PyTorch OK')" >nul 2>&1
-if errorlevel 1 (
-    echo  [!] PyTorch 加载失败，可能是 GPU 版本在无 GPU 机器上
-    echo  [*] 正在重新安装 CPU 版本 PyTorch...
-    "%VENV_PIP%" uninstall torch torchvision torchaudio -y >nul 2>&1
-    "%VENV_PIP%" install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-    echo  [OK] CPU 版本 PyTorch 安装完成
-) else (
-    REM PyTorch 能加载，检查 CUDA 支持
-    "%VENV_PYTHON%" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" >nul 2>&1
-    if errorlevel 1 (
-        echo  [!] 当前 PyTorch 不支持 CUDA，检查是否有 GPU...
-        nvidia-smi >nul 2>&1
-        if not errorlevel 1 (
-            echo  [OK] 检测到 NVIDIA GPU，正在更新为 GPU 版本 PyTorch...
-            "%VENV_PIP%" uninstall torch torchvision torchaudio -y >nul 2>&1
-            "%VENV_PIP%" install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-            echo  [OK] GPU 版本 PyTorch 安装完成
-        ) else (
-            echo  [OK] PyTorch CPU 版本已就绪
-        )
-    ) else (
-        echo  [OK] PyTorch GPU 加速已就绪
-    )
-)
-goto after_gpu_check
-
-:after_gpu_check
+:deps_ok
 
 :: 验证 onnxruntime 是否真正可用（检测 DLL 依赖问题）
 echo  [*] 验证 onnxruntime 运行时...
@@ -428,42 +375,11 @@ if errorlevel 1 (
     echo  [OK] onnxruntime 运行时正常
 )
 
-REM 检查前端目录是否存在
-echo  [DEBUG] FRONTEND_DIR = %FRONTEND_DIR%
-echo  [DEBUG] PROJECT_DIR = %PROJECT_DIR%
-if not exist "%FRONTEND_DIR%" (
-    echo  [ERROR] 前端目录不存在: %FRONTEND_DIR%
-    echo  [INFO] 请确保 frontend 文件夹已正确复制
-    pause
-    exit /b 1
-)
-
-echo  [OK] 前端目录存在
-cd /d "%FRONTEND_DIR%"
-if errorlevel 1 (
-    echo  [ERROR] 无法切换到前端目录
-    pause
-    exit /b 1
-)
-if not exist "node_modules" (
-    echo  [*] 正在安装前端依赖（使用国内镜像加速）...
-    call npm config set registry https://registry.npmmirror.com
-    echo  [*] 开始安装，请耐心等待...
-    call npm install
-    if errorlevel 1 (
-        echo  [WARNING] 安装失败，请手动运行: cd frontend ^&^& npm install
-    ) else (
-        echo  [OK] 前端依赖安装完成
-    )
-) else (
-    echo  [OK] 前端依赖已安装
-)
-
 echo.
 
 :: [第六步] 启动服务
 echo ========================================================
-echo  [步骤 6/8] 启动服务
+echo  [步骤 6/7] 启动服务
 echo ========================================================
 
 echo  [*] 正在启动后端服务（端口 !BACKEND_PORT!）...
@@ -511,26 +427,22 @@ if !BACKEND_READY! EQU 0 (
     echo         3. 数据库初始化失败 - 请查看日志文件
 )
 
-echo  [*] 正在启动前端服务（端口 !FRONTEND_PORT!）...
-start "全能创意大师 - 前端服务" /d "%FRONTEND_DIR%" cmd /k "npm run dev"
-
-echo  [*] 等待前端服务启动...
-timeout /t 5 /nobreak >nul
-echo  [OK] 前端服务启动中...
-
+:: 前端已由后端统一托管，无需单独启动
+:: 后端启动后会自动打开浏览器访问前端
+echo  [*] 前端已由后端服务托管（端口 !BACKEND_PORT!）
+echo  [*] 浏览器将自动打开前端页面
 echo.
 
 :: [第七步] 完成
 echo ========================================================
-echo  [步骤 7/8] 启动完成
+echo  [步骤 7/7] 启动完成
 echo ========================================================
 echo.
 echo  ========================================
 echo    全能创意大师 启动成功！
 echo  ========================================
 echo.
-echo  后端地址: http://localhost:!BACKEND_PORT!
-echo  前端地址: http://localhost:!FRONTEND_PORT!
+echo  访问地址: http://localhost:!BACKEND_PORT!
 echo.
 echo  浏览器将自动打开前端页面
 echo  如果没有自动打开，请手动访问上述地址
@@ -539,8 +451,7 @@ echo  按 Ctrl+C 可以停止服务
 echo ========================================
 echo.
 
-:: Vite 会自动打开浏览器（vite.config.js 中配置了 open: true）
-:: 无需在此手动打开浏览器，否则会打开两个窗口
+:: 后端启动后会自动打开浏览器，无需在此手动打开
 
 pause
 exit /b 0
@@ -549,30 +460,51 @@ exit /b 0
 :: 端口清理函数
 :: 参数1: 端口号
 :: 参数2: 服务名称（用于日志显示）
+:: 参数3: 是否显示详细信息（1=显示，0=静默）
 :: ============================================================
 :CleanPort
 set "CLEAN_PORT=%~1"
 set "SERVICE_NAME=%~2"
+set "VERBOSE=%~3"
+if "%VERBOSE%"=="" set "VERBOSE=1"
 set "PORT_CLEANED=0"
 
-echo  [*] 检测 %SERVICE_NAME% 端口 !CLEAN_PORT!...
-
-:: 使用 netstat 查找占用指定端口的进程
-for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":%CLEAN_PORT% "') do (
+:: 使用 netstat 查找占用指定端口的进程（改进匹配模式）
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr /r ":%CLEAN_PORT%[ \t]"') do (
     set "PID=%%a"
     
     REM 跳过空值和 "0"
     if "!PID!" NEQ "" if "!PID!" NEQ "0" (
-        echo  [!] 发现端口 !CLEAN_PORT! 被进程 PID=!PID! 占用
-        echo  [*] 正在强制终止进程 !PID!...
+        if "%VERBOSE%"=="1" (
+            echo  [!] 发现端口 %CLEAN_PORT% 被进程 PID=!PID! 占用
+            echo  [*] 正在强制终止进程 !PID!...
+        )
         
         REM 强制终止进程
         taskkill /f /pid !PID! >nul 2>&1
         if not errorlevel 1 (
-            echo  [OK] 进程 !PID! 已终止
+            if "%VERBOSE%"=="1" echo  [OK] 进程 !PID! 已终止
             set "PORT_CLEANED=1"
         ) else (
-            echo  [WARNING] 无法终止进程 !PID!，可能需要管理员权限
+            if "%VERBOSE%"=="1" echo  [WARNING] 无法终止进程 !PID!，可能需要管理员权限
+        )
+    )
+)
+
+:: 额外检查 IPv6 端口
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr /r "\[.*\]:%CLEAN_PORT%"') do (
+    set "PID=%%a"
+    
+    if "!PID!" NEQ "" if "!PID!" NEQ "0" (
+        if "%VERBOSE%"=="1" (
+            echo  [!] 发现 IPv6 端口 %CLEAN_PORT% 被进程 PID=!PID! 占用
+            echo  [*] 正在强制终止进程 !PID!...
+        )
+        
+        taskkill /f /pid !PID! >nul 2>&1
+        if not errorlevel 1 (
+            if "%VERBOSE%"=="1" echo  [OK] 进程 !PID! 已终止
+            set "PORT_CLEANED=1"
         )
     )
 )
@@ -580,9 +512,9 @@ for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":%CLEAN_PORT% "') do 
 :: 等待端口释放
 if !PORT_CLEANED! EQU 1 (
     timeout /t 1 /nobreak >nul
-    echo  [OK] 端口 !CLEAN_PORT! 已清理
+    if "%VERBOSE%"=="1" echo  [OK] 端口 %CLEAN_PORT% 已清理
 ) else (
-    echo  [OK] 端口 !CLEAN_PORT! 可用
+    if "%VERBOSE%"=="1" echo  [OK] 端口 %CLEAN_PORT% 可用
 )
 
 goto :eof

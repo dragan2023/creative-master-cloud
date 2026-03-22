@@ -31,7 +31,8 @@ class KnowledgeBaseCategory(str, enum.Enum):
     NOVEL = "novel"                 # 小说（垂直领域）
     PRINT_AD = "print-ad"           # 平面广告（垂直领域）
     TVC = "tvc"                     # TVC广告（垂直领域）
-    GENERAL = "general"             # 通用知识库
+    GENERAL = "general"             # 通用知识库（理论知识库，固定调用）
+    USER_SPECIFIC = "user-specific"  # 用户专属知识库（支持GraphRAG，用户选择启用）
     MANUAL = "manual"               # 官方手册（不使用GraphRAG）
 
 

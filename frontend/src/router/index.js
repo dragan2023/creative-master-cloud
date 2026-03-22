@@ -1,23 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useUserStore } from '@/stores/user'
 
 const routes = [
   {
-    path: '/login',
-    name: 'Login',
-    component: () => import('@/views/auth/Login.vue'),
-    meta: { requiresAuth: false, title: '登录' }
-  },
-  {
-    path: '/register',
-    name: 'Register',
-    component: () => import('@/views/auth/Register.vue'),
-    meta: { requiresAuth: false, title: '注册' }
-  },
-  {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
-    meta: { requiresAuth: true },
     children: [
       {
         path: '',
@@ -60,6 +46,18 @@ const routes = [
         name: 'Profile',
         component: () => import('@/views/profile/Index.vue'),
         meta: { title: '个人设置' }
+      },
+      {
+        path: 'novel-writer',
+        name: 'NovelWriter',
+        component: () => import('@/views/novel-writer/Index.vue'),
+        meta: { title: '小说/剧本生成' }
+      },
+      {
+        path: 'novel-writer/:id',
+        name: 'NovelWriterDetail',
+        component: () => import('@/views/novel-writer/ProjectDetail.vue'),
+        meta: { title: '项目详情' }
       }
     ]
   },
@@ -76,31 +74,10 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
+// 路由守卫（仅设置页面标题）
 router.beforeEach((to, from, next) => {
   // 设置页面标题
   document.title = to.meta.title ? `${to.meta.title} - 全能创意大师` : '全能创意大师'
-  
-  const userStore = useUserStore()
-  
-  // 需要认证的页面
-  if (to.meta.requiresAuth && !userStore.isLoggedIn) {
-    next({ name: 'Login', query: { redirect: to.fullPath } })
-    return
-  }
-  
-  // 需要管理员权限
-  if (to.meta.requiresAdmin && !userStore.isAdmin) {
-    next({ name: 'Home' })
-    return
-  }
-  
-  // 已登录用户访问登录/注册页
-  if ((to.name === 'Login' || to.name === 'Register') && userStore.isLoggedIn) {
-    next({ name: 'Home' })
-    return
-  }
-  
   next()
 })
 

@@ -95,6 +95,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import DOMPurify from 'dompurify'
 import { updateApi } from '@/api'
 
 const props = defineProps({
@@ -138,11 +139,12 @@ const skippedVersions = ref(new Set())
 // 计算属性
 const formattedUpdateNotes = computed(() => {
   if (!updateInfo.value?.update_notes) return ''
-  // 将 Markdown 风格的换行转换为 HTML
-  return updateInfo.value.update_notes
+  // 将 Markdown 风格的换行转换为 HTML，并使用DOMPurify净化防止XSS
+  const html = updateInfo.value.update_notes
     .replace(/\n/g, '<br>')
     .replace(/## /g, '<strong>')
     .replace(/### /g, '<strong>')
+  return DOMPurify.sanitize(html)
 })
 
 // 检查更新

@@ -2,7 +2,7 @@
   <div class="knowledge-page">
     <div class="page-header">
       <h1 class="page-title">知识库管理</h1>
-      <el-button type="primary" @click="showUploadDialog = true">
+      <el-button type="primary" class="upload-btn" @click="showUploadDialog = true">
         <el-icon><Upload /></el-icon>
         上传文件
       </el-button>
@@ -10,9 +10,15 @@
     
     <!-- 说明卡片 -->
     <div class="info-card">
-      <el-icon :size="20"><InfoFilled /></el-icon>
+      <div class="info-icon">
+        <el-icon :size="20"><InfoFilled /></el-icon>
+      </div>
       <div class="info-content">
         <p>上传您的知识文档，AI将结合知识库内容生成更精准的创意内容。支持 PDF、Word、TXT、Markdown 等格式。</p>
+        <p class="recommend-text">
+          <el-icon><CircleCheck /></el-icon>
+          建议上传 md、docx、txt 等格式的知识库文档，pdf 的效果不佳。
+        </p>
         <p class="warning-text">
           <el-icon><Warning /></el-icon>
           文档字数越多，消耗的大模型token越多，请尽量上传精炼的文档。单个文件限制100MB。
@@ -43,18 +49,44 @@
           <el-icon><ArrowDown /></el-icon>
         </div>
         <div class="guide-item">
+          <div class="guide-icon user-specific">
+            <el-icon><User /></el-icon>
+          </div>
+          <div class="guide-text">
+            <h4>用户专属知识库 <el-tag size="small" type="success">GraphRAG</el-tag></h4>
+            <p>存储用户上传的<strong>个性化知识内容</strong>，针对小众人物、专有名词、专业知识、个人经验等优化</p>
+            <span class="guide-example">例如：个人作品集、专业知识笔记、特定人物介绍等</span>
+          </div>
+        </div>
+        <div class="guide-divider">
+          <el-icon><ArrowDown /></el-icon>
+        </div>
+        <div class="guide-item">
+          <div class="guide-icon manual">
+            <el-icon><Document /></el-icon>
+          </div>
+          <div class="guide-text">
+            <h4>官方手册知识库</h4>
+            <p>存放官方规范、标准手册、产品文档等<strong>参考资料</strong></p>
+            <span class="guide-example">例如：API文档、使用手册、配置说明等</span>
+          </div>
+        </div>
+        <div class="guide-divider">
+          <el-icon><ArrowDown /></el-icon>
+        </div>
+        <div class="guide-item">
           <div class="guide-icon vertical">
             <el-icon><Collection /></el-icon>
           </div>
           <div class="guide-text">
             <h4>垂直领域知识库</h4>
-            <p>存放实际案例、成品脚本、策划案等<strong>实践性资料</strong></p>
+            <p>按业务模块划分的<strong>实践性资料</strong>，包括短视频、剧本、小说、平面广告、TVC广告等</p>
             <span class="guide-example">例如：爆款短视频脚本、成功广告案例、优秀剧本大纲等</span>
           </div>
         </div>
         <div class="guide-tip">
           <el-icon><InfoFilled /></el-icon>
-          <span>系统会自动将您的垂直领域案例与通用理论关联，实现理论指导+案例参考的双重增强</span>
+          <span>通用知识库默认加载，用户专属和官方手册可选择性启用，垂直领域知识库按业务模块智能匹配</span>
         </div>
       </div>
     </el-card>
@@ -64,12 +96,13 @@
       <el-radio-group v-model="filterCategory" @change="fetchKnowledge">
         <el-radio-button label="all">全部</el-radio-button>
         <el-radio-button label="general">通用</el-radio-button>
+        <el-radio-button label="user-specific">用户专属</el-radio-button>
+        <el-radio-button label="manual">官方手册</el-radio-button>
         <el-radio-button label="short-video">短视频</el-radio-button>
         <el-radio-button label="script">剧本</el-radio-button>
         <el-radio-button label="novel">小说</el-radio-button>
         <el-radio-button label="print-ad">平面广告</el-radio-button>
         <el-radio-button label="tvc">TVC广告</el-radio-button>
-        <el-radio-button label="manual">官方手册</el-radio-button>
       </el-radio-group>
     </div>
     
@@ -229,6 +262,20 @@
                 <small>理论、方法论</small>
               </div>
             </el-radio-button>
+            <el-radio-button label="user-specific">
+              <div class="radio-content">
+                <el-icon><User /></el-icon>
+                <span>用户专属</span>
+                <small>个性化知识</small>
+              </div>
+            </el-radio-button>
+            <el-radio-button label="manual">
+              <div class="radio-content">
+                <el-icon><Document /></el-icon>
+                <span>官方手册</span>
+                <small>API、文档</small>
+              </div>
+            </el-radio-button>
             <el-radio-button label="short-video">
               <div class="radio-content">
                 <el-icon><VideoPlay /></el-icon>
@@ -264,21 +311,17 @@
                 <small>脚本、案例</small>
               </div>
             </el-radio-button>
-            <el-radio-button label="manual">
-              <div class="radio-content">
-                <el-icon><Document /></el-icon>
-                <span>官方手册</span>
-                <small>API、文档</small>
-              </div>
-            </el-radio-button>
           </el-radio-group>
           <div class="category-hint" :class="uploadForm.category">
             <el-icon><InfoFilled /></el-icon>
             <span v-if="uploadForm.category === 'general'">
               适合存放：创意理论、方法论、通用技巧等<strong>理论性资料</strong>
             </span>
+            <span v-else-if="uploadForm.category === 'user-specific'">
+              适合存放：用户上传的个性化知识内容，支持GraphRAG，针对<strong>小众人物、专有名词、专业知识、个人经验</strong>等优化
+            </span>
             <span v-else-if="uploadForm.category === 'manual'">
-              适合存放：API文档、使用手册、配置说明等<strong>技术文档</strong>（不使用GraphRAG，快速检索）
+              适合存放：官方规范、标准手册、API文档、配置说明等<strong>技术文档</strong>（快速检索）
             </span>
             <span v-else>
               适合存放：{{ getCategoryName(uploadForm.category) }}相关的<strong>实际案例、成品脚本、策划案</strong>等实践性资料
@@ -345,12 +388,13 @@
         <el-form-item label="业务模块">
           <el-select v-model="editForm.category" placeholder="选择业务模块" style="width: 100%">
             <el-option label="通用" value="general" />
+            <el-option label="用户专属" value="user-specific" />
+            <el-option label="官方手册" value="manual" />
             <el-option label="短视频" value="short-video" />
             <el-option label="剧本" value="script" />
             <el-option label="小说" value="novel" />
             <el-option label="平面广告" value="print-ad" />
             <el-option label="TVC广告" value="tvc" />
-            <el-option label="官方手册" value="manual" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -865,12 +909,13 @@ function getStatusType(status) {
 function getCategoryName(category) {
   const categoryMap = {
     'general': '通用',
+    'user-specific': '用户专属',
+    'manual': '官方手册',
     'short-video': '短视频',
     'script': '剧本',
     'novel': '小说',
     'print-ad': '平面广告',
-    'tvc': 'TVC广告',
-    'manual': '官方手册'
+    'tvc': 'TVC广告'
   }
   return categoryMap[category] || category || '通用'
 }
@@ -878,12 +923,13 @@ function getCategoryName(category) {
 function getCategoryType(category) {
   const typeMap = {
     'general': 'primary',
+    'user-specific': 'success',
+    'manual': 'warning',
     'short-video': 'primary',
     'script': 'success',
     'novel': 'warning',
     'print-ad': 'info',
-    'tvc': 'danger',
-    'manual': ''  // 默认灰色
+    'tvc': 'danger'
   }
   return typeMap[category] || 'info'
 }
@@ -904,17 +950,56 @@ function getCategoryType(category) {
   .page-title {
     font-size: 22px;
     color: #303133;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    
+    &::before {
+      content: '';
+      width: 4px;
+      height: 22px;
+      background: linear-gradient(180deg, #409EFF, #00D4AA);
+      border-radius: 2px;
+    }
+  }
+  
+  .upload-btn {
+    background: linear-gradient(135deg, #409EFF 0%, #00D4AA 100%);
+    border: none;
+    border-radius: 10px;
+    padding: 10px 20px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
+    transition: all 0.3s;
+    
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(64, 158, 255, 0.4);
+    }
   }
 }
 
 .info-card {
   display: flex;
-  gap: 12px;
-  background: #f0f9ff;
-  border-radius: 8px;
-  padding: 16px 20px;
+  gap: 14px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e8f4f8 100%);
+  border-radius: 12px;
+  padding: 18px 22px;
   margin-bottom: 20px;
-  color: #409EFF;
+  border: 1px solid rgba(64, 158, 255, 0.15);
+  
+  .info-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(64, 158, 255, 0.1);
+    border-radius: 10px;
+    color: #409EFF;
+    flex-shrink: 0;
+  }
   
   .info-content {
     flex: 1;
@@ -926,8 +1011,19 @@ function getCategoryType(category) {
       margin: 0;
       
       & + p {
-        margin-top: 8px;
+        margin-top: 10px;
       }
+    }
+    
+    .recommend-text {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #67C23A;
+      font-weight: 500;
+      background: rgba(103, 194, 58, 0.08);
+      padding: 8px 12px;
+      border-radius: 6px;
     }
     
     .warning-text {
@@ -936,16 +1032,155 @@ function getCategoryType(category) {
       gap: 6px;
       color: #E6A23C;
       font-weight: 500;
+      background: rgba(230, 162, 60, 0.08);
+      padding: 8px 12px;
+      border-radius: 6px;
     }
   }
 }
 
 .filter-bar {
   margin-bottom: 20px;
+  
+  :deep(.el-radio-group) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  :deep(.el-radio-button__inner) {
+    border-radius: 8px !important;
+    border: 1px solid #dcdfe6;
+    padding: 8px 16px;
+    font-size: 13px;
+    transition: all 0.3s;
+  }
+  
+  :deep(.el-radio-button.is-active .el-radio-button__inner) {
+    background: linear-gradient(135deg, #409EFF, #00D4AA);
+    border-color: #409EFF;
+    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
+  }
+}
+
+.guide-card {
+  margin-bottom: 20px;
+  border-radius: 14px;
+  border: 1px solid rgba(64, 158, 255, 0.1);
+  
+  :deep(.el-card__header) {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(64, 158, 255, 0.1);
+  }
+  
+  :deep(.el-card__body) {
+    padding: 20px;
+  }
+  
+  .guide-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: #303133;
+    
+    .el-icon {
+      color: #409EFF;
+    }
+  }
+  
+  .guide-content {
+    .guide-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 14px 0;
+      
+      &:not(:last-child) {
+        border-bottom: 1px dashed rgba(64, 158, 255, 0.15);
+      }
+      
+      .guide-icon {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        flex-shrink: 0;
+        
+        &.general {
+          background: rgba(64, 158, 255, 0.1);
+          color: #409EFF;
+        }
+        
+        &.user-specific {
+          background: rgba(103, 194, 58, 0.1);
+          color: #67C23A;
+        }
+        
+        &.manual {
+          background: rgba(230, 162, 60, 0.1);
+          color: #E6A23C;
+        }
+        
+        &.vertical {
+          background: rgba(0, 212, 170, 0.1);
+          color: #00D4AA;
+        }
+      }
+      
+      .guide-text {
+        flex: 1;
+        
+        h4 {
+          font-size: 14px;
+          color: #303133;
+          margin: 0 0 4px;
+          font-weight: 600;
+        }
+        
+        p {
+          font-size: 13px;
+          color: #606266;
+          margin: 0 0 4px;
+        }
+        
+        .guide-example {
+          font-size: 12px;
+          color: #909399;
+        }
+      }
+    }
+    
+    .guide-divider {
+      display: flex;
+      justify-content: center;
+      padding: 8px 0;
+      color: #c0c4cc;
+    }
+    
+    .guide-tip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: rgba(64, 158, 255, 0.05);
+      border-radius: 8px;
+      font-size: 12px;
+      color: #606266;
+      margin-top: 16px;
+      
+      .el-icon {
+        color: #409EFF;
+      }
+    }
+  }
 }
 
 .progress-card {
   margin-bottom: 20px;
+  border-radius: 14px;
   
   .card-header {
     display: flex;
@@ -974,6 +1209,7 @@ function getCategoryType(category) {
         justify-content: center;
         font-size: 12px;
         color: #909399;
+        transition: all 0.3s;
       }
       
       .step-label {
@@ -982,12 +1218,14 @@ function getCategoryType(category) {
       }
       
       &.active .step-icon {
-        background: #409EFF;
+        background: linear-gradient(135deg, #409EFF, #00D4AA);
         color: #fff;
+        box-shadow: 0 2px 8px rgba(64, 158, 255, 0.4);
       }
       
       &.active .step-label {
         color: #409EFF;
+        font-weight: 500;
       }
       
       &.done .step-icon {
@@ -1004,13 +1242,33 @@ function getCategoryType(category) {
 
 .file-list-container {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 24px;
+  border: 1px solid rgba(64, 158, 255, 0.08);
+  
+  :deep(.el-table) {
+    border-radius: 10px;
+    overflow: hidden;
+    
+    th.el-table__cell {
+      background: #f5f7fa;
+      font-weight: 600;
+      color: #303133;
+    }
+    
+    tr:hover > td {
+      background: rgba(64, 158, 255, 0.04) !important;
+    }
+  }
   
   .file-name {
     display: flex;
     align-items: center;
     gap: 8px;
+    
+    .el-icon {
+      color: #409EFF;
+    }
   }
   
   .pagination {
@@ -1039,7 +1297,7 @@ function getCategoryType(category) {
   width: 100%;
   height: 500px;
   border: 1px solid #ebeef5;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -1068,6 +1326,95 @@ function getCategoryType(category) {
       margin-right: 2px;
       font-size: 14px;
     }
+  }
+}
+
+// 上传对话框样式
+:deep(.el-dialog) {
+  border-radius: 16px;
+  
+  .el-dialog__header {
+    padding: 20px 24px;
+    border-bottom: 1px solid rgba(64, 158, 255, 0.1);
+    
+    .el-dialog__title {
+      font-weight: 600;
+      color: #303133;
+    }
+  }
+  
+  .el-dialog__body {
+    padding: 24px;
+  }
+  
+  .el-dialog__footer {
+    padding: 16px 24px;
+    border-top: 1px solid rgba(64, 158, 255, 0.1);
+  }
+}
+
+.category-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  
+  :deep(.el-radio-button) {
+    .el-radio-button__inner {
+      border-radius: 8px !important;
+      border: 1px solid #dcdfe6;
+      padding: 10px 16px;
+    }
+    
+    &.is-active .el-radio-button__inner {
+      background: linear-gradient(135deg, #409EFF, #00D4AA);
+      border-color: #409EFF;
+    }
+  }
+  
+  .radio-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    
+    .el-icon {
+      font-size: 18px;
+    }
+    
+    span {
+      font-size: 13px;
+    }
+    
+    small {
+      font-size: 11px;
+      opacity: 0.7;
+    }
+  }
+}
+
+.category-hint {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(64, 158, 255, 0.05);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #606266;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  
+  .el-icon {
+    color: #409EFF;
+  }
+  
+  &.user-specific {
+    background: rgba(103, 194, 58, 0.05);
+    .el-icon { color: #67C23A; }
+  }
+  
+  &.manual {
+    background: rgba(230, 162, 60, 0.05);
+    .el-icon { color: #E6A23C; }
   }
 }
 </style>

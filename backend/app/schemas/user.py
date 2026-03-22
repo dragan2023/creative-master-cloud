@@ -39,8 +39,10 @@ class UserResponse(UserBase):
     avatar: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "use_enum_values": True  # 枚举类型序列化为字符串值
+    }
 
 
 class UserLogin(BaseModel):
@@ -63,6 +65,7 @@ class APIKeyCreate(BaseModel):
     model_name: str = Field(..., description="模型名称")
     api_key: str = Field(..., description="API Key")
     api_base: Optional[str] = Field(None, description="自定义 API 地址")
+    channel: Optional[str] = Field("default", description="渠道分组")
     is_default: bool = Field(default=False, description="是否设为默认")
 
 
@@ -73,6 +76,7 @@ class APIKeyResponse(BaseModel):
     model_name: str
     api_key_masked: str = Field(..., description="脱敏后的 API Key")
     api_base: Optional[str] = None
+    channel: Optional[str] = "default"
     is_default: bool
     is_valid: bool
     last_used_at: Optional[str] = None
@@ -88,6 +92,7 @@ class APIKeyTest(BaseModel):
     model_name: str
     api_key: str
     api_base: Optional[str] = None
+    channel: Optional[str] = "default"
 
 
 class APIKeyTestResult(BaseModel):
@@ -95,3 +100,6 @@ class APIKeyTestResult(BaseModel):
     success: bool
     message: str
     model_info: Optional[dict] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    error: Optional[str] = None

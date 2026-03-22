@@ -71,6 +71,9 @@ class BaseLLMProvider(ABC):
     # 标记是否支持多模态
     supports_vision: bool = False
 
+    # 默认最大输出 token 数（设置为较大值避免截断）
+    DEFAULT_MAX_OUTPUT_TOKENS = 32768
+
     def __init__(
         self,
         api_key: str,
@@ -82,6 +85,17 @@ class BaseLLMProvider(ABC):
         self.model_name = model_name
         self.api_base = api_base
         self.kwargs = kwargs
+
+    def get_max_output_tokens(self) -> int:
+        """
+        获取当前模型支持的最大输出 token 数
+
+        子类可以重写此方法以提供特定模型的能力信息
+
+        Returns:
+            最大输出 token 数，默认 4096
+        """
+        return self.DEFAULT_MAX_OUTPUT_TOKENS
 
     def build_multimodal_content(
         self,
@@ -138,7 +152,7 @@ class BaseLLMProvider(ABC):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -168,7 +182,7 @@ class BaseLLMProvider(ABC):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
@@ -196,7 +210,7 @@ class BaseLLMProvider(ABC):
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> LLMResponse:
         """
@@ -261,7 +275,7 @@ class BaseLLMProvider(ABC):
         self,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 30000,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """
@@ -328,5 +342,6 @@ class BaseLLMProvider(ABC):
             "provider": self.__class__.__name__.replace("Provider", "").lower(),
             "model": self.model_name,
             "api_base": self.api_base,
-            "supports_vision": self.supports_vision
+            "supports_vision": self.supports_vision,
+            "max_output_tokens": self.get_max_output_tokens()
         }

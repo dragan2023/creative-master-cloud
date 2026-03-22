@@ -3,7 +3,9 @@
     <!-- 侧边栏 -->
     <el-aside :width="sidebarWidth" class="sidebar">
       <div class="logo">
-        <el-icon :size="28" color="#409EFF"><MagicStick /></el-icon>
+        <div class="logo-icon-wrapper">
+          <img src="/logo.png" alt="全能创意大师" class="logo-img" />
+        </div>
         <span v-show="!collapsed" class="logo-text">全能创意大师</span>
       </div>
       
@@ -34,6 +36,11 @@
           <template #title>知识库</template>
         </el-menu-item>
         
+        <el-menu-item index="/novel-writer">
+          <el-icon><Edit /></el-icon>
+          <template #title>小说/剧本生成</template>
+        </el-menu-item>
+        
         <el-menu-item index="/history">
           <el-icon><Clock /></el-icon>
           <template #title>历史记录</template>
@@ -45,6 +52,10 @@
         </el-menu-item>
       </el-menu>
       
+      <!-- 版本信息 -->
+      <div v-show="!collapsed" class="sidebar-footer">
+        <span class="version-text">v{{ currentVersion || '1.1.0' }}</span>
+      </div>
     </el-aside>
     
     <!-- 主内容区 -->
@@ -75,16 +86,13 @@
               <el-avatar :size="32" class="avatar">
                 {{ userStore.userInfo?.username?.charAt(0).toUpperCase() || 'U' }}
               </el-avatar>
-              <span class="username">{{ userStore.userInfo?.username || '用户' }}</span>
+              <span class="username">{{ userStore.userInfo?.nickname || userStore.userInfo?.username || '用户' }}</span>
               <el-icon><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="profile">
                   <el-icon><User /></el-icon>个人设置
-                </el-dropdown-item>
-                <el-dropdown-item divided command="logout">
-                  <el-icon><SwitchButton /></el-icon>退出登录
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -94,10 +102,8 @@
       
       <!-- 内容区 -->
       <el-main class="main-content">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" />
-          </transition>
+        <router-view v-slot="{ Component, route }">
+          <component :is="Component" :key="route.fullPath" />
         </router-view>
       </el-main>
     </el-container>
@@ -108,7 +114,7 @@
 import { ref, computed, onMounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore, useAppStore } from '@/stores'
-import { ElMessageBox } from 'element-plus'
+import { DocumentChecked } from '@element-plus/icons-vue'
 import { updateApi } from '@/api'
 
 const router = useRouter()
@@ -142,12 +148,6 @@ async function fetchCurrentVersion() {
 async function handleCommand(command) {
   if (command === 'profile') {
     router.push('/profile')
-  } else if (command === 'logout') {
-    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-      type: 'warning'
-    })
-    userStore.logout()
-    router.push('/login')
   }
 }
 
@@ -165,24 +165,66 @@ onMounted(async () => {
 }
 
 .sidebar {
-  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
   display: flex;
   flex-direction: column;
-  transition: width 0.3s;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+  position: relative;
+  overflow: hidden;
+  
+  // 科技感背景装饰
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      radial-gradient(ellipse at 50% 0%, rgba(64, 158, 255, 0.1) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 100%, rgba(0, 212, 170, 0.08) 0%, transparent 50%);
+    pointer-events: none;
+  }
   
   .logo {
     height: var(--header-height);
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 12px;
+    border-bottom: 1px solid rgba(64, 158, 255, 0.2);
+    position: relative;
+    z-index: 1;
+    
+    .logo-icon-wrapper {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      
+      .el-icon {
+        color: #fff;
+      }
+      
+      .logo-img {
+        width: 36px;
+        height: 36px;
+        object-fit: contain;
+        border-radius: 5px;
+      }
+    }
     
     .logo-text {
       font-size: 18px;
-      font-weight: 600;
-      color: #fff;
+      font-weight: 700;
+      background: linear-gradient(90deg, #fff 0%, #409EFF 50%, #00D4AA 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
       white-space: nowrap;
+      letter-spacing: 1px;
     }
   }
   
@@ -190,39 +232,130 @@ onMounted(async () => {
     flex: 1;
     border-right: none;
     background: transparent;
+    position: relative;
+    z-index: 1;
+    padding: 8px 0;
     
     :deep(.el-menu-item) {
       color: rgba(255, 255, 255, 0.7);
+      margin: 4px 8px;
+      border-radius: 8px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      
+      &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: linear-gradient(180deg, #409EFF, #00D4AA);
+        transform: scaleY(0);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
       
       &:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(64, 158, 255, 0.15);
         color: #fff;
+        transform: translateX(4px);
+        
+        &::before {
+          transform: scaleY(1);
+        }
       }
       
       &.is-active {
-        background: linear-gradient(90deg, #409EFF 0%, transparent 100%);
+        background: linear-gradient(90deg, rgba(64, 158, 255, 0.3) 0%, rgba(0, 212, 170, 0.1) 100%);
         color: #fff;
+        box-shadow: 0 4px 15px rgba(64, 158, 255, 0.2);
+        
+        &::before {
+          transform: scaleY(1);
+        }
+        
+        .el-icon {
+          color: #409EFF;
+        }
       }
+      
+      .el-icon {
+        font-size: 18px;
+        transition: all 0.3s;
+      }
+    }
+  }
+  
+  .sidebar-footer {
+    padding: 16px;
+    border-top: 1px solid rgba(64, 158, 255, 0.2);
+    text-align: center;
+    position: relative;
+    z-index: 1;
+    
+    .version-text {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.4);
+      letter-spacing: 1px;
     }
   }
 }
 
+@keyframes logo-glow {
+  0%, 100% {
+    box-shadow: 0 4px 15px rgba(64, 158, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 4px 25px rgba(64, 158, 255, 0.6), 0 0 40px rgba(0, 212, 170, 0.3);
+  }
+}
+
 .header {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  padding: 0 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   z-index: 10;
+  border-bottom: 1px solid rgba(64, 158, 255, 0.1);
   
   .header-left {
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 16px;
     
     .collapse-btn {
       padding: 8px;
+      border-radius: 8px;
+      transition: all 0.3s;
+      
+      &:hover {
+        background: rgba(64, 158, 255, 0.1);
+        color: #409EFF;
+      }
+    }
+    
+    :deep(.el-breadcrumb) {
+      font-size: 14px;
+      
+      .el-breadcrumb__item {
+        .el-breadcrumb__inner {
+          color: #606266;
+          font-weight: 500;
+          
+          &.is-link:hover {
+            color: #409EFF;
+          }
+        }
+        
+        &:last-child .el-breadcrumb__inner {
+          color: #303133;
+          font-weight: 600;
+        }
+      }
     }
   }
   
@@ -234,24 +367,44 @@ onMounted(async () => {
     .user-info {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 24px;
+      transition: all 0.3s;
+      
+      &:hover {
+        background: rgba(64, 158, 255, 0.08);
+      }
       
       .avatar {
-        background: linear-gradient(135deg, #409EFF, #36D1DC);
+        background: linear-gradient(135deg, #409EFF 0%, #00D4AA 100%);
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
       }
       
       .username {
         font-size: 14px;
         color: #303133;
+        font-weight: 500;
+      }
+      
+      .el-icon {
+        color: #909399;
+        transition: transform 0.3s;
+      }
+      
+      &:hover .el-icon {
+        transform: rotate(180deg);
       }
     }
   }
 }
 
 .main-content {
-  background: #f5f7fa;
-  padding: 20px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+  padding: 24px;
   overflow-y: auto;
+  min-height: calc(100vh - 60px);
 }
 </style>

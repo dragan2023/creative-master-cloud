@@ -3,63 +3,43 @@ import { ref, computed } from 'vue'
 import { authApi } from '@/api'
 
 export const useUserStore = defineStore('user', () => {
-  const token = ref(localStorage.getItem('token') || '')
+  // 用户信息（从后端获取默认用户）
   const userInfo = ref(JSON.parse(localStorage.getItem('userInfo') || 'null'))
 
-  const isLoggedIn = computed(() => !!token.value)
+  // 始终返回已登录状态（系统无需认证）
+  const isLoggedIn = computed(() => true)
   const isAdmin = computed(() => userInfo.value?.role === 'admin')
 
-  // 登录
-  async function login(credentials) {
-    const res = await authApi.login(credentials)
-    // 后端返回格式: { code, message, data: { access_token, user } }
-    const loginData = res.data || res
-    token.value = loginData.access_token
-    userInfo.value = loginData.user
-    localStorage.setItem('token', loginData.access_token)
-    localStorage.setItem('userInfo', JSON.stringify(loginData.user))
-    return res
-  }
-
-  // 注册
-  async function register(data) {
-    const res = await authApi.register(data)
-    return res
-  }
-
-  // 登出
-  function logout() {
-    token.value = ''
-    userInfo.value = null
-    localStorage.removeItem('token')
-    localStorage.removeItem('userInfo')
-  }
-
-  // 获取用户信息
+  // 获取用户信息（默认用户）
   async function fetchProfile() {
-    const res = await authApi.getProfile()
-    userInfo.value = res.data || res
-    localStorage.setItem('userInfo', JSON.stringify(res.data || res))
-    return res
+    try {
+      const res = await authApi.getProfile()
+      userInfo.value = res.data || res
+      localStorage.setItem('userInfo', JSON.stringify(res.data || res))
+      return res
+    } catch (error) {
+      console.error('获取用户信息失败:', error)
+      // 如果获取失败，使用默认用户信息
+      userInfo.value = {
+        id: 1,
+        username: 'default',
+        nickname: '默认用户',
+        email: 'default@local.host',
+        role: 'user'
+      }
+      return { data: userInfo.value }
+    }
   }
 
-  // 更新用户信息
-  async function updateProfile(data) {
-    const res = await authApi.updateProfile(data)
-    userInfo.value = res.data || res
-    localStorage.setItem('userInfo', JSON.stringify(res.data || res))
-    return res
+  // 初始化时获取用户信息
+  if (!userInfo.value) {
+    fetchProfile()
   }
 
   return {
-    token,
     userInfo,
     isLoggedIn,
     isAdmin,
-    login,
-    register,
-    logout,
-    fetchProfile,
-    updateProfile
+    fetchProfile
   }
 })

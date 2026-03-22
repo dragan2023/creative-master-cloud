@@ -1,11 +1,11 @@
 {
-    "current_version": "1.1.1",
+    "current_version": "2.2.2",
     "minimum_version": "0.9.0",
-    "download_url": "https://github.com/dragan2023/creative-master/releases/download/v1.1.1/creative-master-v1.1.1.zip",
-    "download_url_mirror": "https://ghproxy.com/https://github.com/dragan2023/creative-master/releases/download/v1.1.1/creative-master-v1.1.1.zip",
-    "update_notes": "## v1.1.1 启动脚本增强与日志优化\n\n### 新功能\n- 新增 Visual C++ Redistributable 环境检测，提前发现依赖问题\n- 新增前端目录存在性检查，提供更清晰的错误提示\n\n### 修复\n- 修复批处理脚本中括号块内使用 :: 注释导致闪退的问题\n- 修复 start 命令引号嵌套导致路径解析失败的问题\n- 修复 GPU 检测逻辑中缺少跳转指令的问题\n\n### 优化\n- 精简 Hugging Face 模型下载日志输出，减少冗余信息\n- 优化进度条更新频率，每5秒更新一次\n- 静默 huggingface_hub、urllib3 等库的详细日志\n\n### 改进\n- 统一使用 REM 替代 :: 进行括号块内注释\n- 使用 /d 参数优化 start 命令的工作目录设置\n- 增强调试信息输出，便于问题定位",
-    "release_date": "2026-02-26",
-    "file_size_mb": 160,
+    "download_url": "https://github.com/dragan2023/creative-master/releases/download/v2.2.0/creative-master-v2.2.0.zip",
+    "download_url_mirror": "https://ghproxy.com/https://github.com/dragan2023/creative-master/releases/download/v2.2.0/creative-master-v2.2.0.zip",
+    "update_notes": "## v2.2.0 功能增强与稳定性优化\n\n### 新增功能\n- 短视频脚本板块新增参考资料上传功能，支持 txt/md/doc/docx/pdf 格式\n- 提示词优化功能重构，各模块优化结果紧密围绕用户原始输入\n- 小说/剧本大纲新增两阶段生成流程（全局大纲 → 单元概述）\n- 新增原创IP计划模块，一键构建完整角色IP档案\n\n### 功能优化\n- 优化提示词模板，强化各模块专业特性差异化\n- 知识库检索逻辑优化，支持按类别筛选知识库\n- 联网搜索功能支持用户自定义API Key\n\n### 问题修复\n- 修复搜索功能返回0结果的问题\n- 修复 UserAPIKey 导入路径错误\n- 修复 Python 闭包变量错误（json import）\n- 修复前端 SSE 步骤推送功能\n\n### 稳定性改进\n- 增强异常处理和日志记录\n- 优化数据库连接管理\n- 清理废弃代码和测试文件",
+    "release_date": "2026-03-17",
+    "file_size_mb": 165,
     "file_hash_md5": "placeholder-update-on-release",
     "force_update": false,
     "changelog_url": "https://github.com/dragan2023/creative-master/blob/main/CHANGELOG.md"

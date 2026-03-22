@@ -53,6 +53,75 @@ GENERAL_KB_CONFIG = {
 }
 
 # ============================================================================
+# 用户专属知识库配置（用户个性化知识层）
+# ============================================================================
+
+USER_SPECIFIC_KB_CONFIG = {
+    "category": "user-specific",
+    "description": "用户专属知识库 - 补充LLM知识盲区",
+    "fixed_call": False,  # 用户选择启用后才调用
+    "entity_types": {
+        "小众人物": {
+            "description": "LLM知识盲区的人物资料",
+            "extraction_hints": [
+                "网络红人、KOL、小众博主",
+                "地方名人、行业专家",
+                "虚构人物、原创角色",
+                "历史小人物、冷门人物"
+            ],
+            "attributes": ["身份", "职业", "成就", "特点", "关联事件"]
+        },
+        "专属概念": {
+            "description": "用户定义的专有概念",
+            "extraction_hints": [
+                "自定义术语、行话",
+                "品牌特有名词",
+                "项目代号、内部概念",
+                "自创理论、方法论"
+            ],
+            "attributes": ["定义", "特征", "适用范围", "来源"]
+        },
+        "专业知识": {
+            "description": "特定领域的深度知识",
+            "extraction_hints": [
+                "行业内部知识",
+                "专业技能细节",
+                "细分领域理论",
+                "实践经验总结"
+            ],
+            "attributes": ["领域", "核心内容", "应用场景", "实践要点"]
+        },
+        "个人经验": {
+            "description": "用户积累的经验知识",
+            "extraction_hints": [
+                "成功案例分析",
+                "失败教训总结",
+                "实践心得体会",
+                "独特见解观点"
+            ],
+            "attributes": ["场景", "经验内容", "适用条件", "效果评估"]
+        },
+        "特定作品": {
+            "description": "特定作品的详细资料",
+            "extraction_hints": [
+                "原创作品背景",
+                "系列作品设定",
+                "世界观细节",
+                "角色详细信息"
+            ],
+            "attributes": ["作品名", "类型", "核心元素", "设定细节"]
+        }
+    },
+    "relation_types": {
+        "关联于": {"description": "实体间的关联关系", "weight_range": (0.6, 0.9)},
+        "属于": {"description": "从属关系", "weight_range": (0.7, 0.95)},
+        "应用于": {"description": "应用场景关系", "weight_range": (0.65, 0.85)},
+        "补充说明": {"description": "知识补充关系", "weight_range": (0.5, 0.8)},
+        "背景支撑": {"description": "背景知识支撑", "weight_range": (0.6, 0.85)}
+    }
+}
+
+# ============================================================================
 # 垂直领域知识库配置（应用案例层）
 # ============================================================================
 
@@ -119,32 +188,107 @@ VERTICAL_KB_CONFIGS = {
     },
     "novel": {
         "category": "novel",
-        "description": "小说大纲专业知识库",
+        "description": "小说正文知识库 - 完全独立于公共知识库",
+        "is_isolated": True,  # 标记为独立知识库，不与公共知识库关联
         "entity_types": {
-            "世界观": {
-                "description": "故事背景设定",
-                "connection_focus": ["系统论", "一致性理论", "建构主义"]
+            # ========== 宏观层（全集大纲）==========
+            "主题": {
+                "description": "小说的核心思想、主旨或探讨的议题",
+                "level": "macro",
+                "attributes": ["名称", "描述", "相关人物", "相关事件"],
+                "examples": ["命运与选择", "成长与蜕变", "爱与牺牲"]
             },
-            "人物关系": {
-                "description": "角色关联网络",
-                "connection_focus": ["社会网络", "依恋理论", "情感纽带"]
+            "世界观规则": {
+                "description": "世界的基本设定，如魔法体系、科技水平、社会结构、物理规则等",
+                "level": "macro",
+                "attributes": ["名称", "描述", "适用范围", "影响对象"],
+                "examples": ["魔法体系", "社会等级制度", "科技限制"]
             },
-            "情节主线": {
-                "description": "核心故事线",
-                "connection_focus": ["英雄之旅", "目标理论", "动机理论"]
+            "人物": {
+                "description": "角色的基础设定（全集大纲中的人物谱系）",
+                "level": "macro",
+                "attributes": ["姓名", "别名", "年龄", "性别", "性格", "背景故事", "初始目标", "外貌描述"],
+                "examples": ["主角", "反派", "配角"]
             },
-            "支线任务": {
-                "description": "辅助情节",
-                "connection_focus": ["蔡格尼克效应", "好奇心", "伏笔理论"]
+            "故事结构": {
+                "description": "故事的宏观框架，如三幕、起承转合、英雄之旅等",
+                "level": "macro",
+                "attributes": ["结构名称", "阶段描述", "包含的宏观事件"],
+                "examples": ["三幕式", "英雄之旅", "起承转合"]
             },
-            "写作手法": {
-                "description": "叙事技巧",
-                "connection_focus": ["认知负荷", "沉浸理论", "视角理论"]
+            "章节概要": {
+                "description": "各章节的宏观概述，含主要冲突、情节走向",
+                "level": "macro",
+                "attributes": ["章节号", "标题", "概要", "宏观冲突", "涉及的主要人物", "涉及地点"],
+                "examples": ["第1章概要", "第2章概要"]
             },
-            "风格标签": {
-                "description": "作品风格",
-                "connection_focus": ["情感基调", "审美理论", "类型特征"]
+            "地点": {
+                "description": "故事发生的地点/场景设定",
+                "level": "macro",
+                "attributes": ["名称", "描述", "特点", "重要性"],
+                "examples": ["主城", "秘密基地", "故乡"]
+            },
+            # ========== 微观层（章节详细大纲）==========
+            "详细事件": {
+                "description": "章节内的具体事件，可细分为多个场景",
+                "level": "micro",
+                "attributes": ["名称", "详细描述", "发生地点", "参与角色", "前因后果", "故事内时间", "重要性(1-5)"],
+                "examples": ["主角收到信件", "关键战斗", "重要对话"]
+            },
+            "核心冲突": {
+                "description": "推动情节的冲突，可以是人物之间、人物与环境、人物内心等",
+                "level": "micro",
+                "attributes": ["冲突描述", "冲突类型(外部/内部)", "冲突双方", "涉及事件", "强度(1-5)"],
+                "examples": ["主角vs反派", "内心挣扎", "人与自然"]
+            },
+            "角色发展弧": {
+                "description": "角色在特定章节中的变化或成长节点",
+                "level": "micro",
+                "attributes": ["所属角色", "发展阶段描述", "触发事件", "结果状态", "变化前状态", "变化后状态"],
+                "examples": ["接受命运", "觉醒力量", "做出选择"]
+            },
+            "关键对话": {
+                "description": "对情节或人物塑造有重要作用的对话",
+                "level": "micro",
+                "attributes": ["对话内容", "参与者", "对话目的", "所在事件"],
+                "examples": ["关键告白", "真相揭露", "誓言承诺"]
+            },
+            "情节线": {
+                "description": "贯穿多章的子情节，可宏观可微观",
+                "level": "micro",
+                "attributes": ["名称", "描述", "类型(主线/支线)", "包含事件"],
+                "examples": ["主线", "感情线", "复仇线"]
+            },
+            "场景": {
+                "description": "更细粒度的单元，场景描述",
+                "level": "micro",
+                "attributes": ["场景描述", "环境", "动作", "对话", "氛围"],
+                "examples": ["开场场景", "高潮场景", "结尾场景"]
             }
+        },
+        "relation_types": {
+            # ========== 宏观层内部关系 ==========
+            "体现于": {"description": "主题体现于章节概要", "level": "macro_to_macro"},
+            "属于": {"description": "人物属于世界观规则（如种族、阵营）", "level": "macro_to_macro"},
+            "包含": {"description": "故事结构包含章节概要", "level": "macro_to_macro"},
+            "影响": {"description": "世界观规则影响人物/地点", "level": "macro_to_macro"},
+            # ========== 宏观与微观之间的桥梁关系 ==========
+            "经历": {"description": "人物经历角色发展弧步骤", "level": "bridge"},
+            "参与": {"description": "人物参与详细事件", "level": "bridge"},
+            "展开为": {"description": "章节概要展开为详细事件", "level": "bridge"},
+            "约束": {"description": "世界观规则约束详细事件", "level": "bridge"},
+            "渗透于": {"description": "主题渗透于详细事件/核心冲突", "level": "bridge"},
+            "定位": {"description": "故事结构定位详细事件", "level": "bridge"},
+            "发生于": {"description": "事件发生于地点", "level": "bridge"},
+            # ========== 微观层内部关系 ==========
+            "前序": {"description": "详细事件的前序事件", "level": "micro_to_micro"},
+            "导致": {"description": "详细事件导致另一个事件", "level": "micro_to_micro"},
+            "包含冲突": {"description": "详细事件包含核心冲突", "level": "micro_to_micro"},
+            "触发于": {"description": "角色发展弧步骤触发于详细事件", "level": "micro_to_micro"},
+            "发生于事件": {"description": "关键对话发生于详细事件", "level": "micro_to_micro"},
+            "包含事件": {"description": "情节线包含详细事件", "level": "micro_to_micro"},
+            "关联": {"description": "核心冲突关联角色发展弧步骤", "level": "micro_to_micro"},
+            "关联人物": {"description": "事件/场景关联的人物", "level": "micro_to_micro"}
         }
     },
     "print-ad": {
@@ -371,14 +515,8 @@ VERTICAL_THEORY_REFERENCES = {
 | 悬念、反转 | 悬念理论、预期违背 |
 """,
     "novel": """
-| 垂直实体特征 | 可能匹配的理论标签 |
-|-------------|------------------|
-| 规则、逻辑 | 系统论、一致性理论 |
-| 关系、情感 | 社会网络、依恋理论 |
-| 动机、目标 | 马斯洛需求、自我决定 |
-| 悬念、谜题 | 蔡格尼克效应、好奇心理论 |
-| 道德、选择 | 伦理学、认知失调 |
-| 视角、叙述 | 认知局限、视角理论 |
+| 正文板块专用 - 不与公共知识库关联 |
+该知识库完全独立，无需匹配通用理论标签。
 """,
     "print-ad": """
 | 垂直实体特征 | 可能匹配的理论标签 |
@@ -403,6 +541,126 @@ VERTICAL_THEORY_REFERENCES = {
 }
 
 # ============================================================================
+# 用户专属知识库提取提示词
+# ============================================================================
+
+USER_SPECIFIC_EXTRACTION_PROMPT = """你是一位知识图谱专家，专注于提取用户个性化知识。请从用户上传的内容中提取实体，弥补LLM的知识盲区。
+
+## 核心实体类型
+{entity_types}
+
+## 提取重点
+
+### 1. 人物类实体
+提取LLM可能不知道的人物信息：
+- 网络红人、KOL、小众博主
+- 地方名人、行业专家
+- 虚构人物、原创角色
+- 历史小人物、冷门人物
+
+**必须提取的属性**：
+- 身份/职业
+- 主要成就/特点
+- 关联事件/作品
+- 独特之处（为什么LLM可能不知道）
+
+### 2. 概念类实体
+提取专有名词和概念：
+- 自定义术语、行话、黑话
+- 品牌特有名词
+- 项目代号、内部概念
+- 自创理论、方法论
+
+**必须提取的属性**：
+- 明确定义
+- 使用场景
+- 来源/创造者
+- 与通用概念的区别
+
+### 3. 知识类实体
+提取领域专业知识：
+- 行业内部知识
+- 专业技能细节
+- 细分领域理论
+- 实践经验总结
+
+**必须提取的属性**：
+- 所属领域
+- 核心内容要点
+- 实际应用场景
+- 与通用知识的差异
+
+## 知识盲区标注
+对于每个实体，请标注：
+- `blind_spot_type`: LLM的知识盲区类型
+  - "too_new": 太新，LLM训练数据中不存在
+  - "too_niche": 太小众，LLM训练数据覆盖不足
+  - "too_specific": 太具体，LLM无法精确记忆
+  - "user_created": 用户原创内容
+
+## 输出格式
+{{
+  "entities": [
+    {{
+      "text": "实体名称",
+      "type": "实体类型",
+      "blind_spot_type": "知识盲区类型",
+      "description": "详细描述",
+      "key_attributes": {{
+        "身份": "...",
+        "成就": "...",
+        "特点": "..."
+      }},
+      "llm_knowledge_gap": "LLM可能不知道的关键信息"
+    }}
+  ],
+  "relations": [
+    {{"source": "实体A", "target": "实体B", "relation": "关系类型", "weight": 0.85}}
+  ]
+}}
+
+待分析内容：
+{content}
+"""
+
+# ============================================================================
+# 正文板块专用提取提示词（完全独立，不与公共知识库关联）
+# ============================================================================
+
+NOVEL_KB_EXTRACTION_PROMPT = """你是小说知识图谱专家。从大纲中提取实体和关系。
+
+**重要：该知识库完全独立，禁止使用以下关系类型：**
+体现了、应用了、符合、违背了、衍生自、互补于、应用于、限制于
+
+## 实体类型
+
+**宏观层(macro)：** 主题、世界观规则、人物、故事结构、章节概要、地点
+**微观层(micro)：** 详细事件、核心冲突、角色发展弧、关键对话、情节线、场景
+
+## 关系类型
+
+**宏观层：** 体现于、属于、包含、影响
+**桥梁：** 经历、参与、展开为、约束、渗透于、定位、发生于
+**微观层：** 前序、导致、包含冲突、触发于、发生于事件、包含事件、关联、关联人物
+
+## 输出格式
+
+```json
+{{
+  "entities": [
+    {{"text": "名称", "type": "类型", "level": "macro或micro", "description": "描述"}}
+  ],
+  "relations": [
+    {{"source": "实体A", "target": "实体B", "relation": "关系类型"}}
+  ]
+}}
+```
+
+待分析内容：
+{content}
+"""
+
+# ============================================================================
 # 辅助函数
 # ============================================================================
 
@@ -411,6 +669,8 @@ def get_kb_config(category: str) -> Dict[str, Any]:
     """获取知识库配置"""
     if category == "general":
         return GENERAL_KB_CONFIG
+    elif category == "user-specific":
+        return USER_SPECIFIC_KB_CONFIG
     return VERTICAL_KB_CONFIGS.get(category, {})
 
 
@@ -436,7 +696,21 @@ def get_extraction_prompt(category: str, content: str) -> str:
             entity_types=entity_types,
             content=content
         )
+    elif category == "user-specific":
+        # 用户专属知识库提取提示词
+        entity_types = "\n".join([
+            f"- **{k}**: {v['description']}"
+            for k, v in USER_SPECIFIC_KB_CONFIG["entity_types"].items()
+        ])
+        return USER_SPECIFIC_EXTRACTION_PROMPT.format(
+            entity_types=entity_types,
+            content=content
+        )
+    elif category == "novel":
+        # 正文板块专用提取提示词 - 完全独立，不与公共知识库关联
+        return NOVEL_KB_EXTRACTION_PROMPT.format(content=content)
     else:
+        # 其他垂直领域知识库提取提示词
         config = VERTICAL_KB_CONFIGS.get(category, {})
         entity_types = "\n".join([
             f"- **{k}**: {v['description']}"
@@ -458,3 +732,71 @@ def get_theory_tags() -> List[str]:
     for entity_type in GENERAL_KB_CONFIG["entity_types"].values():
         tags.update(entity_type.get("theory_tags", []))
     return sorted(list(tags))
+
+
+def is_isolated_kb(category: str) -> bool:
+    """
+    检查知识库是否为独立知识库（不与公共知识库关联）
+
+    Args:
+        category: 知识库类别
+
+    Returns:
+        True 表示独立知识库，False 表示公共知识库
+    """
+    # 正文板块(novel)是完全独立的知识库
+    if category == "novel":
+        return True
+
+    # 检查配置中的 is_isolated 标记
+    config = get_kb_config(category)
+    return config.get("is_isolated", False)
+
+
+def get_novel_entity_types() -> Dict[str, Any]:
+    """
+    获取正文板块的实体类型配置
+
+    Returns:
+        正文板块实体类型配置，分为宏观层和微观层
+    """
+    novel_config = VERTICAL_KB_CONFIGS.get("novel", {})
+    entity_types = novel_config.get("entity_types", {})
+
+    # 分离宏观层和微观层实体类型
+    macro_types = {k: v for k, v in entity_types.items()
+                   if v.get("level") == "macro"}
+    micro_types = {k: v for k, v in entity_types.items()
+                   if v.get("level") == "micro"}
+
+    return {
+        "macro": macro_types,
+        "micro": micro_types,
+        "all": entity_types
+    }
+
+
+def get_novel_relation_types() -> Dict[str, Any]:
+    """
+    获取正文板块的关系类型配置
+
+    Returns:
+        正文板块关系类型配置，分为宏观层、桥梁和微观层
+    """
+    novel_config = VERTICAL_KB_CONFIGS.get("novel", {})
+    relation_types = novel_config.get("relation_types", {})
+
+    # 分离不同层级的关系类型
+    macro_relations = {k: v for k, v in relation_types.items() if v.get(
+        "level") == "macro_to_macro"}
+    bridge_relations = {
+        k: v for k, v in relation_types.items() if v.get("level") == "bridge"}
+    micro_relations = {k: v for k, v in relation_types.items() if v.get(
+        "level") == "micro_to_micro"}
+
+    return {
+        "macro_to_macro": macro_relations,
+        "bridge": bridge_relations,
+        "micro_to_micro": micro_relations,
+        "all": relation_types
+    }

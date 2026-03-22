@@ -115,6 +115,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { View, Delete } from '@element-plus/icons-vue'
 import { historyApi } from '@/api'
@@ -132,7 +133,8 @@ const filterDate = ref(null)
 
 const renderedContent = computed(() => {
   if (!currentItem.value?.output_content) return ''
-  return marked(currentItem.value.output_content)
+  // 使用DOMPurify净化HTML，防止XSS攻击
+  return DOMPurify.sanitize(marked(currentItem.value.output_content))
 })
 
 onMounted(() => {
