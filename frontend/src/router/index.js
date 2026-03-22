@@ -1,6 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useUserStore } from '@/stores/user'
 
 const routes = [
+  // 登录注册路由（无需认证）
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/auth/Login.vue'),
+    meta: { title: '登录', public: true }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/auth/Register.vue'),
+    meta: { title: '注册', public: true }
+  },
+  // 主应用路由
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
@@ -58,6 +73,31 @@ const routes = [
         name: 'NovelWriterDetail',
         component: () => import('@/views/novel-writer/ProjectDetail.vue'),
         meta: { title: '项目详情' }
+      },
+      // 管理员后台路由
+      {
+        path: 'admin',
+        name: 'AdminDashboard',
+        component: () => import('@/views/admin/Dashboard.vue'),
+        meta: { title: '管理后台', requiresAdmin: true }
+      },
+      {
+        path: 'admin/users',
+        name: 'AdminUsers',
+        component: () => import('@/views/admin/UserManagement.vue'),
+        meta: { title: '用户管理', requiresAdmin: true }
+      },
+      {
+        path: 'admin/tenants',
+        name: 'AdminTenants',
+        component: () => import('@/views/admin/TenantManagement.vue'),
+        meta: { title: '租户管理', requiresSuperAdmin: true }
+      },
+      {
+        path: 'admin/logs',
+        name: 'AdminLogs',
+        component: () => import('@/views/admin/Logs.vue'),
+        meta: { title: '操作日志', requiresAdmin: true }
       }
     ]
   },
@@ -74,10 +114,42 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫（仅设置页面标题）
+// 路由守卫
 router.beforeEach((to, from, next) => {
   // 设置页面标题
   document.title = to.meta.title ? `${to.meta.title} - 全能创意大师` : '全能创意大师'
+  
+  const userStore = useUserStore()
+  
+  // 公开页面直接访问
+  if (to.meta.public) {
+    // 已登录用户访问登录/注册页，重定向到首页
+    if (userStore.isLoggedIn && (to.path === '/login' || to.path === '/register')) {
+      next('/')
+      return
+    }
+    next()
+    return
+  }
+  
+  // 需要认证的页面
+  if (!to.meta.public && !userStore.isLoggedIn) {
+    next({ path: '/login', query: { redirect: to.fullPath } })
+    return
+  }
+  
+  // 需要管理员权限
+  if (to.meta.requiresAdmin && !userStore.isAdmin) {
+    next('/')
+    return
+  }
+  
+  // 需要超级管理员权限
+  if (to.meta.requiresSuperAdmin && !userStore.isSuperAdmin) {
+    next('/admin')
+    return
+  }
+  
   next()
 })
 

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { API_BASE_URL } from '@/config'
 import { ElMessage } from 'element-plus'
+import router from '@/router'
 
 // 创建axios实例
 const api = axios.create({
@@ -13,6 +14,20 @@ const api = axios.create({
   }
 })
 
+// 请求拦截器 - 添加Token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
 // 响应拦截器
 api.interceptors.response.use(
   (response) => {
@@ -21,6 +36,17 @@ api.interceptors.response.use(
   (error) => {
     const status = error.response?.status
     const message = error.response?.data?.detail || '请求失败'
+    
+    // 401 未授权 - 跳转登录页
+    if (status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('userInfo')
+      // 避免登录页循环重定向
+      if (router.currentRoute.value.path !== '/login') {
+        router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
+      }
+      return Promise.reject(error)
+    }
     
     // 499 表示请求被取消（客户端断开连接）
     if (status === 499) {
@@ -34,8 +60,13 @@ api.interceptors.response.use(
   }
 )
 
-// 认证API（已简化，仅保留获取用户信息）
+// 认证API
 export const authApi = {
+  // 登录
+  login: (data) => api.post('/api/v1/auth/login', data),
+  // 注册
+  register: (data) => api.post('/api/v1/auth/register', data),
+  // 获取当前用户信息
   getProfile: () => api.get('/api/v1/auth/me')
 }
 

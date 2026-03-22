@@ -50,6 +50,12 @@
           <el-icon><User /></el-icon>
           <template #title>个人设置</template>
         </el-menu-item>
+        
+        <!-- 管理员入口 -->
+        <el-menu-item v-if="userStore.isAdmin" index="/admin">
+          <el-icon><Setting /></el-icon>
+          <template #title>管理后台</template>
+        </el-menu-item>
       </el-menu>
       
       <!-- 版本信息 -->
@@ -94,6 +100,12 @@
                 <el-dropdown-item command="profile">
                   <el-icon><User /></el-icon>个人设置
                 </el-dropdown-item>
+                <el-dropdown-item v-if="userStore.isAdmin" command="admin">
+                  <el-icon><Setting /></el-icon>管理后台
+                </el-dropdown-item>
+                <el-dropdown-item divided command="logout">
+                  <el-icon><SwitchButton /></el-icon>退出登录
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -114,7 +126,7 @@
 import { ref, computed, onMounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore, useAppStore } from '@/stores'
-import { DocumentChecked } from '@element-plus/icons-vue'
+import { DocumentChecked, Setting, SwitchButton } from '@element-plus/icons-vue'
 import { updateApi } from '@/api'
 
 const router = useRouter()
@@ -148,6 +160,10 @@ async function fetchCurrentVersion() {
 async function handleCommand(command) {
   if (command === 'profile') {
     router.push('/profile')
+  } else if (command === 'admin') {
+    router.push('/admin')
+  } else if (command === 'logout') {
+    userStore.logout()
   }
 }
 
