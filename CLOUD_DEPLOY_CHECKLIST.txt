@@ -1,0 +1,135 @@
+# ========================================
+# 全能创意大师 - 云端部署文件清单
+# ========================================
+
+## 一、根目录配置文件
+
+| 文件 | 说明 | 必须 |
+|------|------|------|
+| docker-compose.prod.yml | 生产环境Docker编排 | ✅ |
+| .env.cloud | 云端环境变量模板 | ✅ |
+| .gitignore | Git忽略配置 | ✅ |
+
+## 二、后端文件 (backend/)
+
+### 2.1 核心配置
+| 文件 | 说明 | 必须 |
+|------|------|------|
+| requirements.txt | Python依赖 | ✅ |
+| Dockerfile.prod | 生产环境Dockerfile | ✅ |
+| alembic.ini | 数据库迁移配置 | ✅ |
+
+### 2.2 应用代码 (backend/app/)
+| 目录/文件 | 说明 | 必须 |
+|-----------|------|------|
+| main.py | FastAPI入口 | ✅ |
+| __init__.py | 包初始化 | ✅ |
+| agents/ | LLM提供者 | ✅ |
+| api/ | API路由 | ✅ |
+| core/ | 核心配置 | ✅ |
+| models/ | 数据模型 | ✅ |
+| schemas/ | 数据模式 | ✅ |
+| services/ | 业务服务 | ✅ |
+| tools/ | 工具模块 | ✅ |
+| static/ | 前端静态文件 | ✅ |
+
+### 2.3 数据库迁移 (backend/alembic/)
+| 目录/文件 | 说明 | 必须 |
+|-----------|------|------|
+| env.py | 迁移环境配置 | ✅ |
+| versions/*.py | 迁移版本文件 | ✅ |
+
+## 三、前端文件 (frontend/)
+
+### 3.1 构建产物 (frontend/dist/)
+| 目录/文件 | 说明 | 必须 |
+|-----------|------|------|
+| index.html | 入口HTML | ✅ |
+| assets/*.js | JS资源 | ✅ |
+| assets/*.css | CSS资源 | ✅ |
+
+### 3.2 源代码 (frontend/src/)
+| 目录/文件 | 说明 | 必须 |
+|-----------|------|------|
+| main.js | 入口JS | ✅ |
+| App.vue | 根组件 | ✅ |
+| api/ | API调用 | ✅ |
+| components/ | Vue组件 | ✅ |
+| views/ | 页面视图 | ✅ |
+| stores/ | Pinia状态 | ✅ |
+| router/ | 路由配置 | ✅ |
+
+### 3.3 配置文件
+| 文件 | 说明 | 必须 |
+|------|------|------|
+| package.json | npm配置 | ✅ |
+| vite.config.js | Vite配置 | ✅ |
+| index.html | HTML模板 | ✅ |
+
+## 四、Nginx配置 (nginx/)
+
+| 文件 | 说明 | 必须 |
+|------|------|------|
+| nginx.conf | Nginx主配置 | ✅ |
+| ssl-setup.sh | SSL证书脚本 | 可选 |
+
+## 五、部署脚本 (scripts/)
+
+| 文件 | 说明 | 必须 |
+|------|------|------|
+| deploy.sh | 部署脚本 | ✅ |
+| download-model.sh | 模型下载脚本 | ✅ |
+
+## 六、模型文件（需单独处理）
+
+| 目录 | 说明 | 大小 |
+|------|------|------|
+| backend/data/chroma/models/models--sentence-transformers--all-MiniLM-L6-v2/ | 嵌入模型 | ~90MB |
+
+**注意**: 模型文件太大，不上传GitHub。部署时需要：
+1. 本地下载后上传到服务器
+2. 或在服务器上运行 `bash scripts/download-model.sh`（需设置代理）
+
+## 七、部署步骤
+
+### 步骤1: 推送代码到GitHub
+```bash
+cd "项目目录"
+git add .
+git commit -m "feat: 云端部署配置"
+git push origin main
+```
+
+### 步骤2: 服务器克隆项目
+```bash
+git clone https://github.com/你的用户名/creative-master-cloud.git
+cd creative-master-cloud
+```
+
+### 步骤3: 配置环境变量
+```bash
+cp .env.cloud .env
+# 编辑.env，设置SECRET_KEY
+nano .env
+```
+
+### 步骤4: 下载嵌入模型（如需代理）
+```bash
+export HTTP_PROXY=http://代理地址:端口
+export HTTPS_PROXY=http://代理地址:端口
+bash scripts/download-model.sh
+```
+
+### 步骤5: 执行部署
+```bash
+bash scripts/deploy.sh
+```
+
+## 八、关键修复说明
+
+本次部署已包含以下修复：
+
+1. **requirements.txt**: 添加了 `pysqlite3-binary` 和 `PyJWT`
+2. **vector_store.py**: 添加了 pysqlite3 替换 sqlite3 的代码
+3. **docker-compose.prod.yml**: 移除了过时的 `version` 字段
+4. **nginx.conf**: 配置为HTTP模式（无SSL）

@@ -22,6 +22,7 @@ redis>=5.0.1
 # 向量数据库
 chromadb>=0.5.0
 networkx>=3.0
+pysqlite3-binary>=0.5.0
 
 # LangChain 核心
 langchain>=0.2.0

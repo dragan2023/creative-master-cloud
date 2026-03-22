@@ -111,6 +111,10 @@ secrets/
 # ----- Qoder配置 -----
 .qoder/
 
+# ----- 云端部署脚本（保留）-----
+!scripts/deploy.sh
+!scripts/download-model.sh
+
 # ----- 备份文件 -----
 *.backup
 

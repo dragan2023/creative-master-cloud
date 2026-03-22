@@ -7,6 +7,14 @@
 - HNSW 索引在内存中缓存，可能导致多进程/多实例数据不一致
 - 需要在写入后验证数据完整性，确保数据正确持久化
 """
+# 使用pysqlite3替代系统sqlite（解决ChromaDB版本要求）
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass  # 如果pysqlite3不可用，使用系统sqlite
+
 import chromadb
 from typing import Optional, List, Dict, Any
 import os
