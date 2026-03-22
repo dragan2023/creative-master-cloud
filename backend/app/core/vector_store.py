@@ -16,6 +16,7 @@ except ImportError:
     pass  # 如果pysqlite3不可用，使用系统sqlite
 
 import chromadb
+from chromadb.utils import embedding_functions
 from typing import Optional, List, Dict, Any
 import os
 import asyncio
@@ -28,6 +29,44 @@ from app.core.logger import get_logger
 
 logger = get_logger("vector_store")
 
+# 全局嵌入函数实例（延迟初始化）
+_embedding_function = None
+
+
+def get_embedding_function():
+    """
+    获取嵌入函数（使用sentence-transformers，支持自定义模型缓存目录）
+    
+    相比ChromaDB默认的ONNX嵌入函数：
+    - 支持自定义模型缓存目录（通过环境变量SENTENCE_TRANSFORMERS_HOME）
+    - 更灵活的模型管理
+    - 避免ONNX模型下载问题
+    """
+    global _embedding_function
+    if _embedding_function is None:
+        settings = get_settings()
+        
+        # 设置sentence-transformers模型缓存目录
+        model_cache_dir = settings.get_chroma_model_cache_dir()
+        os.environ["SENTENCE_TRANSFORMERS_HOME"] = model_cache_dir
+        
+        # 设置HuggingFace镜像（国内加速）
+        if settings.HF_ENDPOINT:
+            os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
+        
+        logger.info(f"[向量库] 嵌入模型缓存目录: {model_cache_dir}")
+        
+        # 创建sentence-transformers嵌入函数
+        _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2",
+            cache_folder=model_cache_dir,
+            device="cpu"  # 使用CPU，确保兼容性
+        )
+        
+        logger.info("[向量库] 嵌入函数初始化完成: all-MiniLM-L6-v2")
+    
+    return _embedding_function
+
 
 def _setup_chroma_environment():
     """设置 ChromaDB 环境变量（模型缓存目录等）"""
@@ -36,6 +75,13 @@ def _setup_chroma_environment():
     # 设置模型缓存目录到项目文件夹
     model_cache_dir = settings.get_chroma_model_cache_dir()
     os.environ["CHROMA_MODEL_CACHE_DIR"] = model_cache_dir
+    
+    # 设置sentence-transformers模型缓存目录
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = model_cache_dir
+    
+    # 设置HuggingFace镜像（国内加速）
+    if settings.HF_ENDPOINT:
+        os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
 
     # 设置代理（如果配置了）
     if settings.HTTPS_PROXY:
@@ -97,8 +143,11 @@ class VectorStore:
             Collection 实例
         """
         if name not in self._collections:
+            # 使用自定义嵌入函数（支持自定义模型缓存目录）
+            embedding_func = get_embedding_function()
             self._collections[name] = self.client.get_or_create_collection(
                 name=name,
+                embedding_function=embedding_func,
                 metadata={"hnsw:space": "cosine"}
             )
         return self._collections[name]
