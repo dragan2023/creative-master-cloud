@@ -193,6 +193,12 @@ class Settings(BaseSettings):
 
     def _normalize_path(self, path: str) -> str:
         """规范化路径，移除 ./ 前缀并确保格式正确"""
+        # 如果已经是绝对路径，直接返回
+        if os.path.isabs(path):
+            if not os.path.exists(path):
+                os.makedirs(path, exist_ok=True)
+            return path
+        
         # 移除 ./ 或 .\ 前缀
         normalized = path.lstrip("./").lstrip(".\\")
         # 获取 backend 目录的绝对路径
