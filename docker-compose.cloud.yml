@@ -1,0 +1,159 @@
+# ========================================
+# 全能创意大师 - 云端部署配置（预构建镜像版）
+# 使用方式：本地构建镜像 → 推送到仓库 → 云端拉取运行
+# ========================================
+
+services:
+  # ==================== Nginx反向代理 ====================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: creative-master-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - backend
+    networks:
+      - creative-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==================== 后端服务（使用预构建镜像）====================
+  backend:
+    # 使用预构建镜像，不再本地构建
+    image: creative-master:latest
+    container_name: creative-master-backend
+    command: /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    expose:
+      - "8000"
+    volumes:
+      - ./backend/logs:/app/logs
+      - ./backend/data:/app/data
+    environment:
+      # 应用配置
+      - APP_NAME=${APP_NAME:-全能创意大师}
+      - APP_VERSION=${APP_VERSION:-2.2.2}
+      - DEBUG=${DEBUG:-False}
+      - HOST=0.0.0.0
+      - PORT=8000
+      
+      # 数据库配置
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://creative_user:creative_password@db:5432/creative_master}
+      
+      # Redis配置
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      
+      # JWT配置
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      
+      # 日志配置
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_DIR=/app/logs
+      
+      # 向量数据库配置
+      - CHROMA_PERSIST_DIR=/app/data/chroma
+      - CHROMA_MODEL_CACHE_DIR=/app/data/chroma/models
+      
+      # 知识图谱配置
+      - KNOWLEDGE_GRAPH_DIR=/app/data/knowledge_graphs
+      
+      # 文件上传配置
+      - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-209715200}
+      - UPLOAD_DIR=/app/data/uploads
+      
+      # CORS配置
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      
+      # LLM API Keys
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - ARK_API_KEY=${ARK_API_KEY:-}
+      
+      # 代理配置
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      
+      # HuggingFace镜像（国内加速）
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
+      - SENTENCE_TRANSFORMERS_HOME=/app/data/chroma/models
+      
+      # 多租户配置
+      - MULTI_TENANT_ENABLED=${MULTI_TENANT_ENABLED:-True}
+      
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - creative-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ==================== PostgreSQL数据库 ====================
+  db:
+    image: postgres:15-alpine
+    container_name: creative-master-db
+    environment:
+      - POSTGRES_USER=${DB_USER:-creative_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-creative_password}
+      - POSTGRES_DB=${DB_NAME:-creative_master}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - creative-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-creative_user} -d ${DB_NAME:-creative_master}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "5432"
+
+  # ==================== Redis缓存 ====================
+  redis:
+    image: redis:7-alpine
+    container_name: creative-master-redis
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - creative-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "6379"
+
+networks:
+  creative-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  nginx_logs:
