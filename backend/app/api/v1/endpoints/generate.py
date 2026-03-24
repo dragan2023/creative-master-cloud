@@ -30,11 +30,14 @@ from app.models import User, Generation, GenerationModule, GenerationStatus, Use
 from app.agents.orchestrator import get_agent_orchestrator
 from app.core.logger import get_logger
 from app.core.config import get_settings
+from app.core.redis_client import redis_manager
 import json
 import asyncio
 
-# 存储取消令牌的字典
-cancel_tokens = {}
+# 取消令牌的 Redis 键前缀
+CANCEL_KEY_PREFIX = "generate:cancel:"
+# 取消令牌过期时间（秒）
+CANCEL_EXPIRE_SECONDS = 3600  # 1小时
 
 router = APIRouter(prefix="/generate", tags=["创意生成"])
 logger = get_logger(__name__)
@@ -71,13 +74,14 @@ async def cancel_generation(
 ):
     """
     取消生成任务
+    使用 Redis 存储取消状态，支持多 worker 环境
     """
-    if session_id in cancel_tokens:
-        cancel_tokens[session_id].set()
-        logger.info(f"用户 {current_user.id} 请求取消生成任务: {session_id}")
-        return ResponseModel(success=True, message="取消请求已发送")
-    else:
-        return ResponseModel(success=False, message="任务不存在或已结束")
+    cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+    
+    # 设置取消标记
+    await redis_manager.set(cancel_key, "1", expire=CANCEL_EXPIRE_SECONDS)
+    logger.info(f"用户 {current_user.id} 请求取消生成任务: {session_id}")
+    return ResponseModel(success=True, message="取消请求已发送")
 
 # 支持的图片格式
 ALLOWED_IMAGE_TYPES = {
@@ -99,6 +103,23 @@ ALLOWED_DOC_TYPES = {
 
 # 支持的文档扩展名
 ALLOWED_DOC_EXTENSIONS = [".txt", ".md", ".doc", ".docx", ".pdf"]
+
+
+async def is_cancelled(session_id: str) -> bool:
+    """
+    检查生成任务是否被取消
+    使用 Redis 存储取消状态，支持多 worker 环境
+    
+    Args:
+        session_id: 会话ID
+        
+    Returns:
+        是否被取消
+    """
+    if not session_id:
+        return False
+    cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+    return await redis_manager.exists(cancel_key)
 
 
 # ==================== 文件上传 ====================
@@ -388,11 +409,6 @@ async def generate_short_video_stream(
     reference_video = input_params.get("reference_video")
     videos = [reference_video] if reference_video else None
 
-    # 创建取消令牌
-    cancel_event = asyncio.Event()
-    if session_id:
-        cancel_tokens[session_id] = cancel_event
-
     async def event_generator():
         try:
             async for chunk in orchestrator.generate_stream(
@@ -409,7 +425,7 @@ async def generate_short_video_stream(
                 provider=provider,
                 temperature=temperature,
                 videos=videos,
-                cancel_event=cancel_event,
+                cancel_event=None,  # 使用 Redis 取消机制
                 kb_vertical=kb_vertical,
                 kb_user_specific=kb_user_specific,
                 kb_manual=kb_manual,
@@ -417,15 +433,16 @@ async def generate_short_video_stream(
                 kb_user_specific_ids=user_specific_ids,
                 kb_manual_ids=manual_ids
             ):
-                # 检查是否被取消
-                if cancel_event.is_set():
+                # 检查是否被取消（使用 Redis）
+                if await is_cancelled(session_id):
                     logger.info(f"生成任务被取消: {session_id}")
                     break
                 yield chunk
         finally:
-            # 清理取消令牌
-            if session_id and session_id in cancel_tokens:
-                del cancel_tokens[session_id]
+            # 清理取消标记
+            if session_id:
+                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+                await redis_manager.delete(cancel_key)
 
     return StreamingResponse(
         event_generator(),
@@ -522,11 +539,6 @@ async def generate_script_stream(
 
     input_params = data.model_dump()
 
-    # 创建取消令牌
-    cancel_event = asyncio.Event()
-    if session_id:
-        cancel_tokens[session_id] = cancel_event
-
     async def event_generator():
         try:
             async for chunk in orchestrator.generate_stream(
@@ -542,7 +554,7 @@ async def generate_script_stream(
                 reference_urls=input_params.get("reference_urls"),
                 provider=provider,
                 temperature=temperature,
-                cancel_event=cancel_event,
+                cancel_event=None,  # 使用 Redis 取消机制
                 kb_vertical=kb_vertical,
                 kb_user_specific=kb_user_specific,
                 kb_manual=kb_manual,
@@ -550,15 +562,16 @@ async def generate_script_stream(
                 kb_user_specific_ids=user_specific_ids,
                 kb_manual_ids=manual_ids
             ):
-                # 检查是否被取消
-                if cancel_event.is_set():
+                # 检查是否被取消（使用 Redis）
+                if await is_cancelled(session_id):
                     logger.info(f"生成任务被取消: {session_id}")
                     break
                 yield chunk
         finally:
-            # 清理取消令牌
-            if session_id and session_id in cancel_tokens:
-                del cancel_tokens[session_id]
+            # 清理取消标记
+            if session_id:
+                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+                await redis_manager.delete(cancel_key)
 
     return StreamingResponse(
         event_generator(),
@@ -655,11 +668,6 @@ async def generate_novel_stream(
 
     input_params = data.model_dump()
 
-    # 创建取消令牌
-    cancel_event = asyncio.Event()
-    if session_id:
-        cancel_tokens[session_id] = cancel_event
-
     async def event_generator():
         try:
             async for chunk in orchestrator.generate_stream(
@@ -675,7 +683,7 @@ async def generate_novel_stream(
                 reference_urls=input_params.get("reference_urls"),
                 provider=provider,
                 temperature=temperature,
-                cancel_event=cancel_event,
+                cancel_event=None,  # 使用 Redis 取消机制
                 kb_vertical=kb_vertical,
                 kb_user_specific=kb_user_specific,
                 kb_manual=kb_manual,
@@ -683,15 +691,16 @@ async def generate_novel_stream(
                 kb_user_specific_ids=user_specific_ids,
                 kb_manual_ids=manual_ids
             ):
-                # 检查是否被取消
-                if cancel_event.is_set():
+                # 检查是否被取消（使用 Redis）
+                if await is_cancelled(session_id):
                     logger.info(f"生成任务被取消: {session_id}")
                     break
                 yield chunk
         finally:
-            # 清理取消令牌
-            if session_id and session_id in cancel_tokens:
-                del cancel_tokens[session_id]
+            # 清理取消标记
+            if session_id:
+                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+                await redis_manager.delete(cancel_key)
 
     return StreamingResponse(
         event_generator(),
@@ -788,11 +797,6 @@ async def generate_print_ad_stream(
 
     input_params = data.model_dump()
 
-    # 创建取消令牌
-    cancel_event = asyncio.Event()
-    if session_id:
-        cancel_tokens[session_id] = cancel_event
-
     async def event_generator():
         try:
             async for chunk in orchestrator.generate_stream(
@@ -809,7 +813,7 @@ async def generate_print_ad_stream(
                 provider=provider,
                 temperature=temperature,
                 images=input_params.get("images"),
-                cancel_event=cancel_event,
+                cancel_event=None,  # 使用 Redis 取消机制
                 kb_vertical=kb_vertical,
                 kb_user_specific=kb_user_specific,
                 kb_manual=kb_manual,
@@ -817,15 +821,16 @@ async def generate_print_ad_stream(
                 kb_user_specific_ids=user_specific_ids,
                 kb_manual_ids=manual_ids
             ):
-                # 检查是否被取消
-                if cancel_event.is_set():
+                # 检查是否被取消（使用 Redis）
+                if await is_cancelled(session_id):
                     logger.info(f"生成任务被取消: {session_id}")
                     break
                 yield chunk
         finally:
-            # 清理取消令牌
-            if session_id and session_id in cancel_tokens:
-                del cancel_tokens[session_id]
+            # 清理取消标记
+            if session_id:
+                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+                await redis_manager.delete(cancel_key)
 
     return StreamingResponse(
         event_generator(),
@@ -931,11 +936,6 @@ async def generate_tvc_stream(
     reference_video = input_params.get("reference_video")
     videos = [reference_video] if reference_video else None
 
-    # 创建取消令牌
-    cancel_event = asyncio.Event()
-    if session_id:
-        cancel_tokens[session_id] = cancel_event
-
     async def event_generator():
         try:
             async for chunk in orchestrator.generate_stream(
@@ -952,7 +952,7 @@ async def generate_tvc_stream(
                 provider=provider,
                 temperature=temperature,
                 videos=videos,
-                cancel_event=cancel_event,
+                cancel_event=None,  # 使用 Redis 取消机制
                 kb_vertical=kb_vertical,
                 kb_user_specific=kb_user_specific,
                 kb_manual=kb_manual,
@@ -960,15 +960,16 @@ async def generate_tvc_stream(
                 kb_user_specific_ids=user_specific_ids,
                 kb_manual_ids=manual_ids
             ):
-                # 检查是否被取消
-                if cancel_event.is_set():
+                # 检查是否被取消（使用 Redis）
+                if await is_cancelled(session_id):
                     logger.info(f"生成任务被取消: {session_id}")
                     break
                 yield chunk
         finally:
-            # 清理取消令牌
-            if session_id and session_id in cancel_tokens:
-                del cancel_tokens[session_id]
+            # 清理取消标记
+            if session_id:
+                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+                await redis_manager.delete(cancel_key)
 
     return StreamingResponse(
         event_generator(),

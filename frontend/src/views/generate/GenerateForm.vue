@@ -3240,6 +3240,7 @@ async function handleGenerateFromUnit() {
 
 // 处理工作流程事件
 function handleWorkflowEvent(event) {
+  console.log('[Workflow] 收到事件:', event)
   if (event.type === 'start') {
     workflowSteps.value = []
   } else if (event.type === 'step') {

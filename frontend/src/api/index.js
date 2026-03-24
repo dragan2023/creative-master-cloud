@@ -292,6 +292,7 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
                   
                   // 处理 workflow 事件
                   if (currentEventType === 'workflow' && onWorkflow) {
+                    console.log('[SSE] 收到 workflow 事件:', eventData)
                     onWorkflow(eventData)
                   }
                   

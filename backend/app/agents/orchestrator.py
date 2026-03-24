@@ -112,6 +112,10 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
     upload_dir = settings.get_upload_dir()
     file_parser = get_file_parser()
 
+    if logger:
+        logger.info(f"[文件解析] 开始解析文件URL: {file_url}")
+        logger.info(f"[文件解析] 上传目录: {upload_dir}")
+
     # 确定文件路径
     file_path = None
 
@@ -119,6 +123,8 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
     if file_url.startswith("/api/v1/generate/uploads/"):
         filename = file_url.split("/")[-1]
         file_path = os.path.join(upload_dir, filename)
+        if logger:
+            logger.info(f"[文件解析] 解析后的文件路径: {file_path}")
     # 完整URL（http/https）- 不支持远程文件，返回原始URL
     elif file_url.startswith("http://") or file_url.startswith("https://"):
         if logger:
@@ -133,9 +139,21 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
         return file_url
 
     # 检查文件是否存在
-    if not file_path or not os.path.exists(file_path):
+    if not file_path:
         if logger:
-            logger.warning(f"文件路径无效或文件不存在: {file_path}")
+            logger.warning(f"文件路径为空")
+        return file_url
+    
+    if not os.path.exists(file_path):
+        if logger:
+            logger.warning(f"文件不存在: {file_path}")
+            # 列出目录内容帮助调试
+            try:
+                if os.path.exists(upload_dir):
+                    files = os.listdir(upload_dir)
+                    logger.info(f"[文件解析] 上传目录内容: {files[:10]}...")  # 只显示前10个文件
+            except Exception as e:
+                logger.error(f"[文件解析] 列出目录内容失败: {e}")
         return file_url
 
     # 检查文件类型是否支持
@@ -146,6 +164,8 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
 
     # 解析文件内容
     try:
+        if logger:
+            logger.info(f"[文件解析] 开始解析文件: {file_path}")
         result = await file_parser.parse(file_path)
 
         # 安全检查：确保 result 是字典类型
@@ -179,7 +199,7 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
 
     except Exception as e:
         if logger:
-            logger.exception("解析文件异常")
+            logger.exception(f"解析文件异常: {e}")
         return file_url
 
 
