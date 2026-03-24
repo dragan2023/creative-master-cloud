@@ -306,7 +306,7 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
                     }
                   }
                   
-                  // 处理 content 事件
+                  // 处理 content 事件（text字段存在时）
                   if (eventData.text) {
                     fullContent += eventData.text
                     onMessage(fullContent, eventData.text)
@@ -315,6 +315,8 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
                     generationId = eventData.generation_id
                   }
                 }
+                // 重置事件类型，避免影响下一个事件
+                currentEventType = ''
               } catch (e) {
                 // JSON 解析失败，可能是数据不完整
                 console.warn('[SSE] JSON解析失败:', e.message, '数据:', line.slice(6))

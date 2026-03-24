@@ -230,7 +230,8 @@ async def process_input_params_files(
         )
 
         # 只有当成功解析到内容时才更新
-        if content and not content.startswith("/") and not content.startswith("http"):
+        # 成功解析的内容会包含"用户上传的大纲文件内容"标记
+        if content and "用户上传的大纲文件内容" in content:
             input_params["custom_outline"] = content
             if logger:
                 logger.info(
@@ -238,7 +239,7 @@ async def process_input_params_files(
         else:
             if logger:
                 logger.warning(
-                    f"[文件处理] custom_outline 解析失败或返回原始URL: {str(content)[:100]}")
+                    f"[文件处理] custom_outline 解析失败，返回内容: {str(content)[:200] if content else 'None'}")
 
     return input_params
 

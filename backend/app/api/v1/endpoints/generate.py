@@ -78,10 +78,14 @@ async def cancel_generation(
     """
     cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
     
-    # 设置取消标记
-    await redis_manager.set(cancel_key, "1", expire=CANCEL_EXPIRE_SECONDS)
-    logger.info(f"用户 {current_user.id} 请求取消生成任务: {session_id}")
-    return ResponseModel(success=True, message="取消请求已发送")
+    try:
+        # 设置取消标记
+        await redis_manager.set(cancel_key, "1", expire=CANCEL_EXPIRE_SECONDS)
+        logger.info(f"用户 {current_user.id} 请求取消生成任务: {session_id}, Redis key: {cancel_key}")
+        return ResponseModel(success=True, message="取消请求已发送")
+    except Exception as e:
+        logger.error(f"设置取消标记失败: {e}")
+        return ResponseModel(success=False, message=f"取消请求失败: {str(e)}")
 
 # 支持的图片格式
 ALLOWED_IMAGE_TYPES = {
@@ -119,7 +123,14 @@ async def is_cancelled(session_id: str) -> bool:
     if not session_id:
         return False
     cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
-    return await redis_manager.exists(cancel_key)
+    try:
+        result = await redis_manager.exists(cancel_key)
+        if result:
+            logger.info(f"检测到取消请求: session_id={session_id}")
+        return result
+    except Exception as e:
+        logger.error(f"检查取消状态失败: {e}")
+        return False
 
 
 # ==================== 文件上传 ====================
