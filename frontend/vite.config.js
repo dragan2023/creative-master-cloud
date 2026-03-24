@@ -117,90 +117,16 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,  // 构建前清空目标目录
       // 禁用 source map（云端部署必须禁用）
       sourcemap: false,
-      // 使用 terser 压缩
-      minify: 'terser',
-      terserOptions: {
-        compress: {
-          // 生产环境移除 console（云端部署建议开启）
-          drop_console: true,  // 移除所有console
-          drop_debugger: true,
-          pure_funcs: ['console.log', 'console.info', 'console.debug', 'console.warn'],
-          // 额外压缩选项
-          passes: 2,  // 多次压缩提高效果
-          unsafe: true,  // 启用不安全优化
-          unsafe_comps: true,
-          unsafe_math: true,
-          unsafe_symbols: true,
-          // 移除无用代码
-          dead_code: true,
-          unused: true,
-          // 条件语句优化
-          conditionals: true,
-          evaluate: true,
-          booleans: true,
-          loops: true,
-          // 内联优化
-          inline: 2,
-          // 变量合并
-          collapse_vars: true,
-          reduce_vars: true,
-          // 属性访问优化
-          properties: true,
-          // 序列优化
-          sequences: true,
-          comparisons: true,
-          // 其他优化
-          hoist_funs: true,
-          hoist_vars: false,
-          if_return: true,
-          join_vars: true,
-          cascade: true,
-          side_effects: true,
-          negate_iife: true
-        },
-        mangle: {
-          // 变量名混淆
-          toplevel: true,  // 混淆顶层作用域变量
-          safari10: true,
-          properties: {
-            // 属性名混淆（谨慎使用，可能影响某些库）
-            regex: /^_/,  // 只混淆以_开头的属性
-          }
-        },
-        format: {
-          // 移除注释
-          comments: false,
-          // 移除空格
-          beautify: false,
-          // 紧凑输出
-          compact: true
-        }
-      },
+      // 使用 esbuild 压缩（比 terser 更快更稳定）
+      minify: 'esbuild',
       // 分块策略
       rollupOptions: {
-        input: {
-          main: path.resolve(__dirname, 'index.html')
-        },
         output: {
-          // 文件名哈希（防止缓存）
-          chunkFileNames: 'assets/[name]-[hash].js',
-          entryFileNames: 'assets/[name]-[hash].js',
-          assetFileNames: 'assets/[name]-[hash].[ext]',
-          // 手动分块
           manualChunks: {
-            'vendor': ['vue', 'vue-router', 'pinia'],
-            'element-plus': ['element-plus', '@element-plus/icons-vue'],
-            'charts': ['@antv/g6']
+            'element-plus': ['element-plus'],
+            'antv': ['@antv/g6']
           }
         }
-      },
-      // 分块大小警告阈值
-      chunkSizeWarningLimit: 1000,
-      // CSS代码分割
-      cssCodeSplit: true,
-      // 启用模块预加载
-      modulePreload: {
-        polyfill: false
       }
     }
   }
