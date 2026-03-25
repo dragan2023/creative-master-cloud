@@ -12,8 +12,9 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 
 # 安装依赖（使用阿里云npm镜像加速）
+# 注意：需要安装所有依赖（包括devDependencies），因为vite是开发依赖
 RUN npm config set registry https://registry.npmmirror.com && \
-    npm ci --only=production
+    npm ci
 
 # 复制前端源码
 COPY frontend/ ./
