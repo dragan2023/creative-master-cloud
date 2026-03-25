@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.llm_manager import get_llm_manager, LLMManager
 from app.agents.prompt_manager import get_prompt_manager, PromptManager
+from app.agents.orchestrator import process_input_params_files
 
 from app.core.logger import get_logger
 from app.core.config import get_settings
@@ -263,6 +264,9 @@ class OutlineGenerator:
         try:
             # 确定模块名称
             module_name = f"{content_type}_global_outline"
+
+            # 【关键修复】处理输入参数中的文件URL（将DOCX等文件内容提取出来）
+            input_params = await process_input_params_files(input_params, self.logger)
 
             # 获取提示词模板（使用默认模板，不需要数据库）
             prompt_template = self.prompt_manager.get_default_prompt(

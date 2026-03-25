@@ -1234,6 +1234,15 @@
       <el-step title="完成" description="可下载或导入" />
     </el-steps>
     <div class="stage-actions">
+      <!-- 阶段1：全局大纲生成中，显示中断按钮 -->
+      <el-button
+        v-if="outlineStage === 1 && globalOutlineGenerating"
+        type="danger"
+        @click="handleStop"
+      >
+        <el-icon><CircleClose /></el-icon>
+        中断生成
+      </el-button>
       <!-- 阶段2：全局大纲完成，显示继续按钮 -->
       <el-button
         v-if="outlineStage === 2"
@@ -2619,6 +2628,12 @@ async function handleTwoStageGenerate() {
     return
   }
   
+  // 重置工作流程状态并添加初始步骤
+  workflowSteps.value = [
+    { step: 'model', status: 'running', message: '正在加载AI模型...', icon: 'Cpu' }
+  ]
+  workflowComplete.value = false
+  
   // 开始第一阶段
   outlineStage.value = 1
   globalOutlineGenerating.value = true
@@ -2628,6 +2643,27 @@ async function handleTwoStageGenerate() {
   
   try {
     const inputParams = buildOutlineInputParams()
+    
+    // 模拟workflow步骤更新
+    setTimeout(() => {
+      if (globalOutlineGenerating.value) {
+        const modelIndex = workflowSteps.value.findIndex(s => s.step === 'model')
+        if (modelIndex >= 0) {
+          workflowSteps.value[modelIndex] = { step: 'model', status: 'done', message: '已加载模型', icon: 'Cpu' }
+        }
+        workflowSteps.value.push({ step: 'prompt', status: 'running', message: '正在准备提示词...', icon: 'Document' })
+      }
+    }, 500)
+    
+    setTimeout(() => {
+      if (globalOutlineGenerating.value) {
+        const promptIndex = workflowSteps.value.findIndex(s => s.step === 'prompt')
+        if (promptIndex >= 0) {
+          workflowSteps.value[promptIndex] = { step: 'prompt', status: 'done', message: '提示词准备完成', icon: 'Document' }
+        }
+        workflowSteps.value.push({ step: 'generate', status: 'running', message: '正在生成全局大纲...', icon: 'MagicStick' })
+      }
+    }, 1000)
     
     const result = await generateApi.generateGlobalOutlineStream(
       {
@@ -2647,11 +2683,24 @@ async function handleTwoStageGenerate() {
     )
     
     if (result && !result.cancelled) {
+      // 更新workflow状态
+      const generateIndex = workflowSteps.value.findIndex(s => s.step === 'generate')
+      if (generateIndex >= 0) {
+        workflowSteps.value[generateIndex] = { step: 'generate', status: 'done', message: '全局大纲生成完成', icon: 'MagicStick' }
+      }
+      workflowComplete.value = true
+      
       outlineStage.value = 2
       ElMessage.success('全局大纲生成完成，请审核后继续生成单元概述')
     }
   } catch (error) {
     console.error('全局大纲生成失败:', error)
+    // 更新workflow错误状态
+    const runningStep = workflowSteps.value.find(s => s.status === 'running')
+    if (runningStep) {
+      runningStep.status = 'error'
+      runningStep.message = '生成失败: ' + (error.message || '未知错误')
+    }
     ElMessage.error('全局大纲生成失败：' + (error.message || '未知错误'))
     outlineStage.value = 0
   } finally {
