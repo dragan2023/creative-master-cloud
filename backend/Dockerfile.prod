@@ -54,8 +54,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # 复制依赖文件（从 backend 目录）
 COPY backend/requirements.txt .
 
-# 安装Python依赖
-RUN pip install --no-cache-dir -r requirements.txt
+# 安装Python依赖（使用清华源加速）
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # 复制后端应用代码
 COPY backend/ .
