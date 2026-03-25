@@ -69,6 +69,11 @@ build/
 # 前端构建产物（保留index.html等源文件）
 frontend/dist/
 
+# 后端静态文件（由前端构建生成，Docker 构建时自动复制）
+backend/app/static/assets/
+backend/app/static/index.html
+!backend/app/static/.gitkeep
+
 # ----- 本地开发 -----
 *.local
 

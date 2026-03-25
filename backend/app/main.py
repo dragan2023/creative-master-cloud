@@ -277,24 +277,11 @@ app.include_router(api_router, prefix="/api/v1")
 
 
 # 托管前端静态文件（生产环境）
-# 优先使用 backend/app/static 目录（开发时 Vite 构建输出）
-# 如果不存在，则尝试 frontend/dist（发行版结构）
+# Docker 镜像中前端构建产物位于 /app/app/static
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+FRONTEND_DIST = os.path.join(BACKEND_DIR, "app", "static")
 
-# 静态文件目录优先级
-STATIC_DIRS = [
-    os.path.join(BACKEND_DIR, "app", "static"),  # 开发环境：backend/app/static
-    os.path.join(PROJECT_ROOT, "frontend", "dist")  # 发行版：frontend/dist
-]
-
-FRONTEND_DIST = None
-for static_dir in STATIC_DIRS:
-    if os.path.exists(static_dir):
-        FRONTEND_DIST = static_dir
-        break
-
-if FRONTEND_DIST:
+if os.path.exists(FRONTEND_DIST) and os.path.exists(os.path.join(FRONTEND_DIST, "index.html")):
     print(f"[INFO] 前端静态文件目录：{FRONTEND_DIST}")
 
     # 挂载静态资源目录
@@ -306,10 +293,7 @@ if FRONTEND_DIST:
     @app.get("/", tags=["前端"])
     async def serve_index():
         """返回首页"""
-        index_path = os.path.join(FRONTEND_DIST, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        return JSONResponse(status_code=404, content={"detail": "Frontend not built"})
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
 
     # SPA 路由处理 - 所有非 API 路由返回 index.html
     @app.get("/{full_path:path}", tags=["前端"])
@@ -325,11 +309,9 @@ if FRONTEND_DIST:
             return FileResponse(file_path)
 
         # 返回 index.html（SPA 路由）
-        index_path = os.path.join(FRONTEND_DIST, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-
-        return JSONResponse(status_code=404, content={"detail": "Frontend not built"})
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+else:
+    print(f"[WARN] 前端静态文件未找到: {FRONTEND_DIST}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,78 @@
+# ========================================
+# Docker 构建忽略文件
+# 减小构建上下文，加速镜像构建
+# ========================================
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.eggs
+
+# 虚拟环境
+venv
+env
+ENV
+.venv
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 日志
+*.log
+logs/
+
+# 数据文件（运行时生成）
+backend/data/
+backend/logs/
+*.db
+*.sqlite3
+
+# 测试
+.pytest_cache
+.coverage
+htmlcov
+tests/
+test/
+
+# 文档
+*.md
+docs/
+
+# 前端开发依赖（生产构建不需要）
+frontend/node_modules
+frontend/.vite
+frontend/dist
+
+# 本地环境配置
+.env
+.env.local
+.env.*.local
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# 其他
+*.tar
+*.zip
+*.rar
+.DS_Store
+Thumbs.db

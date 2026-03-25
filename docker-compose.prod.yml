@@ -31,8 +31,8 @@ services:
   # ==================== 后端服务 ====================
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
+      context: .
+      dockerfile: backend/Dockerfile.prod
     container_name: creative-master-backend
     command: /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     expose:

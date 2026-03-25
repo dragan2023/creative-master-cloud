@@ -1,8 +1,27 @@
 # ========================================
 # 全能创意大师 - 生产环境Dockerfile
-# 优化构建，移除调试工具
+# 多阶段构建：前端构建 + 后端运行
 # ========================================
 
+# ==================== 阶段1：前端构建 ====================
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+# 复制前端依赖文件
+COPY frontend/package*.json ./
+
+# 安装依赖（使用阿里云npm镜像加速）
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm ci --only=production
+
+# 复制前端源码
+COPY frontend/ ./
+
+# 构建前端（输出到 backend/app/static）
+RUN npm run build
+
+# ==================== 阶段2：后端运行 ====================
 FROM python:3.10-slim
 
 # 设置工作目录
@@ -37,8 +56,11 @@ COPY requirements.txt .
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制应用代码
+# 复制后端应用代码
 COPY . .
+
+# 从前端构建阶段复制构建产物
+COPY --from=frontend-builder /app/backend/app/static ./app/static
 
 # 创建必要的目录
 RUN mkdir -p /app/logs /app/data/chroma /app/data/uploads /app/data/knowledge_graphs
