@@ -50,14 +50,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 复制依赖文件
-COPY requirements.txt .
+# 复制依赖文件（从 backend 目录）
+COPY backend/requirements.txt .
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制后端应用代码
-COPY . .
+COPY backend/ .
 
 # 从前端构建阶段复制构建产物
 COPY --from=frontend-builder /app/backend/app/static ./app/static
