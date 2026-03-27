@@ -1608,15 +1608,20 @@ class ContextWindowManager:
         context = {
             # 基础大纲相关
             "outline_content": "",
+            "outline_metadata": "",  # 大纲元信息
             "episode_outline": "",
             "previous_episodes_summary": "",
+            "previous_content_summaries": "",  # 前序正文摘要
             # 全局上下文（与小说生成保持一致）
             "global_summary": "",
             "character_states": "",
             "short_summary": "",
             "previous_scene_ending": "",
             "knowledge_context": "",
-            "vector_context": ""
+            "vector_context": "",
+            # 当前单元大纲（用于提示词模板）
+            "current_unit_outline": "",
+            "unit_outline_summary": ""
         }
 
         try:
@@ -1642,8 +1647,9 @@ class ContextWindowManager:
                 project, {"episode_number": episode_number}
             )
 
-            # 6. 获取故事大纲
-            context["outline_content"] = await self._get_outline_content(project)
+            # 6. 获取大纲元信息
+            context["outline_metadata"] = await self._get_outline_metadata(project)
+            context["outline_content"] = context["outline_metadata"]  # 兼容旧字段
 
             # 7. 获取当前分集详细大纲
             context["episode_outline"] = await self._get_episode_outline(project, episode_number)
@@ -1651,6 +1657,21 @@ class ContextWindowManager:
             # 8. 获取前序集数大纲摘要
             context["previous_episodes_summary"] = await self._get_previous_episodes_summary(
                 project, episode_number
+            )
+
+            # 8.5 获取前序正文摘要
+            context["previous_content_summaries"] = await self._get_previous_content_summaries(
+                project, episode_number, "series_script"
+            )
+
+            # 9. 获取当前单元大纲（用于提示词模板中的 current_unit_outline 变量）
+            context["current_unit_outline"] = await self._get_current_unit_outline(
+                project, episode_number, {"episode_number": episode_number}
+            )
+
+            # 10. 获取单元大纲摘要
+            context["unit_outline_summary"] = await self._get_current_unit_outline_summary(
+                project, episode_number, "series_script", {"episode_number": episode_number}
             )
 
             return context
@@ -1812,7 +1833,10 @@ class ContextWindowManager:
             "short_summary": "",
             "previous_scene_ending": "",
             "knowledge_context": "",
-            "vector_context": ""
+            "vector_context": "",
+            # 当前单元大纲（用于提示词模板）
+            "current_unit_outline": "",
+            "unit_outline_summary": ""
         }
 
         try:
@@ -1847,6 +1871,16 @@ class ContextWindowManager:
             # 8. 获取前序场景大纲摘要
             context["previous_scenes_summary"] = await self._get_previous_scenes_summary(
                 project, scene_number
+            )
+
+            # 9. 获取当前单元大纲（用于提示词模板中的 current_unit_outline 变量）
+            context["current_unit_outline"] = await self._get_current_unit_outline(
+                project, scene_number, {"scene_number": scene_number}
+            )
+
+            # 10. 获取单元大纲摘要
+            context["unit_outline_summary"] = await self._get_current_unit_outline_summary(
+                project, scene_number, "movie_script", {"scene_number": scene_number}
             )
 
             return context

@@ -1250,8 +1250,8 @@ class AgentOrchestrator:
                         continue
 
                 except Exception as e:
-                    self.logger.exception(f"检索知识库 {kb.name} 失败")
-                    continue
+                    self.logger.warning(f"知识库 '{kb.name}' (ID:{kb.id}) 检索失败，已跳过: {e}")
+                    continue  # 确保继续处理下一个KB
 
             return kb_contexts
 

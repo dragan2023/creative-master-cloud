@@ -4,6 +4,8 @@
 from app.tools.graph_rag import DualTrackGraphRAG
 import os
 import uuid
+import json
+import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.logger import get_logger
+from app.core.redis_client import redis_manager
 from app.api.deps import get_current_user
 from app.models import User, KnowledgeBase, KnowledgeBaseType, KnowledgeBaseStatus, KnowledgeBaseCategory
 from app.models.base import get_local_now
@@ -27,21 +30,106 @@ from app.schemas.knowledge import (
     KnowledgeGraphData
 )
 from typing import Dict, Any, List
+from concurrent.futures import ThreadPoolExecutor
 
 
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
 settings = get_settings()
 
+# 模块级别默认logger
+logger = get_logger(__name__)
+
 # 知识库处理进度状态存储
 kb_processing_progress: Dict[int, Dict[str, Any]] = {}
+
+# Redis 进度存储配置
+KB_PROGRESS_PREFIX = "kb_progress:"
+KB_PROGRESS_EXPIRE = 3600  # 1小时过期
+
+
+def _sync_update_kb_progress(kb_id: int, progress_data: Dict[str, Any]):
+    """
+    同步更新知识库进度到 Redis（用于后台线程）
+    
+    由于 RedisManager 方法是异步的，在后台线程中需要通过事件循环调用
+    """
+    key = f"{KB_PROGRESS_PREFIX}{kb_id}"
+    data = json.dumps(progress_data, ensure_ascii=False)
+    try:
+        # 尝试在现有事件循环中运行
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果事件循环正在运行，使用线程安全方式
+                future = asyncio.run_coroutine_threadsafe(
+                    redis_manager.set(key, data, expire=KB_PROGRESS_EXPIRE),
+                    loop
+                )
+                future.result(timeout=5)  # 等待最多5秒
+            else:
+                # 事件循环存在但未运行
+                loop.run_until_complete(redis_manager.set(key, data, expire=KB_PROGRESS_EXPIRE))
+        except RuntimeError:
+            # 没有事件循环，创建一个新的
+            asyncio.run(redis_manager.set(key, data, expire=KB_PROGRESS_EXPIRE))
+    except Exception as e:
+        logger.debug(f"Redis 进度更新失败，降级到内存: {e}")
+
+
+async def _async_get_kb_progress(kb_id: int) -> Dict[str, Any]:
+    """异步获取知识库进度（用于 API 端点）"""
+    key = f"{KB_PROGRESS_PREFIX}{kb_id}"
+    try:
+        data = await redis_manager.get(key)
+        if data:
+            return json.loads(data)
+    except Exception as e:
+        logger.debug(f"Redis 进度获取失败，降级到内存: {e}")
+    # 降级到内存存储
+    return kb_processing_progress.get(kb_id, {
+        "kb_id": kb_id,
+        "current_step": "",
+        "progress": 0,
+        "total_steps": 6,
+        "current_step_index": 0,
+        "error": None,
+        "is_processing": False,
+        "updated_at": None
+    })
+
+
+async def _async_delete_kb_progress(kb_id: int):
+    """异步删除知识库进度"""
+    key = f"{KB_PROGRESS_PREFIX}{kb_id}"
+    try:
+        await redis_manager.delete(key)
+    except Exception as e:
+        logger.debug(f"Redis 进度删除失败: {e}")
+    # 同时从内存中删除
+    kb_processing_progress.pop(kb_id, None)
+
+
+async def _async_get_all_kb_progress() -> List[Dict[str, Any]]:
+    """异步获取所有正在处理的知识库进度"""
+    # 使用内存字典作为索引（记录哪些KB正在处理）
+    result = []
+    for kb_id in list(kb_processing_progress.keys()):
+        progress = await _async_get_kb_progress(kb_id)
+        if progress.get("is_processing", False):
+            result.append(progress)
+    return result
 
 # 存储正在运行的处理任务（用于终止）
 kb_processing_tasks: Dict[int, Dict[str, Any]] = {}
 
+# 知识库处理线程池，限制最大并发数
+KB_MAX_CONCURRENT = 5
+kb_thread_pool = ThreadPoolExecutor(max_workers=KB_MAX_CONCURRENT, thread_name_prefix="kb_process")
+
 
 def update_kb_progress(kb_id: int, step: str, progress: int, step_index: int, error: str = None, total_steps: int = 6):
-    """更新知识库处理进度"""
-    kb_processing_progress[kb_id] = {
+    """更新知识库处理进度（同时写入内存和 Redis）"""
+    progress_data = {
         "kb_id": kb_id,
         "current_step": step,
         "progress": progress,
@@ -51,6 +139,10 @@ def update_kb_progress(kb_id: int, step: str, progress: int, step_index: int, er
         "is_processing": error is None and progress < 100,
         "updated_at": get_local_now().isoformat()
     }
+    # 写入内存（作为索引和后备）
+    kb_processing_progress[kb_id] = progress_data
+    # 同步写入 Redis
+    _sync_update_kb_progress(kb_id, progress_data)
 
 
 def get_kb_progress(kb_id: int) -> Dict[str, Any]:
@@ -76,10 +168,10 @@ def get_all_processing_progress() -> List[Dict[str, Any]]:
     return processing_list
 
 
-def register_kb_task(kb_id: int, thread=None, stop_event=None):
+def register_kb_task(kb_id: int, future=None, stop_event=None):
     """注册知识库处理任务"""
     kb_processing_tasks[kb_id] = {
-        "thread": thread,
+        "future": future,
         "stop_event": stop_event,
         "started_at": get_local_now().isoformat()
     }
@@ -139,6 +231,14 @@ async def upload_knowledge_base(
         知识库信息
     """
     logger = get_logger(str(current_user.id))
+
+    # 检查当前处理中的任务数
+    active_tasks = len([t for t in kb_processing_tasks.values() if t.get("future") and not t["future"].done()])
+    if active_tasks >= KB_MAX_CONCURRENT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"当前有{active_tasks}个知识库正在处理中，请稍后再试（最大并发{KB_MAX_CONCURRENT}）"
+        )
 
     # 检查文件类型
     file_ext = os.path.splitext(file.filename)[1].lower()
@@ -235,24 +335,32 @@ async def upload_knowledge_base(
                 if pending:
                     loop.run_until_complete(asyncio.gather(
                         *pending, return_exceptions=True))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"清理待处理任务时出错: {e}")
             # 关闭事件循环
             try:
                 loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"关闭事件循环时出错: {e}")
             loop.close()
-            # 处理完成后注销任务
+            # 处理完成后注销任务并清理进度
             unregister_kb_task(kb.id)
+            # 清理 Redis 中的进度数据
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(_async_delete_kb_progress(kb.id))
+                loop.close()
+            except Exception as e:
+                logger.debug(f"清理进度数据时出错: {e}")
+            # 清理内存中的进度数据
+            kb_processing_progress.pop(kb.id, None)
 
-    thread = threading.Thread(target=run_async_task, daemon=True)
+    # 使用线程池提交任务
+    future = kb_thread_pool.submit(run_async_task)
 
-    # 注册任务（在线程启动前注册，确保停止功能可用）
-    register_kb_task(kb.id, thread, stop_event)
-
-    # 启动线程
-    thread.start()
+    # 注册任务（在任务提交后注册，确保停止功能可用）
+    register_kb_task(kb.id, future, stop_event)
 
     logger.info(f"知识库上传成功: {name}, 开始后台处理")
 
@@ -580,8 +688,8 @@ async def delete_knowledge_base(
     from app.core.vector_store import vector_store
     try:
         vector_store.delete_collection(kb.collection_name)
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"删除向量集合失败 {kb.collection_name}: {e}")
 
     # 删除文件
     if kb.file_path and os.path.exists(kb.file_path):
@@ -689,7 +797,7 @@ async def get_processing_progress(
     current_user: User = Depends(get_current_user)
 ):
     """获取知识库处理进度"""
-    progress = get_kb_progress(kb_id)
+    progress = await _async_get_kb_progress(kb_id)
     return ResponseModel(data=progress)
 
 
@@ -701,7 +809,7 @@ async def get_all_processing_progress_endpoint(
     """获取所有正在处理的知识库进度（管理员可查看所有，普通用户只能查看自己的）"""
     from app.models import UserRole
 
-    all_progress = get_all_processing_progress()
+    all_progress = await _async_get_all_kb_progress()
 
     # 如果不是管理员，只返回自己的知识库进度
     if current_user.role != UserRole.ADMIN:

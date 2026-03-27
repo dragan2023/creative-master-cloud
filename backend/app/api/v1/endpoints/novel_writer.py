@@ -726,6 +726,7 @@ async def upload_unit_summaries(
 
         # 更新项目的单元概述字段
         project.unit_summaries = unit_summaries
+        flag_modified(project, 'unit_summaries')
         project.unit_summaries_status = 'completed'
         project.unit_summaries_created_at = datetime.now().isoformat()
 
@@ -863,6 +864,7 @@ async def upload_unit_summaries_file(
 
         # 更新项目的单元概述字段
         project.unit_summaries = unit_summaries
+        flag_modified(project, 'unit_summaries')
         project.unit_summaries_status = 'completed'
         project.unit_summaries_created_at = datetime.now().isoformat()
         project.total_chapters = len(unit_summaries)
@@ -892,10 +894,15 @@ def parse_unit_summaries_from_content(content: str, content_type: str) -> Dict[s
     """
     从文件内容中解析单元概述
 
-    支持的格式：
-    - 小说：### 第X章：标题 后跟 **本章梗概**：内容
-    - 剧集：### 第X集：标题 后跟 **本集梗概**：内容
-    - 电影：**第X场：标题** 后跟 **本场梗概**：内容
+    支持多种格式变体：
+    - 小说：### 第X章：标题 或 第X章：标题 或 第X章 标题
+    - 剧集：### 第X集：标题 或 第X集：标题 或 第X集 标题
+    - 电影：**第X场：标题** 或 第X场：标题 或 第X场 标题
+
+    梗概格式：
+    - **本章梗概**：内容 或 本章梗概：内容 或 梗概：内容
+    - **本集梗概**：内容 或 本集梗概：内容
+    - **本场梗概**：内容 或 本场梗概：内容
 
     Args:
         content: 文件内容
@@ -908,56 +915,120 @@ def parse_unit_summaries_from_content(content: str, content_type: str) -> Dict[s
 
     result = {}
 
+    # 记录解析过程
+    logger.info(f"[单元概述解析] 开始解析, content_type={content_type}, 内容长度={len(content)}")
+
     if content_type == "movie_script":
-        # 电影剧本：匹配 **第X场：标题** 格式
-        pattern = r'\*\*第(\d+)场[：:]\s*(.+?)\*\*'
-        matches = re.findall(pattern, content)
+        # 电影剧本：匹配多种格式的场景标题
+        # 格式1: **第X场：标题**
+        # 格式2: **第X场 标题**
+        # 格式3: 第X场：标题
+        # 格式4: 第X场 标题
+        patterns = [
+            r'\*\*第(\d+)场[：:\s]*(.+?)\*\*',  # **第X场：标题**
+            r'第(\d+)场[：:\s]+(.+?)(?:\n|$)',   # 第X场：标题 或 第X场 标题
+        ]
 
-        for match in matches:
+        all_matches = []
+        for pattern in patterns:
+            matches = re.findall(pattern, content)
+            all_matches.extend(matches)
+
+        # 去重（保留第一次出现的）
+        seen = set()
+        for match in all_matches:
             unit_num = int(match[0])
-            title = match[1].strip()
+            if unit_num not in seen:
+                seen.add(unit_num)
+                title = match[1].strip()
+                # 清理标题中可能的多余字符
+                title = re.sub(r'[\*\s]+$', '', title)
 
-            # 提取本场梗概
-            summary_pattern = re.compile(
-                rf'\*\*第{unit_num}场.*?\*\*.*?\*\*本场梗概\*\*[：:]\s*(.+?)(?=\*\*第\d+场|$)',
-                re.DOTALL
-            )
-            summary_match = summary_pattern.search(content)
-            summary = summary_match.group(1).strip() if summary_match else ""
+                # 提取本场梗概（支持多种格式）
+                summary = ""
+                # 尝试多种梗概格式
+                summary_patterns = [
+                    rf'第{unit_num}场.*?\*\*本场梗概\*\*[：:]\s*(.+?)(?=\*\*第\d+场|第\d+场|$)',
+                    rf'第{unit_num}场.*?本场梗概[：:]\s*(.+?)(?=第\d+场|$)',
+                    rf'第{unit_num}场.*?梗概[：:]\s*(.+?)(?=第\d+场|$)',
+                ]
 
-            result[str(unit_num)] = {
-                "unit_number": unit_num,
-                "title": title,
-                "summary": summary,
-                "status": "completed"
-            }
+                for sp in summary_patterns:
+                    sm = re.search(sp, content, re.DOTALL)
+                    if sm:
+                        summary = sm.group(1).strip()
+                        break
+
+                result[str(unit_num)] = {
+                    "unit_number": unit_num,
+                    "title": title,
+                    "summary": summary,
+                    "status": "completed"
+                }
+
+        logger.info(f"[单元概述解析] 电影剧本解析完成, 匹配到 {len(result)} 个场景")
+
     else:
-        # 小说/剧集：匹配 ### 第X章/集：标题 格式
+        # 小说/剧集：匹配多种格式的章节/分集标题
         if content_type == "novel":
-            pattern = r'###\s*第(\d+)章[：:]\s*(.+?)(?:\n|$)'
+            unit_char = "章"
+            summary_keyword = "本章"
         else:  # series_script
-            pattern = r'###\s*第(\d+)集[：:]\s*(.+?)(?:\n|$)'
+            unit_char = "集"
+            summary_keyword = "本集"
 
-        matches = re.findall(pattern, content)
+        # 多种标题格式
+        patterns = [
+            rf'###\s*第(\d+){unit_char}[：:\s]*(.+?)(?:\n|$)',  # ### 第X章：标题
+            rf'##\s*第(\d+){unit_char}[：:\s]*(.+?)(?:\n|$)',   # ## 第X章：标题
+            rf'第(\d+){unit_char}[：:\s]+(.+?)(?:\n|$)',        # 第X章：标题
+            rf'第(\d+){unit_char}\s+(.+?)(?:\n|$)',             # 第X章 标题
+        ]
 
-        for match in matches:
+        all_matches = []
+        for pattern in patterns:
+            matches = re.findall(pattern, content)
+            all_matches.extend(matches)
+
+        # 去重
+        seen = set()
+        for match in all_matches:
             unit_num = int(match[0])
-            title = match[1].strip()
+            if unit_num not in seen:
+                seen.add(unit_num)
+                title = match[1].strip()
+                # 清理标题
+                title = re.sub(r'^[：:\s]+', '', title)
+                title = re.sub(r'[\*\s]+$', '', title)
 
-            # 提取本章/本集梗概
-            summary_pattern = re.compile(
-                rf'第{unit_num}(章|集).*?\*\*本(章|集)梗概\*\*[：:]\s*(.+?)(?=###\s*第\d+|$)',
-                re.DOTALL
-            )
-            summary_match = summary_pattern.search(content)
-            summary = summary_match.group(3).strip() if summary_match else ""
+                # 提取梗概（支持多种格式）
+                summary = ""
+                summary_patterns = [
+                    rf'第{unit_num}{unit_char}.*?\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
+                    rf'第{unit_num}{unit_char}.*?{summary_keyword}梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
+                    rf'第{unit_num}{unit_char}.*?梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
+                    rf'\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
+                ]
 
-            result[str(unit_num)] = {
-                "unit_number": unit_num,
-                "title": title,
-                "summary": summary,
-                "status": "completed"
-            }
+                for sp in summary_patterns:
+                    sm = re.search(sp, content, re.DOTALL)
+                    if sm:
+                        summary = sm.group(1).strip()
+                        break
+
+                result[str(unit_num)] = {
+                    "unit_number": unit_num,
+                    "title": title,
+                    "summary": summary,
+                    "status": "completed"
+                }
+
+        logger.info(f"[单元概述解析] {'小说' if content_type == 'novel' else '剧集'}解析完成, 匹配到 {len(result)} 个单元")
+
+    if not result:
+        logger.warning(f"[单元概述解析] 未能解析出任何单元，content_type={content_type}")
+        # 记录内容前200字符用于调试
+        logger.debug(f"[单元概述解析] 内容预览: {content[:200]}...")
 
     return result
 

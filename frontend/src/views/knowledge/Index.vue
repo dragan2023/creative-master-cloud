@@ -455,7 +455,8 @@ const graphContainer = ref(null)
 const graphLoading = ref(false)
 const currentKbId = ref(null)
 const currentKbName = ref('')
-const progressTimer = ref(null)
+// 进度轮询定时器（使用Map管理多个定时器，避免内存泄漏）
+const progressTimers = new Map()
 let graphInstance = null // G6 实例
 
 const uploadForm = ref({
@@ -494,11 +495,17 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (progressTimer.value) {
-    clearInterval(progressTimer.value)
-  }
+  // 清理所有进度轮询定时器
+  progressTimers.forEach(timer => clearInterval(timer))
+  progressTimers.clear()
+
+  // 销毁G6图表实例
   if (graphInstance) {
-    graphInstance.destroy()
+    try {
+      graphInstance.destroy()
+    } catch (e) {
+      console.warn('销毁图表实例失败:', e)
+    }
     graphInstance = null
   }
 })
@@ -512,8 +519,9 @@ async function fetchKnowledge() {
     }
     const res = await knowledgeApi.list(params)
     knowledgeList.value = res.data || []
-    total.value = (res.data || []).length
-    
+    // 优先使用后端返回的total，支持分页
+    total.value = res.total || res.pagination?.total || (res.data || []).length
+
     // 检查是否有正在处理的知识库
     const processing = knowledgeList.value.find(kb => kb.status === 'processing')
     if (processing) {
@@ -529,25 +537,29 @@ async function fetchKnowledge() {
 function startProgressPolling(kbId) {
   processingProgress.value.is_processing = true
   processingProgress.value.kb_id = kbId
-  
-  if (progressTimer.value) {
-    clearInterval(progressTimer.value)
+
+  // 先清理已有的同ID定时器
+  if (progressTimers.has(kbId)) {
+    clearInterval(progressTimers.get(kbId))
   }
-  
-  progressTimer.value = setInterval(async () => {
+
+  const timer = setInterval(async () => {
     try {
       const res = await knowledgeApi.getProgress(kbId)
       processingProgress.value = { ...res.data, kb_id: kbId }
-      
+
       if (!res.data.is_processing) {
-        clearInterval(progressTimer.value)
-        progressTimer.value = null
+        // 处理完成，清理定时器
+        clearInterval(timer)
+        progressTimers.delete(kbId)
         await fetchKnowledge()
       }
     } catch (error) {
       console.error('获取进度失败:', error)
     }
   }, 2000)
+
+  progressTimers.set(kbId, timer)
 }
 
 function getStepLabel(step) {
@@ -560,18 +572,19 @@ async function stopProcessing() {
     ElMessage.warning('没有正在处理的知识库')
     return
   }
-  
+
   stopping.value = true
   try {
     await knowledgeApi.stopProcessing(processingProgress.value.kb_id)
     ElMessage.success('处理已终止')
-    
+
     // 清除定时器
-    if (progressTimer.value) {
-      clearInterval(progressTimer.value)
-      progressTimer.value = null
+    const kbId = processingProgress.value.kb_id
+    if (progressTimers.has(kbId)) {
+      clearInterval(progressTimers.get(kbId))
+      progressTimers.delete(kbId)
     }
-    
+
     // 重置进度
     processingProgress.value = {
       is_processing: false,
@@ -580,7 +593,7 @@ async function stopProcessing() {
       current_step_index: 0,
       total_steps: 4
     }
-    
+
     // 刷新列表
     await fetchKnowledge()
   } catch (error) {
@@ -727,13 +740,18 @@ async function showGraphDialog(row) {
     const res = await knowledgeApi.getGraph(row.id, 200)
     console.log('API响应:', res)
     
-    // 修复：API响应结构是 {code, message, data: {...}}
-    const data = res.data?.data || res.data
+    // 修复：API响应结构是 {code, message, data: {...}}，添加防御性处理
+    const rawData = res.data?.data || res.data || {}
+    const data = {
+      nodes: Array.isArray(rawData.nodes) ? rawData.nodes : [],
+      edges: Array.isArray(rawData.edges) ? rawData.edges : [],
+      stats: rawData.stats || {}
+    }
     console.log('图谱数据:', data)
-    console.log('节点数:', data?.nodes?.length)
-    console.log('边数:', data?.edges?.length)
-    console.log('统计:', data?.stats)
-    
+    console.log('节点数:', data.nodes.length)
+    console.log('边数:', data.edges.length)
+    console.log('统计:', data.stats)
+
     graphData.value = data
     
     console.log('设置后 graphData.value.nodes.length:', graphData.value?.nodes?.length)
@@ -769,10 +787,14 @@ function renderGraph(data) {
   }
   
   console.log('开始渲染图谱，节点数:', data.nodes.length, '边数:', data.edges.length)
-  
-  // 销毁旧实例
+
+  // 销毁旧实例（添加try-catch保护）
   if (graphInstance) {
-    graphInstance.destroy()
+    try {
+      graphInstance.destroy()
+    } catch (e) {
+      console.warn('销毁旧图表实例失败:', e)
+    }
     graphInstance = null
   }
   
@@ -863,9 +885,13 @@ function renderGraph(data) {
 }
 
 function closeGraphDialog() {
-  // 销毁 G6 实例
+  // 销毁 G6 实例（添加try-catch保护）
   if (graphInstance) {
-    graphInstance.destroy()
+    try {
+      graphInstance.destroy()
+    } catch (e) {
+      console.warn('销毁图表实例失败:', e)
+    }
     graphInstance = null
   }
 }

@@ -38,6 +38,8 @@ import asyncio
 CANCEL_KEY_PREFIX = "generate:cancel:"
 # 取消令牌过期时间（秒）
 CANCEL_EXPIRE_SECONDS = 3600  # 1小时
+# 内存取消令牌存储（用于流式生成的取消控制）
+cancel_tokens: Dict[str, asyncio.Event] = {}
 
 router = APIRouter(prefix="/generate", tags=["创意生成"])
 logger = get_logger(__name__)
@@ -1388,6 +1390,9 @@ async def generate_global_outline_stream(
 ):
     """
     流式生成全局大纲（第一阶段）
+    
+    支持知识库修正：生成完成后，自动调用知识库进行内容优化。
+    修正后的内容会以分隔线标识，前端可识别并替换显示。
     """
     async def generate():
         generator = get_outline_generator(db)
@@ -1397,13 +1402,19 @@ async def generate_global_outline_stream(
             provider=data.provider,
             model=data.model,
             temperature=data.temperature,
-            user_id=current_user.id
+            user_id=current_user.id,
+            enable_knowledge=data.enable_knowledge
         ):
             yield chunk
 
     return StreamingResponse(
         generate(),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
     )
 
 
@@ -1687,11 +1698,22 @@ async def generate_original_ip(
     if result.get("success"):
         # 保存生成记录
         try:
+            # 从 input_params 中提取标题
+            title = None
+            input_params_dict = data.model_dump()
+            if input_params_dict:
+                title_keys = ['ip_name', 'title', 'topic', 'theme', 'subject', 'name']
+                for key in title_keys:
+                    if key in input_params_dict and input_params_dict[key]:
+                        title = str(input_params_dict[key])[:200]
+                        break
+            
             generation = Generation(
                 user_id=current_user.id,
                 module=GenerationModule.ORIGINAL_IP,
                 status=GenerationStatus.COMPLETED,
-                input_params=data.model_dump(),
+                input_params=input_params_dict,
+                title=title,
                 output_content=result.get("content"),
                 provider=result.get("provider"),
                 model_name=result.get("model"),
@@ -1831,11 +1853,22 @@ async def generate_original_ip_stream(
             if content_buffer:
                 try:
                     full_content = "".join(content_buffer)
+                    # 从 input_params 中提取标题
+                    title = None
+                    input_params_dict = data.model_dump()
+                    if input_params_dict:
+                        title_keys = ['ip_name', 'title', 'topic', 'theme', 'subject', 'name']
+                        for key in title_keys:
+                            if key in input_params_dict and input_params_dict[key]:
+                                title = str(input_params_dict[key])[:200]
+                                break
+                    
                     generation = Generation(
                         user_id=current_user.id,
                         module=GenerationModule.ORIGINAL_IP,
                         status=GenerationStatus.COMPLETED,
-                        input_params=data.model_dump(),
+                        input_params=input_params_dict,
+                        title=title,
                         output_content=full_content,
                         provider=provider
                     )

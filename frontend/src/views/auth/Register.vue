@@ -65,8 +65,11 @@
             <el-form-item prop="username">
               <el-input
                 v-model="form.username"
-                placeholder="用户名"
+                placeholder="用户名（3-50个字符）"
                 :prefix-icon="User"
+                maxlength="50"
+                show-word-limit
+                clearable
               />
             </el-form-item>
             
@@ -82,9 +85,10 @@
               <el-input
                 v-model="form.password"
                 type="password"
-                placeholder="密码"
+                placeholder="密码（6-50个字符）"
                 :prefix-icon="Lock"
                 show-password
+                maxlength="50"
               />
             </el-form-item>
             
@@ -95,6 +99,7 @@
                 placeholder="确认密码"
                 :prefix-icon="Lock"
                 show-password
+                maxlength="50"
               />
             </el-form-item>
             
@@ -152,7 +157,7 @@ const validateConfirmPassword = (rule, value, callback) => {
 const rules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名3-20个字符', trigger: 'blur' }
+    { min: 3, max: 50, message: '用户名长度为3-50个字符', trigger: 'blur' }
   ],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
@@ -160,7 +165,7 @@ const rules = {
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码至少6位', trigger: 'blur' }
+    { min: 6, max: 50, message: '密码长度为6-50个字符', trigger: 'blur' }
   ],
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },

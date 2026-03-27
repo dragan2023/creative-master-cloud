@@ -63,12 +63,10 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_DIR=/app/logs
       
-      # 向量数据库配置
-      - CHROMA_PERSIST_DIR=/app/data/chroma
-      - CHROMA_MODEL_CACHE_DIR=/app/data/chroma/models
-      
-      # 知识图谱配置
-      - KNOWLEDGE_GRAPH_DIR=/app/data/knowledge_graphs
+      # === 知识库与向量数据库配置 ===
+      - CHROMA_PERSIST_DIR=${CHROMA_PERSIST_DIR:-/app/data/chroma}
+      - CHROMA_MODEL_CACHE_DIR=${CHROMA_MODEL_CACHE_DIR:-/app/data/chroma/models}
+      - KNOWLEDGE_GRAPH_DIR=${KNOWLEDGE_GRAPH_DIR:-/app/data/knowledge_graphs}
       
       # 文件上传配置
       - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-209715200}
@@ -88,9 +86,9 @@ services:
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       
-      # HuggingFace镜像（国内加速）
+      # === HuggingFace模型下载配置 ===
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
-      - SENTENCE_TRANSFORMERS_HOME=/app/data/chroma/models
+      - SENTENCE_TRANSFORMERS_HOME=${SENTENCE_TRANSFORMERS_HOME:-/app/data/chroma/models}
       
       # 多租户配置
       - MULTI_TENANT_ENABLED=${MULTI_TENANT_ENABLED:-True}

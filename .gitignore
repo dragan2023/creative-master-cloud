@@ -1,8 +1,9 @@
 # ========================================
-# 全能创意大师 - Git忽略配置（云端部署版）
+# 全能创意大师 - Git忽略配置
+# 区分本地开发环境和云端生产环境
 # ========================================
 
-# ----- Python -----
+# ===== Python =====
 __pycache__/
 *.py[cod]
 *$py.class
@@ -14,33 +15,78 @@ env/
 .venv/
 build_venv/
 
-# ----- 环境变量（敏感信息）-----
+# ===== 环境变量（敏感信息）=====
+# 本地开发环境配置（不提交）
 .env
 .env.local
-.env.production
-.env.development
+.env.development.local
+.env.test.local
+.env.production.local
 backend/.env
+backend/.env.local
 frontend/.env.local
+frontend/.env.development
 
-# ----- 日志文件 -----
+# 云端部署配置模板（可提交）
+!.env.example
+!.env.cloud
+
+# ===== 日志文件（不提交）=====
 logs/
 *.log
+*.log.zip
 backend/logs/
+nginx/logs/
 
-# ----- 数据库文件 -----
+# ===== 数据库文件（不提交）=====
 *.db
 *.sqlite3
+*.db-journal
 backend/*.db
 backend/novel_writer.db
+backend/data/*.db
 
-# ----- Node.js -----
+# ===== Node.js =====
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+package-lock.json
 
-# ----- IDE配置 -----
+# ===== 前端构建缓存 =====
+frontend/dist/
+frontend/.vite/
+
+
+# ===== 构建产物 =====
+# 发行版构建产物（不提交，通过CI/CD生成）
+dist/
+build/
+*.egg-info/
+*.egg
+
+# 后端静态文件（由前端构建生成）
+backend/app/static/assets/
+backend/app/static/index.html
+!backend/app/static/.gitkeep
+
+# ===== Docker相关 =====
+# Docker数据卷映射目录
+backenddata/
+# 本地Docker配置（不提交）
+docker-daemon.json
+
+# ===== 本地开发临时文件 =====
+*.local
+*.tmp
+*.temp
+*.bak
+*.cache
+*.swp
+*.swo
+
+# ===== IDE和编辑器 =====
 .idea/
 .vscode/
 *.swp
@@ -48,36 +94,7 @@ yarn-error.log*
 *.sublime-workspace
 *.sublime-project
 
-# ----- 操作系统 -----
-.DS_Store
-Thumbs.db
-Desktop.ini
-
-# ----- 测试 -----
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
-
-# ----- 构建产物 -----
-dist/
-build/
-*.egg-info/
-*.egg
-
-# 前端构建产物（保留index.html等源文件）
-frontend/dist/
-
-# 后端静态文件（由前端构建生成，Docker 构建时自动复制）
-backend/app/static/assets/
-backend/app/static/index.html
-!backend/app/static/.gitkeep
-
-# ----- 本地开发 -----
-*.local
-
-# ----- 大模型文件（太大不上传）-----
+# ===== 大模型文件（太大不上传）=====
 *.bin
 *.pt
 *.pth
@@ -87,49 +104,63 @@ backend/app/static/index.html
 *.pickle
 marker_models/
 chonkie_models/
+backend/data/marker_models/
 
-# ----- 数据目录（用户生成的内容）-----
-backend/data/
-backend/app/data/
-backenddata/
+# ===== 向量数据库和知识图谱 =====
+backend/data/chroma/
+backend/data/knowledge_graphs/
+backend/data/exports/
+backend/data/novel_projects/
+backend/data/uploads/
+backend/data/backups/
 
-# ----- 编译后的二进制文件 -----
+# ===== 编译后的二进制文件 =====
 *.pyd
+*.pyi
 backend/*.pyd
 backend/*.pyi
 
-# ----- PyArmor相关 -----
+# ===== PyArmor相关 =====
 pyarmor.bug.log
 .pyarmor/
+backend/pyarmor.bug.log
 
-# ----- 敏感信息 -----
+# ===== 敏感信息 =====
 *.pem
 *.key
+*.crt
 secrets/
+nginx/ssl/*.crt
+nginx/ssl/*.key
+!nginx/ssl/.gitkeep
 
-# ----- 临时文件 -----
-*.tmp
-*.temp
-*.bak
-*.cache
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+Desktop.ini
 
-# ----- Qoder配置 -----
+# ===== 测试 =====
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ===== Qoder配置 =====
 .qoder/
 
-# ----- 云端部署脚本（保留）-----
-!scripts/deploy.sh
-!scripts/download-model.sh
-
-# ----- 备份文件 -----
+# ===== 备份和打包文件 =====
 *.backup
-
-# ----- 打包相关 -----
-pack-exclude.txt
-
-# ----- 发行版（不推送构建产物）-----
-dist/
-
-# ----- 其他 -----
 *.rar
 *.zip
-2.0.0
+*.7z
+pack-exclude.txt
+
+# ===== 保留云端部署必需文件 =====
+!scripts/deploy.sh
+!scripts/download-model.sh
+!scripts/deploy-cloud.sh
+!docker-compose.prod.yml
+!docker-compose.cloud.yml
+!nginx/nginx.conf
+!nginx/ssl-setup.sh

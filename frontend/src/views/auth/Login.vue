@@ -78,6 +78,8 @@
                 v-model="form.username"
                 placeholder="用户名"
                 :prefix-icon="User"
+                maxlength="50"
+                clearable
               />
             </el-form-item>
             
@@ -88,6 +90,7 @@
                 placeholder="密码"
                 :prefix-icon="Lock"
                 show-password
+                maxlength="50"
               />
             </el-form-item>
             
@@ -117,8 +120,8 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { User, Lock } from '@element-plus/icons-vue'
-import { useUserStore } from '@/stores'
+import { User, Lock, VideoCamera, Document, Notebook, Picture, Film } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -157,6 +160,7 @@ async function handleLogin() {
     router.push(redirect)
   } catch (error) {
     console.error('登录失败:', error)
+    ElMessage.error(error.response?.data?.message || '登录失败，请检查用户名和密码')
   } finally {
     loading.value = false
   }
@@ -295,10 +299,6 @@ async function handleLogin() {
       border-radius: 12px;
       box-shadow: 0 8px 32px rgba(64, 158, 255, 0.4);
       animation: icon-pulse 3s ease-in-out infinite;
-      
-      .el-icon {
-        color: #fff;
-      }
       
       .brand-logo-img {
         width: 48px;

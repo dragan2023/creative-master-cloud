@@ -1679,6 +1679,7 @@ class NovelChapterGenerator:
 
         # 中文数字映射
         chinese_nums = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+        chinese_nums_str = ''.join(chinese_nums)  # 用于正则表达式的字符串形式
 
         def num_to_chinese(n):
             if n <= 10:
@@ -1781,31 +1782,55 @@ class NovelChapterGenerator:
 
             # 检查是否进入下一集
             if capturing:
+                # 首先检查是否是当前集数的标题（应该跳过，不当作边界）
+                current_episode_patterns = [
+                    rf'^\*\*第{episode_num}集',
+                    rf'^\*\*第{chinese_episode}集',
+                    rf'^第{episode_num}集',
+                    rf'^第{chinese_episode}集',
+                    rf'^#+\s*第{episode_num}集',
+                    rf'^#+\s*第{chinese_episode}集',
+                ]
+                is_current_episode = False
+                for cp in current_episode_patterns:
+                    if re.match(cp, line_stripped):
+                        is_current_episode = True
+                        break
+                
+                # 如果是当前集数的标题，跳过（不作为边界）
+                if is_current_episode:
+                    continue
+
                 # 构建下一集的匹配模式
                 next_episode_num = episode_num + 1
                 next_chinese_episode = num_to_chinese(next_episode_num)
 
                 # 下一集匹配模式 - 按优先级排序
+                # 注意：这些模式只会匹配"其他集数"，因为当前集数已经被排除
                 next_episode_patterns = [
                     # 1. 优先匹配带 # 前缀的具体下一集
                     rf'^#+\s*第{next_episode_num}集',
                     rf'^#+\s*第{next_chinese_episode}集',
-                    # 2. 匹配带 # 前缀的任意集数
+                    # 2. 匹配带 # 前缀的任意集数（排除当前集）
                     rf'^#+\s*第\d+集',
-                    rf'^#+\s*第[{chinese_nums}]+集',
-                    # 3. 不带 # 前缀的具体下一集
-                    rf'^第{next_episode_num}集',
-                    rf'^第{next_chinese_episode}集',
+                    rf'^#+\s*第[{chinese_nums_str}]+集',
+                    # 3. 粗体格式的任意集数（当前集已排除）
+                    rf'^\*\*第\d+集',
+                    rf'^\*\*第[{chinese_nums_str}]+集',
                     # 4. 括号格式
                     rf'^【第{next_episode_num}集】',
                     rf'^【第{next_chinese_episode}集】',
                     rf'^【第\d+集】',
-                    # 5. 其他格式
-                    rf'^\*\*第\d+集',
+                    # 5. 纯文本格式的其他集数
+                    rf'^第{next_episode_num}集',
+                    rf'^第{next_chinese_episode}集',
+                    rf'^第\d+集',
+                    # 6. Episode格式
                     rf'^[Ee]pisode\s*{next_episode_num}',
                     rf'^[Ee]pisode\s*\d+',
                     rf'^EP\s*{next_episode_num}',
                     rf'^EP\s*\d+',
+                    # 7. 分隔符
                     r'^---+$',
                     r'^___+$',
                     r'^##\s+第',
@@ -1823,15 +1848,6 @@ class NovelChapterGenerator:
                         f"[分集概要提取] 第{episode_num}集边界检测: 匹配到下一集模式 '{matched_pattern}', 行内容: {line_stripped[:50]}")
                     break
 
-                # 跳过当前集数的标题行
-                if line_stripped.startswith('**') and '集' in line_stripped and len(line_stripped) < 50:
-                    current_title_patterns = [
-                        rf'^\*\*第{episode_num}集',
-                        rf'^\*\*第{chinese_episode}集',
-                    ]
-                    for tp in current_title_patterns:
-                        if re.match(tp, line_stripped):
-                            continue
                 # 跳过纯分隔符行
                 if line_stripped in ['---', '***', '___', '']:
                     continue
@@ -2296,6 +2312,11 @@ class NovelChapterGenerator:
                         project.total_tokens or 0) + token_count
 
             # 10. 基于知识库自动修正（如果启用）
+            # 保存原始草稿内容（用于修正历史对比）
+            original_draft = content
+            revision_applied = False
+            revision_info = None
+
             if project.kb_graphrag_enabled and project.kb_status == "ready":
                 self.logger.info(f"开始知识库修正: 第{episode_number}集")
                 revision_result = await self.content_reviser.revise_content(
@@ -2308,6 +2329,14 @@ class NovelChapterGenerator:
                 if revision_result["success"] and revision_result.get("revised_content"):
                     original_len = len(content)
                     content = revision_result["revised_content"]
+                    revision_applied = True
+                    revision_info = {
+                        "applied": True,
+                        "original_length": original_len,
+                        "revised_length": len(content),
+                        "knowledge_used": revision_result.get("knowledge_used", {}),
+                        "revised_at": datetime.now().isoformat()
+                    }
                     self.logger.info(
                         f"知识库修正完成: 第{episode_number}集, "
                         f"原文{original_len}字 -> 修正后{len(content)}字, "
@@ -2320,6 +2349,9 @@ class NovelChapterGenerator:
 
             # 11. 后处理
             content = self._post_process(content)
+
+            # 11.5 合规审核标记（非阻塞）
+            compliance_result = await self._mark_compliance(project, content)
 
             # 记录字数信息（用于日志）
             words_per_episode = 5000  # 默认值
@@ -2346,24 +2378,36 @@ class NovelChapterGenerator:
 
             # 更新章节记录
             chapter.status = ChapterStatus.COMPLETED
+            chapter.draft_content = original_draft  # 保存原始草稿
             chapter.final_content = content
             chapter.word_count = len(content)
             chapter.token_count = token_count
             chapter.duration_ms = duration_ms
             chapter.chapter_title = f"第{episode_number}集 {episode_title}"
 
+            # 保存修正信息到元数据
+            if revision_applied and revision_info:
+                chapter_metadata = chapter.chapter_metadata or {}
+                chapter_metadata["revision_info"] = revision_info
+                chapter.chapter_metadata = chapter_metadata
+
+            # 保存合规审核标记到元数据
+            if compliance_result:
+                chapter_metadata = chapter.chapter_metadata or {}
+                chapter_metadata["compliance_marking"] = compliance_result
+                chapter.chapter_metadata = chapter_metadata
+                if compliance_result.get("has_issues"):
+                    self.logger.info(
+                        f"合规审核标记: 第{episode_number}集, "
+                        f"发现{compliance_result.get('issue_count', 0)}处潜在问题"
+                    )
+
             # 更新项目进度
             await self._update_project_progress(project, episode_number)
 
-            # 14. 更新 episode_outlines 中的正文生成状态
-            episode_outline["content_status"] = "generated"
-            episode_outline["content_generated_at"] = datetime.now(
-            ).isoformat()
-            episode_outline["content_word_count"] = len(content)
-            episode_outlines[str(episode_number)] = episode_outline
-            project.episode_outlines = episode_outlines
-            from sqlalchemy.orm.attributes import flag_modified
-            flag_modified(project, 'episode_outlines')
+            # 同步正文生成状态到大纲记录
+            await self._sync_content_status(
+                project, episode_number, "series_script", len(content))
 
             await self.db.commit()
 
@@ -2978,6 +3022,7 @@ class NovelChapterGenerator:
 
         # 中文数字映射
         chinese_nums = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+        chinese_nums_str = ''.join(chinese_nums)  # 用于正则表达式的字符串形式
 
         def num_to_chinese(n):
             if n <= 10:
@@ -3079,7 +3124,7 @@ class NovelChapterGenerator:
                     rf'^#+\s*第{next_chinese_chapter}章',
                     # 3. 匹配带 # 前缀的任意章节
                     rf'^#+\s*第\d+章',
-                    rf'^#+\s*第[{chinese_nums}]+章',
+                    rf'^#+\s*第[{chinese_nums_str}]+章',
                     # 4. 不带 # 前缀的具体下一章
                     rf'^第{next_chapter_num}章',
                     rf'^第{next_chinese_chapter}章',
@@ -3723,6 +3768,7 @@ class NovelChapterGenerator:
 
         # 中文数字映射
         chinese_nums = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+        chinese_nums_str = ''.join(chinese_nums)  # 用于正则表达式的字符串形式
 
         def num_to_chinese(n):
             if n <= 10:
@@ -4315,8 +4361,47 @@ class NovelChapterGenerator:
                     project.total_tokens = (
                         project.total_tokens or 0) + token_count
 
-            # 10. 后处理
+            # 10. 基于知识库自动修正（如果启用）
+            # 保存原始草稿内容（用于修正历史对比）
+            original_draft = content
+            revision_applied = False
+            revision_info = None
+
+            if project.kb_graphrag_enabled and project.kb_status == "ready":
+                self.logger.info(f"开始知识库修正: 第{scene_number}场")
+                revision_result = await self.content_reviser.revise_content(
+                    project=project,
+                    unit_number=scene_number,
+                    draft_content=content,
+                    llm_provider=llm_provider,
+                    content_type="movie_script"
+                )
+                if revision_result["success"] and revision_result.get("revised_content"):
+                    original_len = len(content)
+                    content = revision_result["revised_content"]
+                    revision_applied = True
+                    revision_info = {
+                        "applied": True,
+                        "original_length": original_len,
+                        "revised_length": len(content),
+                        "knowledge_used": revision_result.get("knowledge_used", {}),
+                        "revised_at": datetime.now().isoformat()
+                    }
+                    self.logger.info(
+                        f"知识库修正完成: 第{scene_number}场, "
+                        f"原文{original_len}字 -> 修正后{len(content)}字, "
+                        f"知识库引用: {revision_result.get('knowledge_used', {})}"
+                    )
+                else:
+                    self.logger.info(
+                        f"知识库修正跳过: 第{scene_number}场, 原因: {revision_result.get('error', '未知')}"
+                    )
+
+            # 11. 后处理
             content = self._post_process(content)
+
+            # 11.5 合规审核标记（非阻塞）
+            compliance_result = await self._mark_compliance(project, content)
 
             # 记录字数信息（用于日志）
             # 获取时长，确保不为 None（防止 None * int 报错）
@@ -4329,10 +4414,10 @@ class NovelChapterGenerator:
                 f"实际{actual_words}字, 偏差{((actual_words - estimated_words) / estimated_words * 100):.1f}%"
             )
 
-            # 11. 定稿处理
+            # 12. 定稿处理
             await self._finalize_chapter(project, chapter, content, llm_provider)
 
-            # 12. 更新结果
+            # 13. 更新结果
             end_time = time.time()
             duration_ms = int((end_time - start_time) * 1000)
 
@@ -4344,27 +4429,36 @@ class NovelChapterGenerator:
 
             # 更新章节记录
             chapter.status = ChapterStatus.COMPLETED
+            chapter.draft_content = original_draft  # 保存原始草稿
             chapter.final_content = content
             chapter.word_count = len(content)
             chapter.token_count = token_count
             chapter.duration_ms = duration_ms
             chapter.chapter_title = f"第{scene_number}场 {scene_title}"
 
+            # 保存修正信息到元数据
+            if revision_applied and revision_info:
+                chapter_metadata = chapter.chapter_metadata or {}
+                chapter_metadata["revision_info"] = revision_info
+                chapter.chapter_metadata = chapter_metadata
+
+            # 保存合规审核标记到元数据
+            if compliance_result:
+                chapter_metadata = chapter.chapter_metadata or {}
+                chapter_metadata["compliance_marking"] = compliance_result
+                chapter.chapter_metadata = chapter_metadata
+                if compliance_result.get("has_issues"):
+                    self.logger.info(
+                        f"合规审核标记: 第{scene_number}场, "
+                        f"发现{compliance_result.get('issue_count', 0)}处潜在问题"
+                    )
+
             # 更新项目进度
             await self._update_project_progress(project, scene_number)
 
-            # 更新 scene_outlines 中的正文生成状态
-            scene_outlines = project.scene_outlines or {}
-            if str(scene_number) in scene_outlines:
-                scene_outlines[str(scene_number)
-                               ]["content_status"] = "generated"
-                scene_outlines[str(
-                    scene_number)]["content_generated_at"] = datetime.now().isoformat()
-                scene_outlines[str(scene_number)
-                               ]["content_word_count"] = len(content)
-                project.scene_outlines = scene_outlines
-                from sqlalchemy.orm.attributes import flag_modified
-                flag_modified(project, 'scene_outlines')
+            # 同步正文生成状态到大纲记录
+            await self._sync_content_status(
+                project, scene_number, "movie_script", len(content))
 
             await self.db.commit()
 

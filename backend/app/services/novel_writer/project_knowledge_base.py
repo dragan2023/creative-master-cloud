@@ -798,6 +798,18 @@ class ProjectKnowledgeBase:
         except Exception as e:
             self.logger.error(
                 f"知识库检索失败: project_id={project_id}, error={str(e)}")
+            # 修复：即使向量库查询异常，也尝试从图谱文件读取数据
+            try:
+                result = self._retrieve_from_graph_files(
+                    project_id, current_unit, result)
+                if result["combined_context"]:
+                    self.logger.info(
+                        f"从图谱文件恢复成功: project_id={project_id}, "
+                        f"global_entities={len(result['global_entities'])}, "
+                        f"unit_entities={len(result['unit_entities'])}")
+            except Exception as fallback_error:
+                self.logger.error(
+                    f"从图谱文件读取也失败: project_id={project_id}, error={str(fallback_error)}")
             return result
 
     async def retrieve_global_only(

@@ -2,7 +2,7 @@
 知识库模型
 支持临时知识库和静态知识库
 """
-from sqlalchemy import Column, String, Integer, ForeignKey, Boolean, Text, Enum, JSON
+from sqlalchemy import Column, String, Integer, ForeignKey, Boolean, Text, Enum, JSON, DateTime
 from sqlalchemy.orm import relationship
 import enum
 
@@ -75,7 +75,7 @@ class KnowledgeBase(BaseModel):
     document_count = Column(Integer, default=0, comment="文档片段数量")
 
     # 过期时间（临时知识库）
-    expires_at = Column(String(30), nullable=True, comment="过期时间")
+    expires_at = Column(DateTime, nullable=True, comment="过期时间")
 
     # 预处理元数据
     preprocessor_metadata = Column(JSON, nullable=True, comment="预处理元数据")

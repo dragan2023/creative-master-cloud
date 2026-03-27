@@ -23,8 +23,8 @@ class ProjectVectorStore:
         self.vector_store = get_vector_store()
 
     def get_collection_name(self, project_id: int) -> str:
-        """获取项目的集合名称"""
-        return f"novel_project_{project_id}"
+        """获取项目的集合名称（统一命名规则）"""
+        return f"project_{project_id}"
 
     async def initialize_project_store(self, project_id: int) -> bool:
         """

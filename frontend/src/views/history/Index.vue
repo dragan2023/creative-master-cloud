@@ -144,12 +144,13 @@ onMounted(() => {
 async function fetchHistory() {
   loading.value = true
   try {
+    // 后端API使用limit和offset参数
     const params = {
-      page: currentPage.value,
-      page_size: pageSize.value
+      limit: pageSize.value,
+      offset: (currentPage.value - 1) * pageSize.value
     }
     if (filterType.value) {
-      params.type = filterType.value
+      params.module = filterType.value  // 后端使用module参数
     }
     
     const res = await historyApi.list(params)

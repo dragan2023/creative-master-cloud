@@ -1,4 +1,7 @@
-version: '3.8'
+# Docker Compose 配置文件
+# 注意: version 属性已废弃，新版 Docker Compose 不再需要
+
+name: creative-master
 
 services:
   # 后端服务
@@ -20,8 +23,8 @@ services:
       - HOST=${HOST:-0.0.0.0}
       - PORT=${PORT:-8000}
       
-      # 数据库配置
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@db:5432/creative_master}
+      # 数据库配置（Docker 环境使用服务名 db）
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/creative_master
       
       # Redis配置
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -87,6 +90,10 @@ services:
       
       # 前端配置（供后端返回给客户端）
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+      
+      # 语言环境配置（解决中文乱码）
+      - LANG=en_US.UTF-8
+      - LC_ALL=en_US.UTF-8
     depends_on:
       - db
       - redis

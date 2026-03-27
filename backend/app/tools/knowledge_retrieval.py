@@ -6,6 +6,9 @@ from typing import List, Dict, Any, Optional
 
 from app.core.vector_store import vector_store, get_vector_store
 from app.tools.graph_rag import get_graph_rag, GraphRAG
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class KnowledgeRetrievalTool:
@@ -61,7 +64,14 @@ class KnowledgeRetrievalTool:
 
             return formatted_results
 
+        except ConnectionError as e:
+            logger.error(f"向量数据库连接失败: {e}")
+            return [{"error": f"向量数据库连接失败，请检查ChromaDB服务状态"}]
+        except ValueError as e:
+            logger.error(f"检索参数错误: {e}")
+            return [{"error": f"检索参数错误: {str(e)}"}]
         except Exception as e:
+            logger.error(f"知识库检索异常: {e}", exc_info=True)
             return [{"error": f"检索失败: {str(e)}"}]
 
     async def retrieve_with_context(
@@ -196,16 +206,26 @@ class KnowledgeRetrievalTool:
             文档ID列表
         """
         import uuid
-        ids = [str(uuid.uuid4()) for _ in documents]
+        try:
+            ids = [str(uuid.uuid4()) for _ in documents]
 
-        self.vector_store.add_documents(
-            collection_name=collection_name,
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids
-        )
+            self.vector_store.add_documents(
+                collection_name=collection_name,
+                documents=documents,
+                metadatas=metadatas,
+                ids=ids
+            )
 
-        return ids
+            return ids
+        except ConnectionError as e:
+            logger.error(f"批量添加文档时向量数据库连接失败: {e}")
+            raise
+        except ValueError as e:
+            logger.error(f"批量添加文档参数错误: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"批量添加文档异常: {e}", exc_info=True)
+            raise
 
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         """

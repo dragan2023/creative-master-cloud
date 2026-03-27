@@ -1190,7 +1190,7 @@
       <div class="workflow-steps">
         <div 
           v-for="(step, index) in workflowSteps" 
-          :key="step.step"
+          :key="`${step.step}-${index}`"
           class="workflow-step"
           :class="{
             'is-running': step.status === 'running',
@@ -2644,7 +2644,7 @@ async function handleTwoStageGenerate() {
   try {
     const inputParams = buildOutlineInputParams()
     
-    // 模拟workflow步骤更新
+    // 模拟workflow步骤更新（模型加载和提示词准备由前端模拟，生成步骤由后端SSE推送）
     setTimeout(() => {
       if (globalOutlineGenerating.value) {
         const modelIndex = workflowSteps.value.findIndex(s => s.step === 'model')
@@ -2661,7 +2661,7 @@ async function handleTwoStageGenerate() {
         if (promptIndex >= 0) {
           workflowSteps.value[promptIndex] = { step: 'prompt', status: 'done', message: '提示词准备完成', icon: 'Document' }
         }
-        workflowSteps.value.push({ step: 'generate', status: 'running', message: '正在生成全局大纲...', icon: 'MagicStick' })
+        // generate 步骤由后端 SSE 事件推送，不再手动添加
       }
     }, 1000)
     
@@ -2674,11 +2674,22 @@ async function handleTwoStageGenerate() {
         temperature: 0.7
       },
       (chunk, fullContent) => {
+        // 内容追加回调（流式输出）
         globalOutlineContent.value = fullContent
         generatedContent.value = fullContent
       },
       (abortController) => {
         currentEventSource.value = abortController
+      },
+      // workflow 事件回调
+      (event) => {
+        handleWorkflowEvent(event)
+      },
+      // replace_content 事件回调（知识库修正后替换内容）
+      (newContent, message) => {
+        globalOutlineContent.value = newContent
+        generatedContent.value = newContent
+        ElMessage.success(message || '内容已优化')
       }
     )
     
@@ -2746,7 +2757,16 @@ async function handleGenerateUnitSummaries() {
       (abortController) => {
         currentEventSource.value = abortController
       },
-      currentSessionId.value
+      currentSessionId.value,
+      // workflow 事件回调
+      (event) => {
+        handleWorkflowEvent(event)
+      },
+      // replace_content 事件回调
+      (newContent, message) => {
+        generatedContent.value = newContent
+        ElMessage.success(message || '内容已更新')
+      }
     )
     
     if (result && !result.cancelled) {
@@ -3020,6 +3040,7 @@ function buildOutlineInputParams() {
   if (type.value === 'novel') {
     const lengthMap = { 'short': '短篇', 'medium': '中篇', 'long': '长篇' }
     return {
+      title: form.value.title || '',  // 【修复】添加标题字段，用于历史记录显示
       length: lengthMap[form.value.length] || '中篇',
       genre: Array.isArray(form.value.genre) ? form.value.genre.join('、') : (form.value.genre || '言情'),
       target_platform: form.value.target_platform || '起点',
@@ -3032,6 +3053,7 @@ function buildOutlineInputParams() {
     }
   } else if (type.value === 'script') {
     return {
+      title: form.value.title || '',  // 【修复】添加标题字段，用于历史记录显示
       series_type: form.value.series_type || '网剧',
       theme: form.value.genre || '都市',
       audience: form.value.target_audience || '年轻观众',
@@ -3261,6 +3283,16 @@ async function handleGenerateFromUnit() {
       },
       (abortController) => {
         currentEventSource.value = abortController
+      },
+      null,
+      // workflow 事件回调
+      (event) => {
+        handleWorkflowEvent(event)
+      },
+      // replace_content 事件回调
+      (newContent, message) => {
+        generatedContent.value = newContent
+        ElMessage.success(message || '内容已更新')
       }
     )
     
@@ -3302,7 +3334,14 @@ function handleWorkflowEvent(event) {
     }
     
     if (existingIndex >= 0) {
-      workflowSteps.value[existingIndex] = stepData
+      // 如果已存在该步骤，检查状态是否应该更新
+      // done 状态优先级最高，不应被 running 覆盖
+      const existingStep = workflowSteps.value[existingIndex]
+      if (existingStep.status === 'done' && event.status === 'running') {
+        console.log('[Workflow] 步骤已完成，忽略 running 事件:', event.step)
+      } else {
+        workflowSteps.value[existingIndex] = stepData
+      }
     } else {
       workflowSteps.value.push(stepData)
     }

@@ -114,16 +114,16 @@ export const generateApi = {
   generateGlobalOutline: (data) => api.post('/api/v1/generate/outline/global', data),
 
   // 流式生成全局大纲（第一阶段）
-  generateGlobalOutlineStream: (data, onMessage, onStreamStart) => {
-    return streamGenerateSimple('/api/v1/generate/outline/global/stream', data, onMessage, onStreamStart)
+  generateGlobalOutlineStream: (data, onMessage, onStreamStart, onWorkflow, onReplaceContent) => {
+    return streamGenerateSimple('/api/v1/generate/outline/global/stream', data, onMessage, onStreamStart, null, onWorkflow, onReplaceContent)
   },
 
   // 生成单元概述（第二阶段）
   generateUnitSummaries: (data) => api.post('/api/v1/generate/outline/units', data),
 
   // 流式生成单元概述（第二阶段）
-  generateUnitSummariesStream: (data, onMessage, onStreamStart, sessionId) => {
-    return streamGenerateSimple('/api/v1/generate/outline/units/stream', data, onMessage, onStreamStart, sessionId)
+  generateUnitSummariesStream: (data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent) => {
+    return streamGenerateSimple('/api/v1/generate/outline/units/stream', data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent)
   },
 
   // 取消生成任务
@@ -219,12 +219,17 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
     
     console.log('[API] Request URL:', url)  // 调试日志
     
+    // 获取认证 token
+    const token = localStorage.getItem('token')
+    const fetchHeaders = { 'Content-Type': 'application/json' }
+    if (token) {
+      fetchHeaders['Authorization'] = `Bearer ${token}`
+    }
+    
     // 使用 POST 请求发送 JSON 数据
     fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: fetchHeaders,
       body: JSON.stringify(requestBody)
     }).then(response => {
       // 检查 HTTP 状态码
@@ -336,45 +341,41 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
 }
 
 // 简化版SSE流式生成（用于两阶段大纲生成）
-function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, sessionId) {
+// 支持 workflow 事件和 replace_content 事件
+function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent) {
   return new Promise((resolve, reject) => {
-    // 如果有 sessionId，添加到请求参数中
     let url = `${API_BASE_URL}${endpoint}`
     if (sessionId) {
       url += `?session_id=${sessionId}`
     }
 
+    // 获取认证 token
+    const token = localStorage.getItem('token')
+    const headers = { 'Content-Type': 'application/json' }
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
     fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: headers,
       body: JSON.stringify(data)
     }).then(response => {
       if (!response.ok) {
         response.json().then(errData => {
-          const errorMsg = errData?.detail || `请求失败: ${response.status}`
-          reject(new Error(errorMsg))
-        }).catch(() => {
-          reject(new Error(`请求失败: ${response.status}`))
-        })
+          reject(new Error(errData?.detail || `请求失败: ${response.status}`))
+        }).catch(() => reject(new Error(`请求失败: ${response.status}`)))
         return
       }
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let fullContent = ''
+      let currentEventType = ''
+      let pendingData = ''
 
-      const abortController = {
-        reader,
-        abort: () => {
-          reader.cancel()
-        }
-      }
-
-      if (onStreamStart) {
-        onStreamStart(abortController)
-      }
+      const abortController = { reader, abort: () => reader.cancel() }
+      if (onStreamStart) onStreamStart(abortController)
 
       function readChunk() {
         reader.read().then(({ done, value }) => {
@@ -383,43 +384,69 @@ function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, sessionI
             return
           }
 
-          const chunk = decoder.decode(value, { stream: true })
-          fullContent += chunk
+          const text = decoder.decode(value, { stream: true })
+          pendingData += text
+          const lines = pendingData.split('\n')
+          pendingData = lines.pop() || ''
 
-          if (onMessage) {
-            onMessage(chunk, fullContent)
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEventType = line.slice(7).trim()
+              continue
+            }
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6)
+                if (jsonStr.trim()) {
+                  const eventData = JSON.parse(jsonStr)
+                  if (currentEventType === 'workflow' && onWorkflow) onWorkflow(eventData)
+                  if (currentEventType === 'replace_content' && onReplaceContent) {
+                    fullContent = eventData.text || ''
+                    onReplaceContent(eventData.text, eventData.message)
+                  }
+                  if (currentEventType === 'content' && eventData.text) {
+                    fullContent += eventData.text
+                    if (onMessage) onMessage(eventData.text, fullContent)
+                  }
+                  currentEventType = ''
+                }
+              } catch (e) { console.warn('[SSE] JSON解析失败:', e.message) }
+            }
           }
-
           readChunk()
         }).catch(error => {
-          if (error.name === 'AbortError') {
-            resolve({ content: fullContent, cancelled: true })
-          } else {
-            reject(error)
-          }
+          if (error.name === 'AbortError') resolve({ content: fullContent, cancelled: true })
+          else reject(error)
         })
       }
-
       readChunk()
-    }).catch(error => {
-      reject(error)
-    })
+    }).catch(error => reject(error))
   })
 }
 
+
 // 知识库API
 export const knowledgeApi = {
-  list: (params) => api.get('/api/v1/knowledge', { params }),
+  // 列表查询（短操作，30秒超时）
+  list: (params) => api.get('/api/v1/knowledge', { params, timeout: 30000 }),
+  // 上传文件（长操作，使用全局超时）
   upload: (formData) => api.post('/api/v1/knowledge/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
-  update: (id, data) => api.put(`/api/v1/knowledge/${id}`, data),
+  // 更新知识库（短操作，30秒超时）
+  update: (id, data) => api.put(`/api/v1/knowledge/${id}`, data, { timeout: 30000 }),
+  // 删除知识库（使用全局超时，可能涉及大量数据清理）
   delete: (id) => api.delete(`/api/v1/knowledge/${id}`),
-  getProgress: (id) => api.get(`/api/v1/knowledge/${id}/progress`),
-  getAllProcessing: () => api.get('/api/v1/knowledge/processing/all'),
-  stopProcessing: (id) => api.post(`/api/v1/knowledge/${id}/stop`),
-  getGraph: (id, maxNodes = 100) => api.get(`/api/v1/knowledge/${id}/graph`, { params: { max_nodes: maxNodes } }),
-  getGlobalGraph: (maxNodes = 100) => api.get('/api/v1/knowledge/graph/global', { params: { max_nodes: maxNodes } })
+  // 获取进度（短操作，15秒超时）
+  getProgress: (id) => api.get(`/api/v1/knowledge/${id}/progress`, { timeout: 15000 }),
+  // 获取所有处理中的知识库（短操作，15秒超时）
+  getAllProcessing: () => api.get('/api/v1/knowledge/processing/all', { timeout: 15000 }),
+  // 停止处理（短操作，15秒超时）
+  stopProcessing: (id) => api.post(`/api/v1/knowledge/${id}/stop`, null, { timeout: 15000 }),
+  // 获取知识图谱（中等操作，60秒超时）
+  getGraph: (id, maxNodes = 100) => api.get(`/api/v1/knowledge/${id}/graph`, { params: { max_nodes: maxNodes }, timeout: 60000 }),
+  // 获取全局知识图谱（中等操作，60秒超时）
+  getGlobalGraph: (maxNodes = 100) => api.get('/api/v1/knowledge/graph/global', { params: { max_nodes: maxNodes }, timeout: 60000 })
 }
 
 // 历史记录API

@@ -69,25 +69,36 @@ def get_embedding_function():
 
 
 def _setup_chroma_environment():
-    """设置 ChromaDB 环境变量（模型缓存目录等）"""
+    """设置 ChromaDB 环境变量（模型缓存目录等）
+    
+    必须在 ChromaDB 初始化前调用，确保所有模型缓存路径正确。
+    """
     settings = get_settings()
 
     # 设置模型缓存目录到项目文件夹
     model_cache_dir = settings.get_chroma_model_cache_dir()
+    
+    # ChromaDB ONNX 模型缓存目录（关键：必须在 ChromaDB 导入前设置）
     os.environ["CHROMA_MODEL_CACHE_DIR"] = model_cache_dir
     
-    # 设置sentence-transformers模型缓存目录
+    # sentence-transformers 模型缓存目录
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = model_cache_dir
     
-    # 设置HuggingFace镜像（国内加速）
+    # ONNX Runtime 模型缓存（ChromaDB 内部使用）
+    os.environ["ORT_HOME"] = model_cache_dir
+    
+    # 设置 HuggingFace 镜像（国内加速）
     if settings.HF_ENDPOINT:
         os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
+        os.environ["HF_HUB_OFFLINE"] = "0"  # 允许在线下载
 
     # 设置代理（如果配置了）
     if settings.HTTPS_PROXY:
         os.environ["HTTPS_PROXY"] = settings.HTTPS_PROXY
     if settings.HTTP_PROXY:
         os.environ["HTTP_PROXY"] = settings.HTTP_PROXY
+    
+    logger.info(f"[向量库] 环境变量已设置: CHROMA_MODEL_CACHE_DIR={model_cache_dir}")
 
 
 # 在模块加载时设置环境
@@ -136,6 +147,9 @@ class VectorStore:
         """
         获取或创建集合
 
+        处理 embedding function 冲突：如果已存在的集合使用了不同的
+        embedding function，会自动删除旧集合并重新创建。
+
         Args:
             name: 集合名称
 
@@ -145,11 +159,45 @@ class VectorStore:
         if name not in self._collections:
             # 使用自定义嵌入函数（支持自定义模型缓存目录）
             embedding_func = get_embedding_function()
-            self._collections[name] = self.client.get_or_create_collection(
-                name=name,
-                embedding_function=embedding_func,
-                metadata={"hnsw:space": "cosine"}
-            )
+            
+            try:
+                # 首先尝试获取已存在的集合（不传 embedding_function）
+                # 这样可以避免与已存在的集合发生 embedding function 冲突
+                existing = self.client.get_collection(name=name)
+                # 如果成功获取，检查是否有数据
+                count = existing.count()
+                if count > 0:
+                    # 集合存在且有数据，直接使用
+                    self._collections[name] = existing
+                    logger.debug(f"[向量库] 使用已存在的集合: {name}, 文档数: {count}")
+                    return existing
+                # 集合存在但无数据，可以安全删除重建
+                self.client.delete_collection(name=name)
+                logger.info(f"[向量库] 删除空集合以便重建: {name}")
+            except Exception as e:
+                # 集合不存在或其他错误，继续创建新集合
+                logger.debug(f"[向量库] 获取集合失败，将创建新集合: {name}, 原因: {e}")
+            
+            try:
+                # 创建新集合（使用自定义 embedding function）
+                self._collections[name] = self.client.create_collection(
+                    name=name,
+                    embedding_function=embedding_func,
+                    metadata={"hnsw:space": "cosine"}
+                )
+                logger.info(f"[向量库] 创建新集合: {name}")
+            except Exception as create_error:
+                # 如果创建失败，尝试不传 embedding_function
+                error_msg = str(create_error)
+                if "embedding" in error_msg.lower():
+                    logger.warning(f"[向量库] Embedding 冲突，尝试使用默认配置: {error_msg}")
+                    self._collections[name] = self.client.get_or_create_collection(
+                        name=name,
+                        metadata={"hnsw:space": "cosine"}
+                    )
+                else:
+                    raise
+                
         return self._collections[name]
 
     def delete_collection(self, name: str) -> None:
@@ -467,10 +515,14 @@ class VectorStore:
             )
         except Exception as e:
             error_msg = str(e).lower()
-            # 处理 HNSW 索引错误
-            if "hnsw" in error_msg or "nothing found on disk" in error_msg:
+            # 处理 HNSW 索引错误和其他 ChromaDB 内部错误
+            if ("hnsw" in error_msg or 
+                "nothing found on disk" in error_msg or 
+                "error finding id" in error_msg or
+                "internal error" in error_msg or
+                "error executing plan" in error_msg):
                 logger.warning(
-                    f"[向量库] HNSW索引错误，集合可能为空或损坏: {collection_name}, error={str(e)[:100]}")
+                    f"[向量库] 查询遇到内部错误，返回空结果: {collection_name}, error={str(e)[:100]}")
                 # 返回空结果而不是抛出异常
                 return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
             else:

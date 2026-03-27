@@ -1457,14 +1457,17 @@ def get_episode_prompt(
 
     return prompt_template.format(
         # 大纲内容
+        outline_metadata=context.get("outline_metadata", ""),
         outline_content=context.get("outline_content", ""),
         episode_outline=context.get(
             "episode_outline", ""),  # 使用context中格式化后的完整大纲
         previous_episodes_summary=context.get("previous_episodes_summary", ""),
+        previous_content_summaries=context.get("previous_content_summaries", ""),
         # 全局上下文（新增）
         global_summary=context.get("global_summary", ""),
         previous_scene_ending=context.get("previous_scene_ending", ""),
         vector_context=context.get("vector_context", ""),
+        current_unit_outline=context.get("current_unit_outline", ""),
         # 本集信息
         episode_number=episode_number,
         episode_title=episode_title,
@@ -1472,6 +1475,13 @@ def get_episode_prompt(
         emotional_curve=episode_outline.get("emotional_curve", "未指定"),
         estimated_duration=episode_outline.get("estimated_duration") or 40,
         scenes_info=scenes_info,
+        # 场景信息（虚拟模式需要）
+        scene_number=1,
+        location=episode_outline.get("location", "未指定"),
+        interior_exterior=episode_outline.get("interior_exterior", "内"),
+        time_of_day=episode_outline.get("time_of_day", "日"),
+        characters_present=episode_outline.get("main_characters", "未指定"),
+        scene_purpose=episode_outline.get("core_content", ""),
         # 剧集信息
         series_type=series_type,
         format_standard=format_standard,

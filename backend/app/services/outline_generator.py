@@ -19,6 +19,7 @@ from app.agents.orchestrator import process_input_params_files
 from app.core.logger import get_logger
 from app.core.config import get_settings
 from app.tools.knowledge_retrieval import get_knowledge_retrieval_tool
+from app.agents.orchestrator import get_agent_orchestrator
 
 
 # 知识库修正提示词模板
@@ -133,6 +134,11 @@ class OutlineGenerator:
         self.prompt_manager = get_prompt_manager()
         self.llm_manager = get_llm_manager()
 
+    def _format_sse(self, event_type: str, data: dict) -> str:
+        """格式化 SSE 事件"""
+        import json
+        return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
     async def generate_global_outline(
         self,
         content_type: str,  # novel/script
@@ -208,7 +214,10 @@ class OutlineGenerator:
                         llm_provider=llm_provider,
                         original_content=content,
                         input_params=input_params,
-                        temperature=temperature
+                        temperature=temperature,
+                        db=self.db,
+                        user_id=user_id,
+                        content_type=content_type
                     )
                     if revised_content:
                         content = revised_content
@@ -245,10 +254,16 @@ class OutlineGenerator:
         provider: str = None,
         model: str = None,
         temperature: float = 0.7,
-        user_id: int = None
+        user_id: int = None,
+        enable_knowledge: bool = True
     ) -> AsyncGenerator[str, None]:
         """
         流式生成全局大纲（第一阶段）
+
+        通过 SSE 事件流式输出：
+        - workflow 事件：通知前端当前执行步骤
+        - content 事件：流式输出内容
+        - replace_content 事件：通知前端替换内容（知识库修正后）
 
         Args:
             content_type: 内容类型 (novel/script)
@@ -257,50 +272,91 @@ class OutlineGenerator:
             model: 模型名称
             temperature: 温度参数
             user_id: 用户ID
+            enable_knowledge: 是否启用知识库修正
 
         Yields:
-            生成的文本片段
+            SSE 事件字符串
         """
         try:
-            # 确定模块名称
             module_name = f"{content_type}_global_outline"
-
-            # 【关键修复】处理输入参数中的文件URL（将DOCX等文件内容提取出来）
             input_params = await process_input_params_files(input_params, self.logger)
 
-            # 获取提示词模板（使用默认模板，不需要数据库）
-            prompt_template = self.prompt_manager.get_default_prompt(
-                module_name)
+            prompt_template = self.prompt_manager.get_default_prompt(module_name)
             if not prompt_template:
                 raise ValueError(f"未找到提示词模板: {module_name}")
 
-            # 渲染提示词（填充变量）
-            filled_prompt = self.prompt_manager.render_prompt(
-                prompt_template, input_params, module_name
-            )
-
+            filled_prompt = self.prompt_manager.render_prompt(prompt_template, input_params, module_name)
             self.logger.info(f"[全局大纲流式] 开始生成，模块: {module_name}")
 
-            # 获取LLM提供商
-            llm_provider = await self.llm_manager.get_provider_from_db(
-                self.db, user_id, provider
-            )
+            # 发送开始生成的工作流事件
+            yield self._format_sse("workflow", {
+                "type": "step", "step": "generate", "status": "running",
+                "message": "正在生成全局大纲...", "icon": "MagicStick"
+            })
+
+            llm_provider = await self.llm_manager.get_provider_from_db(self.db, user_id, provider)
             if not llm_provider:
                 raise ValueError(f"未找到LLM提供商: {provider}")
 
-            # 流式调用LLM生成（不传递model参数，使用provider初始化时的model_name）
-            async for chunk in llm_provider.generate_stream(
-                prompt=filled_prompt,
-                temperature=temperature
-            ):
+            full_content_chunks = []
+
+            async for chunk in llm_provider.generate_stream(prompt=filled_prompt, temperature=temperature):
                 if hasattr(chunk, 'content'):
-                    yield chunk.content
+                    full_content_chunks.append(chunk.content)
+                    yield self._format_sse("content", {"text": chunk.content})
                 elif isinstance(chunk, str):
-                    yield chunk
+                    full_content_chunks.append(chunk)
+                    yield self._format_sse("content", {"text": chunk})
+
+            # 发送生成完成的工作流事件
+            yield self._format_sse("workflow", {
+                "type": "step", "step": "generate", "status": "done",
+                "message": "全局大纲生成完成", "icon": "MagicStick"
+            })
+
+            # 知识库修正
+            if enable_knowledge:
+                try:
+                    original_content = ''.join(full_content_chunks)
+                    if original_content and len(original_content) > 500:
+                        yield self._format_sse("workflow", {
+                            "type": "step", "step": "knowledge_revise", "status": "running",
+                            "message": "正在基于知识库优化内容...", "icon": "Collection"
+                        })
+                        self.logger.info("[全局大纲流式] 开始知识库修正...")
+
+                        revised_content = await self._revise_with_knowledge_base(
+                            llm_provider=llm_provider, original_content=original_content,
+                            input_params=input_params, temperature=temperature,
+                            db=self.db, user_id=user_id, content_type=content_type
+                        )
+
+                        if revised_content and revised_content != original_content:
+                            yield self._format_sse("replace_content", {
+                                "text": revised_content, "message": "知识库优化完成，已替换原内容"
+                            })
+                            yield self._format_sse("workflow", {
+                                "type": "step", "step": "knowledge_revise", "status": "done",
+                                "message": f"知识库优化完成", "icon": "Collection"
+                            })
+                            self.logger.info(f"[全局大纲流式] 知识库修正完成")
+                        else:
+                            yield self._format_sse("workflow", {
+                                "type": "step", "step": "knowledge_revise", "status": "done",
+                                "message": "知识库验证通过，无需修正", "icon": "Collection"
+                            })
+                except Exception as kb_error:
+                    yield self._format_sse("workflow", {
+                        "type": "step", "step": "knowledge_revise", "status": "error",
+                        "message": f"知识库修正失败", "icon": "Collection"
+                    })
+                    self.logger.warning(f"[全局大纲流式] 知识库修正失败: {str(kb_error)}")
+
+            yield self._format_sse("workflow", {"type": "complete"})
 
         except Exception as e:
             self.logger.error(f"[全局大纲流式] 生成失败: {str(e)}")
-            yield f"\n\n[错误] 生成失败: {str(e)}"
+            yield self._format_sse("workflow", {"type": "error", "message": f"生成失败: {str(e)}"})
 
     async def generate_unit_summaries(
         self,
@@ -464,6 +520,10 @@ class OutlineGenerator:
         """
         流式生成单元简要概述（第二阶段）
 
+        通过 SSE 事件流式输出：
+        - workflow 事件：通知前端当前执行步骤
+        - content 事件：流式输出内容
+
         Args:
             global_outline: 全局大纲内容
             unit_count: 单元数量
@@ -477,7 +537,7 @@ class OutlineGenerator:
             cancel_event: 取消事件对象（用于中断生成）
 
         Yields:
-            生成的文本片段
+            SSE 事件字符串
         """
         try:
             # 确定模块名称
@@ -506,6 +566,12 @@ class OutlineGenerator:
             self.logger.info(
                 f"[单元概述流式] 开始生成，模块: {module_name}，单元数: {unit_count}")
 
+            # 发送开始生成的工作流事件
+            yield self._format_sse("workflow", {
+                "type": "step", "step": "generate", "status": "running",
+                "message": f"正在生成{unit_count}个单元概述...", "icon": "MagicStick"
+            })
+
             # 获取LLM提供商
             llm_provider = await self.llm_manager.get_provider_from_db(
                 self.db, user_id, provider
@@ -532,16 +598,32 @@ class OutlineGenerator:
                 # 检查是否被取消
                 if cancel_event and cancel_event.is_set():
                     self.logger.info("[单元概述流式] 生成被取消")
+                    # 发送取消事件
+                    yield self._format_sse("workflow", {
+                        "type": "cancelled", "message": "生成已取消"
+                    })
                     break
 
+                # 使用 SSE 格式包装内容
                 if hasattr(chunk, 'content'):
-                    yield chunk.content
+                    yield self._format_sse("content", {"text": chunk.content})
                 elif isinstance(chunk, str):
-                    yield chunk
+                    yield self._format_sse("content", {"text": chunk})
+
+            # 发送生成完成的工作流事件
+            yield self._format_sse("workflow", {
+                "type": "step", "step": "generate", "status": "done",
+                "message": "单元概述生成完成", "icon": "MagicStick"
+            })
+
+            # 发送完成事件
+            yield self._format_sse("workflow", {"type": "complete"})
 
         except Exception as e:
             self.logger.error(f"[单元概述流式] 生成失败: {str(e)}")
-            yield f"\n\n[错误] 生成失败: {str(e)}"
+            yield self._format_sse("workflow", {
+                "type": "error", "message": f"生成失败: {str(e)}"
+            })
 
     def parse_unit_summaries(
         self,
@@ -711,7 +793,10 @@ class OutlineGenerator:
         llm_provider,
         original_content: str,
         input_params: Dict[str, Any],
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        db: AsyncSession = None,
+        user_id: int = None,
+        content_type: str = "script"
     ) -> Optional[str]:
         """
         使用知识库修正大纲内容
@@ -723,24 +808,60 @@ class OutlineGenerator:
             original_content: 原始大纲内容
             input_params: 输入参数
             temperature: 温度参数
+            db: 数据库会话（用于知识库检索）
+            user_id: 用户ID（用于知识库检索）
+            content_type: 内容类型（用于确定检索模块）
 
         Returns:
             修正后的内容，如果修正失败返回None
         """
+        # 常量定义
+        MAX_QUERY_LENGTH = 500  # 查询文本最大长度
+        MAX_CONTENT_LENGTH = 8000  # 大纲内容截断阈值
+        MIN_REVISION_LENGTH = 100  # 修正结果最小长度阈值
+
         try:
-            # 获取知识库检索工具
-            knowledge_retrieval = get_knowledge_retrieval_tool()
+            # 检查是否有必要的参数进行知识库检索
+            if not db or not user_id:
+                self.logger.info("[知识库修正] 缺少db或user_id参数，跳过知识库修正")
+                return None
+
+            # 获取 orchestrator 实例（用于知识库检索）
+            orchestrator = get_agent_orchestrator()
 
             # 构建查询文本（使用原始内容的关键信息）
-            query_text = input_params.get(
-                'title', '') + " " + input_params.get('theme', '') + " " + input_params.get('genre', '')
+            # 注意：input_params 的值可能是列表，需要转换为字符串
+            def _safe_get_str(params, key, default=''):
+                """安全获取字符串值，处理列表类型"""
+                val = params.get(key, default)
+                if isinstance(val, list):
+                    return ' '.join(str(v) for v in val)
+                return str(val) if val else default
+
+            query_text = (_safe_get_str(input_params, 'title') + " " +
+                         _safe_get_str(input_params, 'theme') + " " +
+                         _safe_get_str(input_params, 'genre')).strip()
+
+            # 查询文本长度限制
+            if len(query_text) > MAX_QUERY_LENGTH:
+                self.logger.info(f"[知识库修正] 查询文本被截断: 原始长度 {len(query_text)}，截断至 {MAX_QUERY_LENGTH}")
+                query_text = query_text[:MAX_QUERY_LENGTH]
+
             if not query_text.strip():
                 query_text = original_content[:500]
 
-            # 检索三类知识库
-            kb_contexts = await knowledge_retrieval.retrieve(
-                query=query_text,
-                n_results=5
+            # 确定模块名称
+            module_name = f"{content_type}_global_outline"
+
+            # 使用 orchestrator 的知识库检索方法（检索三类知识库）
+            kb_contexts = await orchestrator._retrieve_classified_knowledge(
+                db=db,
+                user_id=user_id,
+                module=module_name,
+                query_text=query_text,
+                kb_vertical=True,  # 启用垂直领域知识库
+                kb_user_specific=False,  # 暂不启用用户专属
+                kb_manual=True  # 启用官方手册
             )
 
             # 检查是否有知识库内容
@@ -752,9 +873,14 @@ class OutlineGenerator:
                 self.logger.info("[知识库修正] 无相关知识点，跳过修正")
                 return None
 
+            # 大纲内容截断处理
+            if len(original_content) > MAX_CONTENT_LENGTH:
+                self.logger.warning(f"[知识库修正] 大纲内容被截断: 原始长度 {len(original_content)}，截断至 {MAX_CONTENT_LENGTH} 字符")
+            truncated_content = original_content[:MAX_CONTENT_LENGTH]
+
             # 构建修正提示词
             revision_prompt = OUTLINE_REVISION_PROMPT.format(
-                original_outline=original_content[:8000],  # 限制长度
+                original_outline=truncated_content,  # 使用截断后的内容
                 theory_context=theory_context or "无相关理论",
                 case_context=case_context or "无相关案例",
                 manual_context=manual_context or "无规范手册"
@@ -770,13 +896,13 @@ class OutlineGenerator:
                 response, 'content') else str(response)
 
             # 验证修正后的内容
-            if revised_content and len(revised_content) > 500:
+            if revised_content and len(revised_content) > MIN_REVISION_LENGTH:
                 self.logger.info(
                     f"[知识库修正] 修正成功，原长度={len(original_content)}，新长度={len(revised_content)}")
                 return revised_content
-
-            self.logger.warning("[知识库修正] 修正内容过短，使用原始内容")
-            return None
+            else:
+                self.logger.warning(f"[知识库修正] 修正结果长度不足（{len(revised_content) if revised_content else 0}字符），使用原始内容")
+                return None
 
         except Exception as e:
             self.logger.error(f"[知识库修正] 修正失败: {str(e)}")
