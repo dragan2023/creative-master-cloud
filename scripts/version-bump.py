@@ -35,6 +35,8 @@ class VersionBump:
         self.version_file = project_root / "version.json"
         self.changelog_file = project_root / "CHANGELOG.md"
         self.readme_file = project_root / "README.md"
+        self.frontend_version_file = project_root / "frontend/src/config/version.js"
+        self.frontend_package_file = project_root / "frontend/package.json"
 
     def get_current_version(self) -> str:
         """获取当前版本号"""
@@ -319,12 +321,53 @@ class VersionBump:
 
         return True
 
+    def update_frontend_version(self, new_version: str) -> bool:
+        """更新前端版本配置文件 frontend/src/config/version.js"""
+        if not self.frontend_version_file.exists():
+            return False
+
+        with open(self.frontend_version_file, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # 更新 APP_VERSION 常量
+        content = re.sub(
+            r"export const APP_VERSION = ['\"]\d+\.\d+\.\d+['\"]",
+            f"export const APP_VERSION = '{new_version}'",
+            content
+        )
+
+        with open(self.frontend_version_file, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        return True
+
+    def update_package_json(self, new_version: str) -> bool:
+        """更新 frontend/package.json 版本号"""
+        if not self.frontend_package_file.exists():
+            return False
+
+        with open(self.frontend_package_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        data["version"] = new_version
+
+        with open(self.frontend_package_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        return True
+
     def commit_changes(self, new_version: str) -> bool:
         """提交版本更新变更"""
         try:
             # 添加变更的文件
             subprocess.run(
-                ["git", "add", "version.json", "CHANGELOG.md", "README.md"],
+                ["git", "add",
+                    "version.json",
+                    "CHANGELOG.md",
+                    "README.md",
+                    "frontend/src/config/version.js",
+                    "frontend/package.json"
+                ],
                 cwd=self.project_root,
                 check=True
             )
@@ -412,6 +455,8 @@ class VersionBump:
             self.update_version_json(new_version, update_notes)
             self.update_changelog(new_version, update_notes)
             self.update_readme(new_version)
+            self.update_frontend_version(new_version)
+            self.update_package_json(new_version)
 
             # 提交变更
             self.commit_changes(new_version)

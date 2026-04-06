@@ -7,7 +7,7 @@
           <h1>欢迎回来，{{ userStore.userInfo?.username || '用户' }}</h1>
           <p>选择一个创意模块开始您的创作之旅</p>
           <div class="version-info">
-            <span class="version-badge">v{{ currentVersion || '3.1.0' }}</span>
+            <span class="version-badge">v{{ currentVersion }}</span>
           </div>
         </div>
         <div class="welcome-illustration">
@@ -196,12 +196,13 @@ import { useUserStore } from '@/stores'
 import { historyApi, systemApi } from '@/api'
 import { CREATIVE_MODULES } from '@/config'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { APP_VERSION } from '@/config/version'
 
 const router = useRouter()
 const userStore = useUserStore()
 
-// 从父组件注入版本号
-const currentVersion = inject('currentVersion')
+// 从父组件注入版本号，失败时使用本地版本
+const currentVersion = inject('currentVersion', ref(APP_VERSION))
 
 // 用于首页展示的创意模块
 const creativeModules = CREATIVE_MODULES

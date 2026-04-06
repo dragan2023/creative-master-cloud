@@ -97,6 +97,7 @@ import { ElMessage, ElNotification } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import DOMPurify from 'dompurify'
 import { updateApi } from '@/api'
+import { APP_VERSION } from '@/config/version'
 
 const props = defineProps({
   // 是否显示手动检查按钮
@@ -117,7 +118,7 @@ const props = defineProps({
   // 当前版本号（从环境变量或配置获取）
   currentVersion: {
     type: String,
-    default: '3.1.0'
+    default: APP_VERSION
   }
 })
 

@@ -60,7 +60,7 @@
       
       <!-- 版本信息 -->
       <div v-show="!collapsed" class="sidebar-footer">
-        <span class="version-text">v{{ currentVersion || '3.1.0' }}</span>
+        <span class="version-text">v{{ currentVersion }}</span>
       </div>
     </el-aside>
     
@@ -128,14 +128,15 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUserStore, useAppStore } from '@/stores'
 import { DocumentChecked, Setting, SwitchButton } from '@element-plus/icons-vue'
 import { updateApi } from '@/api'
+import { APP_VERSION } from '@/config/version'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const appStore = useAppStore()
 
-// 当前版本号（从后端API获取）
-const currentVersion = ref('3.1.0')
+// 当前版本号（从后端API获取，失败时使用本地版本）
+const currentVersion = ref(APP_VERSION)
 
 const collapsed = computed(() => appStore.sidebarCollapsed)
 const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
@@ -150,7 +151,7 @@ function toggleSidebar() {
 async function fetchCurrentVersion() {
   try {
     const response = await updateApi.getCurrentVersion()
-    currentVersion.value = response?.version || '3.1.0'
+    currentVersion.value = response?.version || APP_VERSION
   } catch (error) {
     console.error('获取版本信息失败:', error)
     // 保持默认值
