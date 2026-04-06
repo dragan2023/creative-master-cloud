@@ -34,11 +34,17 @@ while read local_ref local_sha remote_ref remote_sha; do
         exit 0
     fi
     
-    # 检查是否有提交信息包含 [skip version]
+    # 检查是否有提交信息包含 [skip version] 或 [skip ci]
     COMMITS=$(git log $remote_sha..$local_sha --pretty=format:"%s" 2>/dev/null)
     
-    if echo "$COMMITS" | grep -q "\[skip version\]"; then
-        echo -e "${YELLOW}[版本管理]${NC} 检测到 [skip version] 标记，跳过版本更新"
+    if echo "$COMMITS" | grep -qE "\[skip (version|ci)\]"; then
+        echo -e "${YELLOW}[版本管理]${NC} 检测到跳过标记，跳过版本更新"
+        exit 0
+    fi
+    
+    # 检查是否全是版本 bump 提交（避免递归）
+    if echo "$COMMITS" | grep -qE "^chore: bump version"; then
+        echo -e "${YELLOW}[版本管理]${NC} 仅包含版本 bump 提交，跳过"
         exit 0
     fi
     
