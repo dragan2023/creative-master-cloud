@@ -1,6 +1,6 @@
 # ========================================
 # 全能创意大师 - 生产环境Dockerfile
-# 多阶段构建：前端构建 + 后端运行
+# 针对阿里云服务器优化版本
 # ========================================
 
 # ==================== 阶段1：前端构建 ====================
@@ -8,10 +8,10 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+# 使用阿里云npm镜像（阿里云服务器最优选择）
 COPY frontend/package*.json ./
-
-RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/ && \
-    npm ci --loglevel=error || npm ci --loglevel=error --registry=https://registry.npmmirror.com/
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm ci --loglevel=error
 
 COPY frontend/ ./
 RUN npm run build
@@ -21,35 +21,39 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# 环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_PROGRESS_BAR=off \
     DEBIAN_FRONTEND=noninteractive
 
-# 配置apt镜像源
-RUN echo "==> 配置APT镜像源..." && \
-    sed -i 's|deb.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null && \
-    sed -i 's|security.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null && \
-    sed -i 's|deb.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list 2>/dev/null && \
-    sed -i 's|security.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list 2>/dev/null || true
+# ===== 关键优化：使用阿里云镜像源 =====
+# 阿里云官方镜像站：https://mirrors.aliyun.com
+# 针对阿里云ECS服务器最优配置
+RUN set -ex && \
+    echo "==> 配置阿里云APT镜像源..." && \
+    # Debian 11 (bullseye) 配置
+    echo "deb https://mirrors.aliyun.com/debian/ bullseye main contrib non-free" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.aliyun.com/debian/ bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.aliyun.com/debian-security bullseye-security main contrib non-free" >> /etc/apt/sources.list && \
+    echo "==> APT镜像源配置完成"
 
 # 更新软件源
 RUN echo "==> 更新软件源..." && \
     apt-get update && \
     echo "==> 软件源更新完成"
 
-# 分步安装系统依赖（每步显示进度）
-RUN echo "==> 安装 curl 和基础工具..." && \
+# 分步安装系统依赖（阿里云镜像站，速度很快）
+RUN echo "==> 安装curl和基础工具..." && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
-    echo "==> curl 安装完成"
+    echo "==> curl安装完成"
 
-RUN echo "==> 安装 PostgreSQL 客户端库..." && \
+RUN echo "==> 安装PostgreSQL客户端库..." && \
     apt-get install -y --no-install-recommends libpq5 libpq-dev && \
-    echo "==> PostgreSQL 库安装完成"
+    echo "==> PostgreSQL库安装完成"
 
-RUN echo "==> 安装编译工具链（约2分钟）..." && \
+RUN echo "==> 安装编译工具链（约1-2分钟）..." && \
     apt-get install -y --no-install-recommends build-essential python3-dev && \
     echo "==> 编译工具链安装完成"
 
@@ -61,23 +65,24 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/* && \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 配置pip镜像源
+# 使用阿里云PyPI镜像
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
-    pip config set global.trusted-host "mirrors.aliyun.com pypi.org files.pythonhosted.org"
+    pip config set global.trusted-host "mirrors.aliyun.com"
 
 # 升级pip
 RUN pip install --upgrade pip setuptools wheel
 
 # ===== 分层安装Python依赖 =====
-
 COPY backend/requirements.txt ./
 
+# 第1层：核心框架
 RUN echo "==> 安装核心框架..." && \
     pip install --progress-bar=off \
     fastapi uvicorn[standard] python-multipart pydantic pydantic-settings email-validator \
     sqlalchemy[asyncio] aiosqlite asyncpg psycopg2-binary alembic redis && \
     echo "==> 核心框架安装完成"
 
+# 第2层：HTTP客户端和工具
 RUN echo "==> 安装HTTP客户端和工具..." && \
     pip install --progress-bar=off \
     requests urllib3 httpx aiohttp aiofiles \
@@ -85,22 +90,26 @@ RUN echo "==> 安装HTTP客户端和工具..." && \
     numpy pyyaml loguru pypdf python-docx json-repair && \
     echo "==> HTTP客户端和工具安装完成"
 
+# 第3层：认证和安全
 RUN echo "==> 安装认证和安全模块..." && \
     pip install --progress-bar=off \
     python-jose[cryptography] PyJWT passlib[bcrypt] bcrypt==4.0.1 && \
     echo "==> 认证和安全模块安装完成"
 
+# 第4层：LLM API客户端
 RUN echo "==> 安装LLM API客户端..." && \
     pip install --progress-bar=off \
     openai dashscope google-genai \
     langchain langchain-community langchain-openai langchain-google-genai && \
     echo "==> LLM API客户端安装完成"
 
+# 第5层：重型依赖（向量数据库，最慢）
 RUN echo "==> 安装向量数据库和模型（约5-10分钟）..." && \
     pip install --progress-bar=off \
     networkx pysqlite3-binary chromadb sentence-transformers && \
     echo "==> 向量数据库和模型安装完成"
 
+# 第6层：测试依赖
 RUN echo "==> 安装测试依赖..." && \
     pip install --progress-bar=off pytest pytest-asyncio && \
     echo "==> 测试依赖安装完成"
