@@ -121,7 +121,7 @@ COPY backend/ ./
 COPY --from=frontend-builder /app/backend/app/static ./app/static
 
 # 创建必要的目录
-RUN mkdir -p /app/logs /app/data/chroma /app/data/uploads /app/data/knowledge_graphs
+RUN mkdir -p /app/logs /app/data/chroma /app/data/uploads /app/data/knowledge_graphs /app/data/character_states /app/data/novel_projects /app/data/exports /app/data/backups
 
 # 移除敏感文件
 RUN rm -rf /app/.git /app/.env /app/.env.local 2>/dev/null || true
