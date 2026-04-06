@@ -15,8 +15,14 @@ echo ""
 
 # 配置
 IMAGE_NAME="creative-master"
-VERSION="2.2.2"
 PROJECT_DIR="/opt/creative-master"
+
+# 从 version.json 动态读取版本号
+VERSION=$(grep -o '"current_version"[[:space:]]*:[[:space:]]*"[^"]*"' ${PROJECT_DIR}/version.json 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1)
+if [ -z "$VERSION" ]; then
+    VERSION="3.0.0"  # 默认版本号
+fi
+echo "[信息] 当前版本: $VERSION"
 
 # 查找 tar 文件
 TAR_FILE=$(ls -t ${PROJECT_DIR}/creative-master-*.tar 2>/dev/null | head -1)

@@ -3,6 +3,7 @@
 
 # [2026-03-28] 多Agent重构: 添加WebSocket端点支持
 """
+from app.services.writing_engine.websocket_manager import get_websocket_manager
 from app.api.v1.router import api_router
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,14 +38,14 @@ def _open_browser_delayed(frontend_url: str, delay: float = 3.0):
 def _start_browser_opener():
     """启动后台线程自动打开浏览器"""
     settings = get_settings()
-    
+
     # 开发环境（DEBUG=True）不自动打开浏览器
     # 前端运行在 Vite 开发服务器上，由前端或启动脚本负责打开
     if settings.DEBUG:
         print("[INFO] 开发环境：跳过自动打开浏览器")
         print("[INFO] 请访问 Vite 开发服务器: http://localhost:5173")
         return
-    
+
     # 生产环境：打开后端托管的静态文件
     frontend_url = f"http://localhost:{settings.PORT}"
     thread = threading.Thread(
@@ -94,6 +95,58 @@ async def lifespan(app: FastAPI):
     from app.core.database import init_db
     await init_db()
     logger.info("数据库表初始化完成")
+
+    # 自动创建超级管理员账号（如果配置了环境变量）
+    try:
+        import os
+        from app.core.database import async_session_maker
+        from app.core.security import get_password_hash
+        from app.models import User, UserRole
+        from sqlalchemy import select
+
+        admin_username = os.environ.get("ADMIN_USERNAME")
+        admin_password = os.environ.get("ADMIN_PASSWORD")
+        admin_email = os.environ.get("ADMIN_EMAIL")
+
+        if admin_username and admin_password and admin_email:
+            async with async_session_maker() as db:
+                # 检查超级管理员是否已存在
+                result = await db.execute(
+                    select(User).where(User.role == UserRole.SUPER_ADMIN)
+                )
+                existing_super_admin = result.scalar_one_or_none()
+
+                if not existing_super_admin:
+                    # 检查用户名是否已存在
+                    result = await db.execute(
+                        select(User).where(User.username == admin_username)
+                    )
+                    existing_user = result.scalar_one_or_none()
+
+                    if existing_user:
+                        # 升级为超级管理员
+                        existing_user.role = UserRole.SUPER_ADMIN
+                        existing_user.is_active = True
+                        await db.commit()
+                        logger.info(f"用户 '{admin_username}' 已升级为超级管理员")
+                    else:
+                        # 创建新的超级管理员
+                        super_admin = User(
+                            username=admin_username,
+                            email=admin_email,
+                            hashed_password=get_password_hash(admin_password),
+                            role=UserRole.SUPER_ADMIN,
+                            is_active=True,
+                            is_verified=True,
+                            tenant_id=None  # 超级管理员不属于任何租户
+                        )
+                        db.add(super_admin)
+                        await db.commit()
+                        logger.info(f"超级管理员 '{admin_username}' 创建成功")
+                else:
+                    logger.info("超级管理员账号已存在，跳过自动创建")
+    except Exception as e:
+        logger.warning(f"自动创建超级管理员失败（不影响启动）: {e}")
 
     # 清理上次服务器退出时遗留的幽灵运行任务
     # 服务器重启后，内存中的任务状态丢失，数据库中残留 running 状态的任务已无法继续
@@ -212,7 +265,7 @@ async def app_exception_handler(request: Request, exc: AppException):
     """统一应用异常处理"""
     from datetime import datetime
     logger = get_logger("system")
-    
+
     if exc.status_code >= 500:
         logger.error(
             f"应用异常 - 追踪ID: {exc.trace_id}, "
@@ -226,7 +279,7 @@ async def app_exception_handler(request: Request, exc: AppException):
             f"错误代码: {exc.error_code.value}, "
             f"消息: {exc.message}"
         )
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
@@ -324,8 +377,6 @@ app.include_router(api_router, prefix="/api/v1")
 
 # ==================== WebSocket端点 ====================
 # [2026-03-28] 多Agent重构: 写作任务WebSocket端点
-
-from app.services.writing_engine.websocket_manager import get_websocket_manager
 
 
 @app.websocket("/api/v1/writing-tasks/{task_id}/ws")

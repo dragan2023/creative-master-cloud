@@ -15,9 +15,15 @@ echo ========================================
 echo.
 
 set PROJECT_ROOT=%~dp0..
-set VERSION=2.2.2
 set IMAGE_NAME=creative-master
 set OUTPUT_DIR=%PROJECT_ROOT%\dist\images
+
+:: 从 version.json 动态读取版本号
+for /f "tokens=2 delims=:," %%a in ('findstr /c:"current_version" "%PROJECT_ROOT%\version.json"') do (
+    for /f "tokens=* delims= " %%b in ("%%a") do set VERSION=%%b
+)
+set VERSION=%VERSION:"=%
+echo [信息] 当前版本: %VERSION%
 
 :: 创建输出目录
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"

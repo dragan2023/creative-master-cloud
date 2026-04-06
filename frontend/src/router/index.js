@@ -144,8 +144,8 @@ router.beforeEach((to, from, next) => {
     return
   }
   
-  // 需要管理员权限
-  if (to.meta.requiresAdmin && !userStore.isAdmin) {
+  // 需要管理员权限（改为仅超级管理员可访问）
+  if (to.meta.requiresAdmin && !userStore.isSuperAdmin) {
     next('/')
     return
   }

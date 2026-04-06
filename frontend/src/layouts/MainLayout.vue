@@ -51,8 +51,8 @@
           <template #title>个人设置</template>
         </el-menu-item>
         
-        <!-- 管理员入口 -->
-        <el-menu-item v-if="userStore.isAdmin" index="/admin">
+        <!-- 超级管理员入口 -->
+        <el-menu-item v-if="userStore.isSuperAdmin" index="/admin">
           <el-icon><Setting /></el-icon>
           <template #title>管理后台</template>
         </el-menu-item>
@@ -100,7 +100,7 @@
                 <el-dropdown-item command="profile">
                   <el-icon><User /></el-icon>个人设置
                 </el-dropdown-item>
-                <el-dropdown-item v-if="userStore.isAdmin" command="admin">
+                <el-dropdown-item v-if="userStore.isSuperAdmin" command="admin">
                   <el-icon><Setting /></el-icon>管理后台
                 </el-dropdown-item>
                 <el-dropdown-item divided command="logout">

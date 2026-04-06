@@ -17,10 +17,16 @@ echo.
 set PROJECT_ROOT=%~dp0..
 set FRONTEND_DIR=%PROJECT_ROOT%\frontend
 set BACKEND_DIR=%PROJECT_ROOT%\backend
-set VERSION=2.2.2
 set IMAGE_NAME=creative-master
 set REGISTRY=registry.cn-hangzhou.aliyuncs.com
 set NAMESPACE=your-namespace
+
+:: 从 version.json 动态读取版本号
+for /f "tokens=2 delims=:," %%a in ('findstr /c:"current_version" "%PROJECT_ROOT%\version.json"') do (
+    for /f "tokens=* delims= " %%b in ("%%a") do set VERSION=%%b
+)
+set VERSION=%VERSION:"=%
+echo [信息] 当前版本: %VERSION%
 
 :: 检查 Docker 是否运行
 docker info >nul 2>&1

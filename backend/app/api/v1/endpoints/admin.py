@@ -22,7 +22,7 @@ from app.core.exceptions import (
     ValidationException,
     AuthorizationException,
 )
-from app.api.deps import get_current_superuser, get_current_tenant_admin, get_current_user
+from app.api.deps import get_current_superuser, get_current_user
 from app.models import (
     User, UserRole, Tenant, TenantStatus, TenantPlan,
     OperationLog, NovelProject, KnowledgeBase, Generation
@@ -109,12 +109,12 @@ async def get_dashboard(
 ):
     """
     获取仪表盘统计数据
-    
+
     需要超级管理员权限
     """
     admin_service = AdminService(db)
     stats = await admin_service.get_dashboard_stats()
-    
+
     return ResponseModel(data=DashboardStats(**stats))
 
 
@@ -127,13 +127,13 @@ async def list_users(
     search: Optional[str] = None,
     tenant_id: Optional[int] = None,
     is_active: Optional[bool] = None,
-    admin: User = Depends(get_current_tenant_admin),
+    superuser: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_db)
 ):
     """
     获取用户列表
-    
-    超级管理员可查看所有用户，租户管理员只能查看本租户用户
+
+    需要超级管理员权限
     """
     admin_service = AdminService(db)
     users = await admin_service.list_users(
@@ -142,17 +142,17 @@ async def list_users(
         search=search,
         tenant_id=tenant_id,
         is_active=is_active,
-        admin_tenant_id=admin.tenant_id,
-        is_super_admin=admin.is_super_admin
+        admin_tenant_id=None,
+        is_super_admin=True
     )
-    
+
     # 构建响应
     data = []
     for user in users:
         tenant_name = None
         if user.tenant_id:
             tenant_name = await admin_service.get_tenant_name_by_id(user.tenant_id)
-        
+
         data.append(UserListResponse(
             id=user.id,
             username=user.username,
@@ -164,7 +164,7 @@ async def list_users(
             created_at=str(user.created_at) if user.created_at else None,
             last_login_at=user.last_login_at
         ))
-    
+
     return ResponseModel(data=data)
 
 
@@ -172,38 +172,31 @@ async def list_users(
 async def update_user(
     user_id: int,
     data: UserUpdateRequest,
-    admin: User = Depends(get_current_tenant_admin),
+    superuser: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_db)
 ):
     """
     更新用户信息
-    
-    超级管理员可更新所有用户，租户管理员只能更新本租户用户
+
+    需要超级管理员权限
     """
     admin_service = AdminService(db)
-    
+
     # 查找用户
     user = await admin_service.get_user_by_id(user_id)
-    
+
     if not user:
         raise ResourceNotFoundException(message="用户不存在")
-    
-    # 权限检查
-    if not admin.is_super_admin and user.tenant_id != admin.tenant_id:
-        raise AuthorizationException(message="无权操作此用户")
-    
-    # 更新字段 - 只有超级管理员可以修改角色
-    role_to_update = data.role if admin.is_super_admin else None
-    
+
     await admin_service.update_user(
         user=user,
         is_active=data.is_active,
-        role=role_to_update,
+        role=data.role,
         nickname=data.nickname
     )
-    
-    logger.info(f"管理员 {admin.username} 更新用户 {user.username}")
-    
+
+    logger.info(f"超级管理员 {superuser.username} 更新用户 {user.username}")
+
     return ResponseModel(message="更新成功")
 
 
@@ -215,24 +208,24 @@ async def delete_user(
 ):
     """
     删除用户
-    
+
     需要超级管理员权限
     """
     admin_service = AdminService(db)
-    
+
     user = await admin_service.get_user_by_id(user_id)
-    
+
     if not user:
         raise ResourceNotFoundException(message="用户不存在")
-    
+
     if user.id == admin.id:
         raise ValidationException(message="不能删除自己")
-    
+
     username = user.username
     await admin_service.delete_user(user)
-    
+
     logger.info(f"超级管理员 {admin.username} 删除用户 {username}")
-    
+
     return ResponseModel(message="删除成功")
 
 
@@ -250,7 +243,7 @@ async def list_tenants(
 ):
     """
     获取租户列表
-    
+
     需要超级管理员权限
     """
     admin_service = AdminService(db)
@@ -261,7 +254,7 @@ async def list_tenants(
         status=status,
         plan=plan
     )
-    
+
     data = [
         TenantListResponse(
             id=t.id,
@@ -274,11 +267,12 @@ async def list_tenants(
             current_projects=t.current_projects or 0,
             max_projects=t.max_projects or 0,
             created_at=str(t.created_at) if t.created_at else None,
-            subscription_ends_at=str(t.subscription_ends_at) if t.subscription_ends_at else None
+            subscription_ends_at=str(
+                t.subscription_ends_at) if t.subscription_ends_at else None
         )
         for t in tenants
     ]
-    
+
     return ResponseModel(data=data)
 
 
@@ -291,16 +285,16 @@ async def update_tenant(
 ):
     """
     更新租户信息
-    
+
     需要超级管理员权限
     """
     admin_service = AdminService(db)
-    
+
     tenant = await admin_service.get_tenant_by_id(tenant_id)
-    
+
     if not tenant:
         raise ResourceNotFoundException(message="租户不存在")
-    
+
     await admin_service.update_tenant(
         tenant=tenant,
         name=data.name,
@@ -310,9 +304,9 @@ async def update_tenant(
         max_projects=data.max_projects,
         max_storage_mb=data.max_storage_mb
     )
-    
+
     logger.info(f"超级管理员 {superuser.username} 更新租户 {tenant.name}")
-    
+
     return ResponseModel(message="更新成功")
 
 
@@ -325,13 +319,13 @@ async def list_operation_logs(
     user_id: Optional[int] = None,
     tenant_id: Optional[int] = None,
     action: Optional[str] = None,
-    admin: User = Depends(get_current_tenant_admin),
+    superuser: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_db)
 ):
     """
     获取操作日志
-    
-    超级管理员可查看所有日志，租户管理员只能查看本租户日志
+
+    需要超级管理员权限
     """
     admin_service = AdminService(db)
     logs = await admin_service.list_operation_logs(
@@ -340,10 +334,10 @@ async def list_operation_logs(
         user_id=user_id,
         tenant_id=tenant_id,
         action=action,
-        admin_tenant_id=admin.tenant_id,
-        is_super_admin=admin.is_super_admin
+        admin_tenant_id=None,
+        is_super_admin=True
     )
-    
+
     data = [
         {
             "id": log.id,
@@ -359,7 +353,7 @@ async def list_operation_logs(
         }
         for log in logs
     ]
-    
+
     return ResponseModel(data=data)
 
 
@@ -372,14 +366,14 @@ async def system_health(
 ):
     """
     获取系统健康状态
-    
+
     需要超级管理员权限
     """
     admin_service = AdminService(db)
-    
+
     # 检查数据库
     database_status = await admin_service.check_database_health()
-    
+
     # 检查Redis
     try:
         from app.core.redis_client import redis_manager
@@ -390,15 +384,16 @@ async def system_health(
             redis_status = "not_configured"
     except Exception:
         redis_status = "unhealthy"
-    
+
     # 存储使用情况
     import os
     from pathlib import Path
-    
+
     data_dir = Path(settings.get_upload_dir()).parent
-    storage_used = sum(f.stat().st_size for f in data_dir.rglob('*') if f.is_file())
+    storage_used = sum(
+        f.stat().st_size for f in data_dir.rglob('*') if f.is_file())
     storage_used_mb = storage_used // (1024 * 1024)
-    
+
     return ResponseModel(data=SystemHealth(
         database=database_status,
         redis=redis_status,

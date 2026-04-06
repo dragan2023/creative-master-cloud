@@ -60,7 +60,8 @@ class TokenResponse(BaseModel):
 class TenantCreate(BaseModel):
     """创建租户请求"""
     name: str = Field(..., min_length=2, max_length=100, description="租户名称")
-    slug: Optional[str] = Field(None, min_length=2, max_length=50, description="租户标识")
+    slug: Optional[str] = Field(
+        None, min_length=2, max_length=50, description="租户标识")
     plan: TenantPlan = Field(TenantPlan.FREE, description="套餐类型")
 
 
@@ -69,24 +70,25 @@ class TenantCreate(BaseModel):
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     创建JWT访问令牌
-    
+
     Args:
         data: 要编码的数据
         expires_delta: 过期时间增量
-    
+
     Returns:
         JWT Token字符串
     """
     import jwt
-    
+
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = jwt.encode(
+        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 
@@ -99,7 +101,7 @@ async def register(
 ):
     """
     用户注册
-    
+
     创建新用户并自动创建个人租户
     """
     # 检查用户名是否已存在
@@ -123,17 +125,18 @@ async def register(
         max_projects=PLAN_LIMITS[TenantPlan.FREE]["max_projects"],
         max_storage_mb=PLAN_LIMITS[TenantPlan.FREE]["max_storage_mb"],
         max_api_calls_per_day=PLAN_LIMITS[TenantPlan.FREE]["max_api_calls_per_day"],
-        trial_ends_at=datetime.utcnow() + timedelta(days=PLAN_LIMITS[TenantPlan.FREE]["trial_days"])
+        trial_ends_at=datetime.utcnow(
+        ) + timedelta(days=PLAN_LIMITS[TenantPlan.FREE]["trial_days"])
     )
     db.add(tenant)
     await db.flush()
-    
+
     # 创建用户
     user = User(
         username=data.username,
         email=data.email,
         hashed_password=get_password_hash(data.password),
-        role=UserRole.TENANT_ADMIN,  # 注册用户默认为租户管理员
+        role=UserRole.USER,  # 注册用户默认为普通用户
         tenant_id=tenant.id,
         is_active=True,
         is_verified=False
@@ -141,18 +144,18 @@ async def register(
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    
+
     # 更新租户用户数
     tenant.current_users = 1
     await db.commit()
-    
+
     # 生成Token
     access_token = create_access_token(
         data={"sub": str(user.id), "tenant_id": tenant.id}
     )
-    
+
     logger.info(f"用户注册成功: {user.username}, 租户: {tenant.name}")
-    
+
     return ResponseModel(
         data=TokenResponse(
             access_token=access_token,
@@ -178,7 +181,7 @@ async def login(
 ):
     """
     用户登录
-    
+
     验证用户名/邮箱和密码，返回JWT Token
     """
     # 查找用户
@@ -211,14 +214,14 @@ async def login(
     user.last_login_at = datetime.utcnow().isoformat()
     user.login_count = (user.login_count or 0) + 1
     await db.commit()
-    
+
     # 生成Token
     access_token = create_access_token(
         data={"sub": str(user.id), "tenant_id": user.tenant_id}
     )
-    
+
     logger.info(f"用户登录成功: {user.username}")
-    
+
     return ResponseModel(
         data=TokenResponse(
             access_token=access_token,
@@ -244,10 +247,11 @@ async def login_for_token(
 ):
     """
     OAuth2密码模式登录
-    
+
     用于兼容标准OAuth2客户端
     """
-    login_data = UserLogin(username=form_data.username, password=form_data.password)
+    login_data = UserLogin(username=form_data.username,
+                           password=form_data.password)
     return await login(login_data, db)
 
 
@@ -260,19 +264,19 @@ async def refresh_token(
 ):
     """
     刷新Token
-    
+
     使用当前Token获取新的Token
     """
     from app.api.deps import get_current_user
-    
+
     # 获取当前用户
     user = await get_current_user(current_user, db)
-    
+
     # 生成新Token
     access_token = create_access_token(
         data={"sub": str(user.id), "tenant_id": user.tenant_id}
     )
-    
+
     return ResponseModel(
         data=TokenResponse(
             access_token=access_token,
@@ -299,9 +303,9 @@ async def get_me(
     获取当前用户信息
     """
     from app.api.deps import get_current_user
-    
+
     user = await get_current_user(None, db)
-    
+
     tenant_name = None
     if user.tenant_id:
         tenant_result = await db.execute(
@@ -310,7 +314,7 @@ async def get_me(
         tenant = tenant_result.scalar_one_or_none()
         if tenant:
             tenant_name = tenant.name
-    
+
     return ResponseModel(
         data={
             "id": user.id,
@@ -332,7 +336,8 @@ async def get_me(
 class PasswordChange(BaseModel):
     """修改密码请求"""
     old_password: str = Field(..., description="旧密码")
-    new_password: str = Field(..., min_length=6, max_length=50, description="新密码")
+    new_password: str = Field(..., min_length=6,
+                              max_length=50, description="新密码")
 
 
 @router.post("/change-password", response_model=ResponseModel)
@@ -345,9 +350,9 @@ async def change_password(
     修改密码
     """
     from app.api.deps import get_current_user
-    
+
     user = await get_current_user(None, db)
-    
+
     # 验证旧密码
     if not verify_password(data.old_password, user.hashed_password):
         raise ValidationException(message="旧密码错误")
@@ -355,9 +360,9 @@ async def change_password(
     # 更新密码
     user.hashed_password = get_password_hash(data.new_password)
     await db.commit()
-    
+
     logger.info(f"用户修改密码: {user.username}")
-    
+
     return ResponseModel(message="密码修改成功")
 
 
@@ -367,7 +372,7 @@ async def change_password(
 async def logout():
     """
     退出登录
-    
+
     JWT是无状态的，服务端不维护Token状态
     客户端需要自行删除Token
     """

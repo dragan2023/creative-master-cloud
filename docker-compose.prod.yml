@@ -45,7 +45,7 @@ services:
     environment:
       # 应用配置
       - APP_NAME=${APP_NAME:-全能创意大师}
-      - APP_VERSION=${APP_VERSION:-2.2.2}
+      - APP_VERSION=${APP_VERSION:-3.0.0}
       - DEBUG=${DEBUG:-False}
       - HOST=0.0.0.0
       - PORT=8000
