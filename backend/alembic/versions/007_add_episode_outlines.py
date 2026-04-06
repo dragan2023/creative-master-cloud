@@ -17,10 +17,16 @@ depends_on = None
 
 
 def upgrade():
+    # 检查列是否已存在
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('novel_projects')]
+
     # 添加 episode_outlines 字段到 novel_projects 表
     # 用于存储分集详细大纲
-    op.add_column('novel_projects', sa.Column(
-        'episode_outlines', sa.JSON(), nullable=True, comment='分集详细大纲'))
+    if 'episode_outlines' not in columns:
+        op.add_column('novel_projects', sa.Column(
+            'episode_outlines', sa.JSON(), nullable=True, comment='分集详细大纲'))
 
 
 def downgrade():

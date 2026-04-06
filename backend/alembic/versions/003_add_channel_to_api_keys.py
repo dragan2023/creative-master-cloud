@@ -17,10 +17,16 @@ depends_on = None
 
 
 def upgrade():
+    # 检查列是否已存在
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('user_api_keys')]
+
     # 添加 channel 字段到 user_api_keys 表
-    op.add_column('user_api_keys', sa.Column(
-        'channel', sa.String(50), nullable=True,
-        server_default='default', comment='渠道分组'))
+    if 'channel' not in columns:
+        op.add_column('user_api_keys', sa.Column(
+            'channel', sa.String(50), nullable=True,
+            server_default='default', comment='渠道分组'))
 
 
 def downgrade():

@@ -1,6 +1,11 @@
 """
 GraphRAG 检索增强工具
 将知识图谱与大语言模型结合，生成更准确、更具可解释性的答案
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import List, Dict, Any, Optional, Tuple
 import json
@@ -736,9 +741,18 @@ class GraphRAG:
         """
         # 添加到全局图谱
         for entity in entities:
+            # 兼容两种字段名：LLM返回的是 "text"，旧代码可能使用 "name"
+            entity_text = entity.get("text") or entity.get("name", "")
+            entity_type = entity.get("type", "未知")
+
+            # 跳过空实体
+            if not entity_text or not entity_text.strip():
+                self.logger.warning(f"跳过空实体: type={entity_type}")
+                continue
+
             entity_data = {
-                "text": entity.get("name", ""),
-                "type": entity.get("type", "未知")
+                "text": entity_text,
+                "type": entity_type
             }
             self.knowledge_graph.add_entity(entity_data, doc_id)
 
@@ -755,9 +769,18 @@ class GraphRAG:
         if kb_id:
             kb_graph = self.get_kb_graph(kb_id)
             for entity in entities:
+                # 兼容两种字段名：LLM返回的是 "text"，旧代码可能使用 "name"
+                entity_text = entity.get("text") or entity.get("name", "")
+                entity_type = entity.get("type", "未知")
+
+                # 跳过空实体
+                if not entity_text or not entity_text.strip():
+                    self.logger.warning(f"跳过空实体: type={entity_type}")
+                    continue
+
                 entity_data = {
-                    "text": entity.get("name", ""),
-                    "type": entity.get("type", "未知")
+                    "text": entity_text,
+                    "type": entity_type
                 }
                 kb_graph.add_entity(entity_data, doc_id)
 
@@ -826,13 +849,8 @@ class LLMEntityExtractor:
         Returns:
             {"entities": [...], "relations": [...]}
         """
-        # 截断过长的文本（减小到3000字符以避免API限制）
-        max_chars = 3000  # 约2000 tokens，避免超出模型限制
-        if len(text) > max_chars:
-            # 分段处理长文本
-            return await self._extract_from_long_text(text, max_chars)
-
-        # 直接调用内部方法处理短文本
+        # 不再截断，直接处理完整文本
+        # 如果文本超长，LLM会自然处理
         return await self._extract_single_chunk(text, max_retries)
 
     async def _extract_from_long_text(self, text: str, chunk_size: int) -> Dict[str, Any]:
@@ -1263,7 +1281,8 @@ class LLMEntityExtractor:
                             if validated:
                                 self.logger.info("修复JSON格式后解析成功")
                                 return validated
-                        except:
+                        except json.JSONDecodeError as e:
+                            self.logger.debug(f"修复后JSON仍解析失败: {e}")
                             pass
         except Exception as e:
             self.logger.debug(f"修复过程出错: {str(e)[:100]}")

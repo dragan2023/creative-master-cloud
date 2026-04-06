@@ -1,6 +1,11 @@
 """
 LLM 管理器
 统一管理 LLM 提供者的创建和调用
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional, Dict, Any, AsyncGenerator, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -111,6 +116,7 @@ class LLMManager:
         else:
             query = query.where(UserAPIKey.is_default == True)
 
+        query = query.limit(1)
         result = await db.execute(query)
         api_key_config = result.scalar_one_or_none()
 
@@ -152,12 +158,48 @@ class LLMManager:
         settings = get_settings()
         provider_name = provider_name or "qianwen"
 
+        # API Key 名称映射（provider_name -> 配置中的环境变量名）
+        # 处理别名映射，因为配置中的名称可能与 provider_name 不同
+        api_key_aliases = {
+            "qianwen": "DASHSCOPE_API_KEY",  # 通义千问使用 DASHSCOPE_API_KEY
+            "qianwen_image": "DASHSCOPE_API_KEY",
+            "doubao": "ARK_API_KEY",  # 豆包使用 ARK_API_KEY
+            "doubao_image": "ARK_API_KEY",
+            "siliconflow": "SILICONFLOW_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+            "t8star": "T8STAR_API_KEY",
+            "t8star_image": "T8STAR_API_KEY",
+            "t8star_video": "T8STAR_API_KEY",
+            "deepseek": "DEEPSEEK_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "openai": "OPENAI_API_KEY",
+        }
+
         # 获取系统预置 API Key
-        api_key = getattr(
-            settings, f"{provider_name.upper().replace('-', '_')}_API_KEY", None)
+        env_key_name = api_key_aliases.get(provider_name)
+        if env_key_name:
+            # 使用映射的名称
+            api_key = getattr(settings, env_key_name, None)
+        else:
+            # 回退到默认命名规则
+            api_key = getattr(
+                settings, f"{provider_name.upper().replace('-', '_')}_API_KEY", None)
 
         if not api_key:
-            raise ValueError(f"系统未配置 {provider_name} 的 API Key")
+            # 尝试遍历所有可能的 API Key 作为最后的回退
+            fallback_keys = ["DASHSCOPE_API_KEY", "T8STAR_API_KEY", "ARK_API_KEY",
+                             "SILICONFLOW_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"]
+            for key in fallback_keys:
+                api_key = getattr(settings, key, None)
+                if api_key:
+                    self.logger.info(f"使用回退 API Key: {key}")
+                    break
+
+        if not api_key:
+            raise ValueError(
+                f"系统未配置 {provider_name} 的 API Key，请在 .env 文件中配置 DASHSCOPE_API_KEY、"
+                f"T8STAR_API_KEY、ARK_API_KEY 或其他 LLM 服务的 API Key"
+            )
 
         return self.create_provider(provider_name, api_key)
 
@@ -206,12 +248,44 @@ def _get_default_provider(self, provider_name: str = "qianwen") -> BaseLLMProvid
     """
     settings = get_settings()
 
+    # API Key 名称映射（provider_name -> 配置中的环境变量名）
+    api_key_aliases = {
+        "qianwen": "DASHSCOPE_API_KEY",
+        "qianwen_image": "DASHSCOPE_API_KEY",
+        "doubao": "ARK_API_KEY",
+        "doubao_image": "ARK_API_KEY",
+        "siliconflow": "SILICONFLOW_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "t8star": "T8STAR_API_KEY",
+        "t8star_image": "T8STAR_API_KEY",
+        "t8star_video": "T8STAR_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "openai": "OPENAI_API_KEY",
+    }
+
     # 获取系统预置 API Key
-    api_key = getattr(
-        settings, f"{provider_name.upper().replace('-', '_')}_API_KEY", None)
+    env_key_name = api_key_aliases.get(provider_name)
+    if env_key_name:
+        api_key = getattr(settings, env_key_name, None)
+    else:
+        api_key = getattr(
+            settings, f"{provider_name.upper().replace('-', '_')}_API_KEY", None)
 
     if not api_key:
-        raise ValueError(f"系统未配置 {provider_name} 的 API Key")
+        # 尝试遍历所有可能的 API Key 作为最后的回退
+        fallback_keys = ["DASHSCOPE_API_KEY", "T8STAR_API_KEY", "ARK_API_KEY",
+                         "SILICONFLOW_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"]
+        for key in fallback_keys:
+            api_key = getattr(settings, key, None)
+            if api_key:
+                break
+
+    if not api_key:
+        raise ValueError(
+            f"系统未配置 {provider_name} 的 API Key，请在 .env 文件中配置 DASHSCOPE_API_KEY、"
+            f"T8STAR_API_KEY、ARK_API_KEY 或其他 LLM 服务的 API Key"
+        )
 
     return self.create_provider(provider_name, api_key)
 

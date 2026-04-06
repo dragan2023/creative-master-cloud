@@ -2,6 +2,11 @@
 LLM 提供者基类
 定义统一的 LLM 调用接口
 支持多模态内容（文本、图片、文件）
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Optional, Dict, Any, List, Union

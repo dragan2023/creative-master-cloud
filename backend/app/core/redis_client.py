@@ -2,6 +2,11 @@
 Redis 连接配置
 用于缓存和会话管理
 支持 Redis 不可用时自动降级到内存存储
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import redis.asyncio as redis
 from typing import Optional, Dict
@@ -227,6 +232,11 @@ class RedisManager:
 
 # 全局 Redis 管理器实例
 redis_manager = RedisManager()
+
+
+async def get_redis() -> redis.Redis:
+    """获取 Redis 客户端"""
+    return await redis_manager.get_client()
 
 
 async def get_redis() -> redis.Redis:

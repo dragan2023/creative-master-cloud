@@ -37,7 +37,7 @@ class PromptTemplate(BaseModel):
             import json
             try:
                 result["variables"] = json.loads(self.variables)
-            except:
+            except (json.JSONDecodeError, TypeError) as e:
                 # 解析失败时返回空列表
                 result["variables"] = []
         else:

@@ -17,15 +17,22 @@ depends_on = None
 
 
 def upgrade():
+    # 检查列是否已存在
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('novel_projects')]
+
     # 添加 chapter_outlines 字段到 novel_projects 表
     # 用于存储小说章节详细大纲
-    op.add_column('novel_projects', sa.Column(
-        'chapter_outlines', sa.JSON(), nullable=True, comment='章节详细大纲'))
+    if 'chapter_outlines' not in columns:
+        op.add_column('novel_projects', sa.Column(
+            'chapter_outlines', sa.JSON(), nullable=True, comment='章节详细大纲'))
 
     # 添加 scene_outlines 字段到 novel_projects 表
     # 用于存储电影剧本场景详细大纲
-    op.add_column('novel_projects', sa.Column(
-        'scene_outlines', sa.JSON(), nullable=True, comment='场景详细大纲'))
+    if 'scene_outlines' not in columns:
+        op.add_column('novel_projects', sa.Column(
+            'scene_outlines', sa.JSON(), nullable=True, comment='场景详细大纲'))
 
 
 def downgrade():

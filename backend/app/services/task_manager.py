@@ -4,6 +4,11 @@
 支持 Redis 不可用时使用内存令牌作为后备
 同时同步任务状态到数据库，确保服务器重启后状态不丢失
 支持 SSE 实时推送任务状态更新
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import json
 import asyncio
@@ -39,6 +44,7 @@ TASK_TYPE_CHAPTER_CONTENT = "chapter_content"      # 章节正文
 TASK_TYPE_SCENE_CONTENT = "scene_content"          # 场景正文
 
 # 内存取消令牌字典（当 Redis 不可用时使用）
+# TODO: 考虑完全迁移到Redis后移除内存级取消令牌
 _memory_cancel_tokens: Dict[int, asyncio.Event] = {}
 
 
@@ -398,7 +404,8 @@ class TaskManager:
                             prev_step["timestamp"])
                         step_duration_ms = int(
                             (now - start_time).total_seconds() * 1000)
-                    except:
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"解析步骤时间失败: {e}")
                         pass
                     break
 
@@ -558,4 +565,5 @@ class TaskManager:
 
 
 # 全局任务管理器实例
+task_manager = TaskManager()
 task_manager = TaskManager()

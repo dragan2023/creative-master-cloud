@@ -3,6 +3,11 @@
 
 通过搜索引擎API聚合热点数据，支持博查AI搜索和百度搜索
 用户需要在前端配置搜索服务的API Key
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, List, Optional, Any
 import asyncio

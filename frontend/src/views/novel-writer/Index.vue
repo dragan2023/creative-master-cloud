@@ -2,10 +2,16 @@
   <div class="novel-writer-page">
     <div class="page-header">
       <h1 class="page-title">小说/剧本生成</h1>
-      <el-button type="primary" @click="showCreateDialog">
-        <el-icon><Plus /></el-icon>
-        新建项目
-      </el-button>
+      <div class="header-actions">
+        <el-button @click="goToModelConfig">
+          <el-icon><Setting /></el-icon>
+          模型配置
+        </el-button>
+        <el-button type="primary" @click="showCreateDialog">
+          <el-icon><Plus /></el-icon>
+          新建项目
+        </el-button>
+      </div>
     </div>
 
     <!-- 筛选栏 -->
@@ -42,12 +48,14 @@
           <div class="project-type" :class="getTypeClass(project.content_type || project.project_type)">
             {{ getTypeLabel(project.content_type || project.project_type) }}
           </div>
-          <el-dropdown @click.stop trigger="click">
-            <el-icon class="more-icon"><MoreFilled /></el-icon>
+          <el-dropdown trigger="click" @command="(cmd) => handleCommand(cmd, project)">
+            <div class="more-icon-wrapper" @click.stop>
+              <el-icon class="more-icon"><MoreFilled /></el-icon>
+            </div>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="editProject(project)">编辑</el-dropdown-item>
-                <el-dropdown-item @click="deleteProject(project)" divided>删除</el-dropdown-item>
+                <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -197,7 +205,7 @@
                   </div>
                 </el-form-item>
                 <el-form-item label="剧集类型">
-                  <el-select v-model="projectForm.series_script_config.series_type" placeholder="选择剧集类型">
+                  <el-select v-model="projectForm.series_script_config.series_type" placeholder="选择剧集类型" @change="onSeriesTypeChange">
                     <el-option label="电视剧" value="电视剧" />
                     <el-option label="网络剧" value="网络剧" />
                     <el-option label="短剧" value="短剧" />
@@ -211,10 +219,25 @@
                 </el-form-item>
                 <el-form-item label="每集时长">
                   <div class="config-row">
-                    <el-input-number v-model="projectForm.series_script_config.episode_duration_range[0]" :min="1" :max="120" :step="5" style="width: 100px;" />
+                    <el-input-number 
+                      v-model="projectForm.series_script_config.episode_duration_range[0]" 
+                      :min="getSeriesDurationMin()" 
+                      :max="getSeriesDurationMax()" 
+                      :step="5" 
+                      style="width: 100px;" 
+                    />
                     <span>-</span>
-                    <el-input-number v-model="projectForm.series_script_config.episode_duration_range[1]" :min="1" :max="120" :step="5" style="width: 100px;" />
+                    <el-input-number 
+                      v-model="projectForm.series_script_config.episode_duration_range[1]" 
+                      :min="getSeriesDurationMin()" 
+                      :max="getSeriesDurationMax()" 
+                      :step="5" 
+                      style="width: 100px;" 
+                    />
                     <span class="unit">分钟</span>
+                  </div>
+                  <div class="form-tip" v-if="getSeriesDurationHint()">
+                    <el-text type="info" size="small">{{ getSeriesDurationHint() }}</el-text>
                   </div>
                 </el-form-item>
                 <el-form-item label="剧本格式">
@@ -275,7 +298,7 @@
                   </div>
                 </el-form-item>
                 <el-form-item label="电影类型">
-                  <el-select v-model="projectForm.movie_script_config.movie_type" placeholder="选择电影类型">
+                  <el-select v-model="projectForm.movie_script_config.movie_type" placeholder="选择电影类型" @change="onMovieTypeChange">
                     <el-option label="院线电影" value="院线电影" />
                     <el-option label="网络电影" value="网络电影" />
                     <el-option label="微电影" value="微电影" />
@@ -284,8 +307,16 @@
                   </el-select>
                 </el-form-item>
                 <el-form-item label="电影时长">
-                  <el-input-number v-model="projectForm.movie_script_config.total_duration" :min="5" :max="180" :step="5" />
+                  <el-input-number 
+                    v-model="projectForm.movie_script_config.total_duration" 
+                    :min="getMovieDurationMin()" 
+                    :max="getMovieDurationMax()" 
+                    :step="5" 
+                  />
                   <span class="unit">分钟</span>
+                  <div class="form-tip" v-if="getMovieDurationHint()">
+                    <el-text type="info" size="small">{{ getMovieDurationHint() }}</el-text>
+                  </div>
                 </el-form-item>
                 <el-form-item label="剧本格式">
                   <el-select v-model="projectForm.movie_script_config.format_standard" placeholder="选择格式标准">
@@ -362,7 +393,7 @@
 import { ref, computed, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, MoreFilled, Notebook, Film, VideoCamera } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Notebook, Film, VideoCamera, Setting } from '@element-plus/icons-vue'
 import { novelWriterApi } from '@/api/novel-writer'
 
 const router = useRouter()
@@ -388,9 +419,10 @@ const DEFAULT_NOVEL_CONFIG = {
 }
 
 // 剧集剧本配置默认值
+// 注意：剧本以"时长"为核心指标，字数仅供参考
 const DEFAULT_SERIES_SCRIPT_CONFIG = {
   series_type: '电视剧',
-  episode_duration_range: [30, 45],
+  episode_duration_range: null,  // 根据剧集类型自动设置
   scenes_per_episode_range: null,
   format_standard: '标准格式',
   dialogue_narration_ratio: '均衡',
@@ -399,13 +431,15 @@ const DEFAULT_SERIES_SCRIPT_CONFIG = {
   style_reference: '',
   dialogue_style: '自然对话',
   narrative_rhythm: '紧凑',
-  script_mode: 'real'  // 剧本模式：real=现实模式，virtual=虚拟模式
+  script_mode: 'real',  // 剧本模式：real=现实模式，virtual=虚拟模式
+  words_per_episode: null  // 可选参考，不作为控制指标
 }
 
 // 电影剧本配置默认值
+// 注意：电影剧本以"时长"为核心指标
 const DEFAULT_MOVIE_SCRIPT_CONFIG = {
   movie_type: '院线电影',
-  total_duration: 90,
+  total_duration: null,  // 根据电影类型自动设置
   format_standard: '标准格式',
   dialogue_narration_ratio: '均衡',
   target_platform: '',
@@ -419,16 +453,19 @@ const DEFAULT_MOVIE_SCRIPT_CONFIG = {
 const SERIES_DURATION_CONFIG = {
   '电视剧': { min: 40, max: 60, defaultMin: 45, defaultMax: 50, hint: '电视剧通常45-50分钟/集' },
   '网络剧': { min: 20, max: 50, defaultMin: 30, defaultMax: 45, hint: '网络剧通常30-45分钟/集' },
-  '短剧': { min: 3, max: 20, defaultMin: 5, defaultMax: 15, hint: '短剧通常5-15分钟/集' }
+  '短剧': { min: 3, max: 20, defaultMin: 5, defaultMax: 15, hint: '短剧通常5-15分钟/集' },
+  '微短剧': { min: 1, max: 10, defaultMin: 3, defaultMax: 8, hint: '微短剧通常3-8分钟/集' },
+  '网剧': { min: 20, max: 50, defaultMin: 30, defaultMax: 45, hint: '网剧通常30-45分钟/集' },
+  '竖屏剧': { min: 1, max: 5, defaultMin: 1, defaultMax: 3, hint: '竖屏剧通常1-3分钟/集' }
 }
 
 // 电影类型对应的时长配置
 const MOVIE_DURATION_CONFIG = {
-  '院线电影': { default: 120, hint: '院线电影通常90-120分钟' },
-  '网络电影': { default: 90, hint: '网络电影通常60-90分钟' },
-  '微电影': { default: 30, hint: '微电影通常20-45分钟' },
-  '纪录片': { default: 90, hint: '纪录片时长灵活' },
-  '动画电影': { default: 90, hint: '动画电影通常80-100分钟' }
+  '院线电影': { default: 120, min: 60, max: 180, hint: '院线电影通常90-120分钟' },
+  '网络电影': { default: 90, min: 45, max: 120, hint: '网络电影通常60-90分钟' },
+  '微电影': { default: 30, min: 10, max: 60, hint: '微电影通常20-45分钟' },
+  '纪录片': { default: 90, min: 30, max: 180, hint: '纪录片时长灵活' },
+  '动画电影': { default: 90, min: 60, max: 120, hint: '动画电影通常80-100分钟' }
 }
 
 // 剧本格式标准选项
@@ -538,9 +575,81 @@ function onContentTypeChange(contentType) {
     projectForm.value.novel_config = { ...DEFAULT_NOVEL_CONFIG }
   } else if (contentType === 'series_script') {
     projectForm.value.series_script_config = { ...DEFAULT_SERIES_SCRIPT_CONFIG }
+    // 根据默认剧集类型设置时长
+    updateSeriesDurationByType(projectForm.value.series_script_config.series_type)
   } else if (contentType === 'movie_script') {
     projectForm.value.movie_script_config = { ...DEFAULT_MOVIE_SCRIPT_CONFIG }
+    // 根据默认电影类型设置时长
+    updateMovieDurationByType(projectForm.value.movie_script_config.movie_type)
   }
+}
+
+// 剧集类型变更时自动设置时长范围
+function onSeriesTypeChange(seriesType) {
+  updateSeriesDurationByType(seriesType)
+}
+
+// 根据剧集类型更新时长范围
+function updateSeriesDurationByType(seriesType) {
+  const config = SERIES_DURATION_CONFIG[seriesType]
+  if (config) {
+    projectForm.value.series_script_config.episode_duration_range = [config.defaultMin, config.defaultMax]
+  }
+}
+
+// 电影类型变更时自动设置时长
+function onMovieTypeChange(movieType) {
+  updateMovieDurationByType(movieType)
+}
+
+// 根据电影类型更新时长
+function updateMovieDurationByType(movieType) {
+  const config = MOVIE_DURATION_CONFIG[movieType]
+  if (config) {
+    projectForm.value.movie_script_config.total_duration = config.default
+  }
+}
+
+// 获取剧集时长的最小值限制
+function getSeriesDurationMin() {
+  const seriesType = projectForm.value.series_script_config?.series_type || '电视剧'
+  const config = SERIES_DURATION_CONFIG[seriesType]
+  return config?.min || 1
+}
+
+// 获取剧集时长的最大值限制
+function getSeriesDurationMax() {
+  const seriesType = projectForm.value.series_script_config?.series_type || '电视剧'
+  const config = SERIES_DURATION_CONFIG[seriesType]
+  return config?.max || 120
+}
+
+// 获取剧集时长的提示信息
+function getSeriesDurationHint() {
+  const seriesType = projectForm.value.series_script_config?.series_type || '电视剧'
+  const config = SERIES_DURATION_CONFIG[seriesType]
+  return config?.hint || ''
+}
+
+// 获取电影时长的最小值限制
+function getMovieDurationMin() {
+  const movieType = projectForm.value.movie_script_config?.movie_type || '院线电影'
+  const config = MOVIE_DURATION_CONFIG[movieType]
+  return config?.min || 5
+}
+
+// 获取电影时长的最大值限制
+function getMovieDurationMax() {
+  const movieType = projectForm.value.movie_script_config?.movie_type || '院线电影'
+  const config = MOVIE_DURATION_CONFIG[movieType]
+  return config?.max || 180
+}
+
+// 获取电影时长的提示信息
+function getMovieDurationHint() {
+  const movieType = projectForm.value.movie_script_config?.movie_type || '院线电影'
+  const config = MOVIE_DURATION_CONFIG[movieType]
+  return config?.hint || ''
 }
 
 // 加载项目列表
@@ -658,6 +767,15 @@ async function saveProject() {
   }
 }
 
+// 处理下拉菜单命令
+function handleCommand(command, project) {
+  if (command === 'edit') {
+    editProject(project)
+  } else if (command === 'delete') {
+    deleteProject(project)
+  }
+}
+
 // 删除项目
 async function deleteProject(project) {
   try {
@@ -680,6 +798,11 @@ async function deleteProject(project) {
 // 跳转到项目详情
 function goToProject(projectId) {
   router.push(`/novel-writer/${projectId}`)
+}
+
+// 跳转到模型配置页面
+function goToModelConfig() {
+  router.push('/novel-writer/model-config')
 }
 
 // 辅助函数
@@ -769,6 +892,11 @@ onActivated(() => {
       background: linear-gradient(180deg, #409EFF, #00D4AA);
       border-radius: 2px;
     }
+  }
+  
+  .header-actions {
+    display: flex;
+    gap: 12px;
   }
   
   .el-button--primary {
@@ -873,16 +1001,28 @@ onActivated(() => {
       }
     }
 
-    .more-icon {
+    .more-icon-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
       cursor: pointer;
+      transition: all 0.3s;
+
+      &:hover {
+        background: rgba(64, 158, 255, 0.1);
+      }
+    }
+
+    .more-icon {
+      font-size: 18px;
       color: #909399;
       transition: all 0.3s;
-      padding: 4px;
-      border-radius: 4px;
 
       &:hover {
         color: #409eff;
-        background: rgba(64, 158, 255, 0.1);
       }
     }
   }

@@ -2,6 +2,11 @@
 OpenAI LLM 提供者
 调用 OpenAI GPT 系列 API
 支持多模态内容（文本、图片）
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import AsyncGenerator, Optional, Dict, List, Any, Union
 from openai import AsyncOpenAI
@@ -9,6 +14,7 @@ from openai import (
     APIConnectionError, RateLimitError, APIStatusError,
     InternalServerError, APITimeoutError
 )
+import urllib.parse
 
 from app.agents.base_provider import BaseLLMProvider, LLMResponse
 from app.core.config import get_settings
@@ -78,9 +84,18 @@ class OpenAIProvider(BaseLLMProvider):
             # OpenRouter 需要额外的请求头
             if self._is_openrouter:
                 settings = get_settings()
+                # 对 APP_NAME 进行 URL 编码以支持中文字符
+                app_name = settings.APP_NAME
+                try:
+                    # 尝试编码为 ASCII，如果失败则进行 URL 编码
+                    app_name.encode('ascii')
+                except UnicodeEncodeError:
+                    # 中文名称进行 URL 编码
+                    app_name = urllib.parse.quote(app_name)
+                
                 client_kwargs["default_headers"] = {
                     "HTTP-Referer": settings.APP_BASE_URL,
-                    "X-Title": settings.APP_NAME
+                    "X-Title": app_name
                 }
 
             self._client = AsyncOpenAI(**client_kwargs)

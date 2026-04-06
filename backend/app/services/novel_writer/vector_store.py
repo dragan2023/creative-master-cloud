@@ -1,6 +1,11 @@
 """
 项目向量存储服务
 管理项目自有向量库，存储历史章节用于检索
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import os
 from typing import List, Dict, Any, Optional

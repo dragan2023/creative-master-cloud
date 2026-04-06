@@ -1,6 +1,11 @@
 """
 GraphRAG增强的缺失单元上下文构建
 在详细大纲生成时，利用知识图谱检索全局图谱，增强约束
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import os
 from typing import Dict, Any, Optional, List

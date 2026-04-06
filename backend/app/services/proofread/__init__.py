@@ -1,6 +1,11 @@
 """
 共享工具模块
 保留被其他模块使用的共享组件
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from app.services.proofread.document_formatter import DocumentFormatter
 from app.services.proofread.trie_matcher import TrieMatcher, MultiTrieMatcher, MatchResult

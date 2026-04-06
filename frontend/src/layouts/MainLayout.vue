@@ -123,7 +123,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, provide } from 'vue'
+import { ref, computed, onMounted, provide, onErrorCaptured } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore, useAppStore } from '@/stores'
 import { DocumentChecked, Setting, SwitchButton } from '@element-plus/icons-vue'
@@ -170,8 +170,28 @@ async function handleCommand(command) {
 // 提供给子组件使用
 provide('currentVersion', currentVersion)
 
+// 全局错误捕获：捕获子组件的错误，防止导致界面卡死
+onErrorCaptured((error, instance, info) => {
+  console.error('[MainLayout] 捕获到组件错误:', error, info)
+  // 返回 false 阻止错误继续传播
+  return false
+})
+
 onMounted(async () => {
   await fetchCurrentVersion()
+  
+  // 验证用户状态：如果 token 存在但 userInfo 不存在，尝试获取用户信息
+  const token = localStorage.getItem('token')
+  const userInfoStr = localStorage.getItem('userInfo')
+  if (token && !userInfoStr) {
+    console.log('[MainLayout] 检测到 token 存在但 userInfo 缺失，尝试获取用户信息')
+    try {
+      await userStore.fetchProfile()
+    } catch (error) {
+      console.error('[MainLayout] 获取用户信息失败:', error)
+      // 如果获取失败，logout 会在 fetchProfile 内部被调用（当返回 401 时）
+    }
+  }
 })
 </script>
 

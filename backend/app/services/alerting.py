@@ -1,6 +1,11 @@
 """
 告警服务
 支持QQ、微信、邮件等多种告警方式
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import asyncio
 import aiohttp

@@ -1,9 +1,14 @@
 """
 租户认证API端点
 支持用户注册、登录、Token刷新等
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
@@ -15,6 +20,11 @@ from app.core.config import get_settings
 from app.core.security import get_password_hash, verify_password
 from app.core.logger import get_logger
 from app.core.tenant_context import TenantContext
+from app.core.exceptions import (
+    ValidationException,
+    AuthenticationException,
+    AuthorizationException,
+)
 from app.models import User, UserRole, Tenant, TenantStatus, TenantPlan, PLAN_LIMITS
 from app.schemas.common import ResponseModel
 
@@ -99,11 +109,8 @@ async def register(
         )
     )
     if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名或邮箱已被注册"
-        )
-    
+        raise ValidationException(message="用户名或邮箱已被注册")
+
     # 创建个人租户
     tenant_slug = data.username.lower().replace("_", "-")
     tenant = Tenant(
@@ -181,20 +188,13 @@ async def login(
         )
     )
     user = result.scalar_one_or_none()
-    
+
     if not user or not verify_password(data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
+        raise AuthenticationException(message="用户名或密码错误")
+
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="用户已被禁用"
-        )
-    
+        raise AuthorizationException(message="用户已被禁用")
+
     # 检查租户状态
     tenant_name = None
     if user.tenant_id:
@@ -205,11 +205,8 @@ async def login(
         if tenant:
             tenant_name = tenant.name
             if not tenant.is_active:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="租户已被暂停或过期"
-                )
-    
+                raise AuthorizationException(message="租户已被暂停或过期")
+
     # 更新登录信息
     user.last_login_at = datetime.utcnow().isoformat()
     user.login_count = (user.login_count or 0) + 1
@@ -353,11 +350,8 @@ async def change_password(
     
     # 验证旧密码
     if not verify_password(data.old_password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="旧密码错误"
-        )
-    
+        raise ValidationException(message="旧密码错误")
+
     # 更新密码
     user.hashed_password = get_password_hash(data.new_password)
     await db.commit()

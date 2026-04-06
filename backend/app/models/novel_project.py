@@ -202,7 +202,8 @@ class NovelProject(BaseModel):
     #     "episode_count": 24,
     #     "episode_duration_range": [30, 45],
     #     "format_standard": "标准格式",
-    #     "dialogue_narration_ratio": "均衡"
+    #     "dialogue_narration_ratio": "均衡",
+    #     "script_mode": "real"         # real=现实模式(真人拍摄), virtual=虚拟模式(AI视频生成)
     # }
 
     movie_script_config = Column(JSON, nullable=True, comment="电影剧本专属配置")
@@ -211,7 +212,8 @@ class NovelProject(BaseModel):
     #     "movie_type": "院线电影",
     #     "total_duration": 120,
     #     "format_standard": "标准格式",
-    #     "dialogue_narration_ratio": "均衡"
+    #     "dialogue_narration_ratio": "均衡",
+    #     "script_mode": "real"         # real=现实模式(真人拍摄), virtual=虚拟模式(AI视频生成)
     # }
 
     # 项目文件路径（使用特色命名）
@@ -254,6 +256,29 @@ class NovelProject(BaseModel):
     kb_graphrag_enabled = Column(Boolean, default=True, comment="是否启用GraphRAG")
 
     # ==================== 合规审核配置 ====================
+    # ==================== 风格文档配置 ====================
+    # 风格文档相关字段
+    style_document_path = Column(String(255), nullable=True, comment="风格文档路径")
+    style_document_name = Column(String(200), nullable=True, comment="风格文档名称")
+    style_analysis_status = Column(
+        String(20), default="pending", comment="风格分析状态(pending/analyzing/completed/failed)")
+    style_analysis_error = Column(Text, nullable=True, comment="风格分析错误信息")
+    style_config = Column(JSON, nullable=True, comment="风格配置(JSON)")
+    # style_config 结构示例:
+    # {
+    #     "style_profile": {...},           # 风格画像
+    #     "style_guide_for_writing": "...",  # 写作风格指南
+    #     "key_imitation_points": [...],    # 关键模仿要点
+    #     "example_transformations": [...], # 示例转换
+    #     "avoid_patterns": [...]           # 避免模式
+    # }
+
+    # AI文风消除配置
+    ai_elimination_enabled = Column(
+        Boolean, default=True, comment="是否启用AI文风消除")
+    ai_elimination_threshold = Column(
+        Integer, default=50, comment="AI文风消除阈值(0-100)")
+
     # 合规审核配置
     compliance_config = Column(JSON, nullable=True, comment="合规审核配置")
     # compliance_config 结构示例:

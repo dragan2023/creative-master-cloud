@@ -68,5 +68,48 @@ class Generation(BaseModel):
     # 关联关系
     user = relationship("User", back_populates="generations")
 
+    # ==================== 业务方法 ====================
+
+    def is_completed(self) -> bool:
+        """检查生成是否已完成"""
+        return self.status == GenerationStatus.COMPLETED
+
+    def is_failed(self) -> bool:
+        """检查生成是否已失败"""
+        return self.status == GenerationStatus.FAILED
+
+    def is_processing(self) -> bool:
+        """检查生成是否处理中"""
+        return self.status == GenerationStatus.PROCESSING
+
+    def can_delete(self) -> bool:
+        """检查是否能删除（已完成或已失败时可删除）"""
+        return self.status in (GenerationStatus.COMPLETED, GenerationStatus.FAILED)
+
+    def get_duration_seconds(self) -> float:
+        """获取执行时间（秒）"""
+        return self.duration_ms / 1000.0 if self.duration_ms else 0.0
+
+    def mark_completed(
+        self,
+        output_content: str,
+        provider: str,
+        model_name: str,
+        token_count: int = 0,
+        duration_ms: int = 0
+    ) -> None:
+        """标记为已完成"""
+        self.status = GenerationStatus.COMPLETED
+        self.output_content = output_content
+        self.provider = provider
+        self.model_name = model_name
+        self.token_count = token_count
+        self.duration_ms = duration_ms
+
+    def mark_failed(self, error_message: str) -> None:
+        """标记为已失败"""
+        self.status = GenerationStatus.FAILED
+        self.error_message = error_message
+
     def __repr__(self):
         return f"<Generation(id={self.id}, module={self.module}, status={self.status})>"

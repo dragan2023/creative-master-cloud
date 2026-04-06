@@ -1,8 +1,10 @@
 """
 全能创意大师 - FastAPI 应用入口
+
+# [2026-03-28] 多Agent重构: 添加WebSocket端点支持
 """
 from app.api.v1.router import api_router
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +18,8 @@ import threading
 
 from app.core.config import get_settings
 from app.core.logger import init_logging, get_logger
+from app.core.exceptions import AppException, ErrorCode
+from app.core.error_responses import ErrorResponse
 
 
 def _open_browser_delayed(frontend_url: str, delay: float = 3.0):
@@ -32,7 +36,17 @@ def _open_browser_delayed(frontend_url: str, delay: float = 3.0):
 
 def _start_browser_opener():
     """启动后台线程自动打开浏览器"""
-    frontend_url = "http://localhost:8000"
+    settings = get_settings()
+    
+    # 开发环境（DEBUG=True）不自动打开浏览器
+    # 前端运行在 Vite 开发服务器上，由前端或启动脚本负责打开
+    if settings.DEBUG:
+        print("[INFO] 开发环境：跳过自动打开浏览器")
+        print("[INFO] 请访问 Vite 开发服务器: http://localhost:5173")
+        return
+    
+    # 生产环境：打开后端托管的静态文件
+    frontend_url = f"http://localhost:{settings.PORT}"
     thread = threading.Thread(
         target=_open_browser_delayed,
         args=(frontend_url, 3.0),
@@ -193,6 +207,38 @@ async def add_process_time_header(request: Request, call_next):
 
 
 # 全局异常处理
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    """统一应用异常处理"""
+    from datetime import datetime
+    logger = get_logger("system")
+    
+    if exc.status_code >= 500:
+        logger.error(
+            f"应用异常 - 追踪ID: {exc.trace_id}, "
+            f"错误代码: {exc.error_code.value}, "
+            f"消息: {exc.message}",
+            exc_info=True
+        )
+    else:
+        logger.warning(
+            f"应用异常 - 追踪ID: {exc.trace_id}, "
+            f"错误代码: {exc.error_code.value}, "
+            f"消息: {exc.message}"
+        )
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(
+            code=exc.error_code.value,
+            message=exc.message,
+            trace_id=exc.trace_id,
+            details=exc.details if settings.DEBUG else None,
+            timestamp=datetime.utcnow().isoformat()
+        ).model_dump()
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger = get_logger("system")
@@ -274,6 +320,58 @@ async def exit_application():
 
 # 注册路由
 app.include_router(api_router, prefix="/api/v1")
+
+
+# ==================== WebSocket端点 ====================
+# [2026-03-28] 多Agent重构: 写作任务WebSocket端点
+
+from app.services.writing_engine.websocket_manager import get_websocket_manager
+
+
+@app.websocket("/api/v1/writing-tasks/{task_id}/ws")
+async def writing_task_websocket(websocket: WebSocket, task_id: int):
+    """
+    写作任务WebSocket端点
+
+    提供实时进度推送、状态变更通知等功能。
+    客户端连接后可接收任务生成进度、状态变更等消息。
+
+    消息格式:
+    - progress: 进度更新 {"type": "progress", "data": {"current_unit": 1, "total_units": 10, ...}}
+    - status_change: 状态变更 {"type": "status_change", "data": {"old_status": "pending", "new_status": "running"}}
+    - error: 错误通知 {"type": "error", "data": {"error_code": "...", "error_message": "..."}}
+    - complete: 完成通知 {"type": "complete", "data": {"total_units": 10, "total_word_count": 50000}}
+    """
+    ws_manager = get_websocket_manager()
+    await ws_manager.connect(task_id, websocket)
+    logger = get_logger("websocket")
+    logger.info(f"WebSocket连接建立: task_id={task_id}")
+
+    try:
+        while True:
+            # 接收客户端消息（如心跳、控制命令等）
+            data = await websocket.receive_text()
+            logger.debug(f"收到WebSocket消息: task_id={task_id}, data={data}")
+
+            # 处理客户端消息（如心跳响应、控制命令等）
+            import json
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type")
+                if msg_type == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+                elif msg_type == "get_status":
+                    # 返回当前任务状态
+                    await websocket.send_text(json.dumps({"type": "status", "task_id": task_id}))
+            except json.JSONDecodeError:
+                logger.warning(f"无效的WebSocket消息格式: {data}")
+
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(task_id, websocket)
+        logger.info(f"WebSocket连接断开: task_id={task_id}")
+    except Exception as e:
+        logger.error(f"WebSocket异常: task_id={task_id}, error={e}")
+        await ws_manager.disconnect(task_id, websocket)
 
 
 # 托管前端静态文件（生产环境）

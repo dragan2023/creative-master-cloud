@@ -1,6 +1,7 @@
 # ========================================
 # 全能创意大师 - Git忽略配置
-# 区分本地开发环境和云端生产环境
+# 开发环境：非容器化本地开发（run-local.bat）
+# 生产环境：容器化云端部署（docker-compose.prod.yml / cloud.yml）
 # ========================================
 
 # ===== Python =====
@@ -14,9 +15,36 @@ ENV/
 env/
 .venv/
 build_venv/
+*.pyd
+*.pyi
+*.egg-info/
+*.egg
 
-# ===== 环境变量（敏感信息）=====
-# 本地开发环境配置（不提交）
+# ===== Node.js =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ===== 前端构建 =====
+frontend/dist/
+frontend/.vite/
+
+# ===== 后端数据 =====
+backend/data/chroma/
+backend/data/knowledge_graphs/
+backend/data/exports/
+backend/data/novel_projects/
+backend/data/uploads/
+backend/data/backups/
+backend/data/marker_models/
+*.db
+*.sqlite3
+*.db-journal
+backend/*.db
+
+# ===== 环境变量 =====
 .env
 .env.local
 .env.development.local
@@ -26,65 +54,20 @@ backend/.env
 backend/.env.local
 frontend/.env.local
 frontend/.env.development
-
-# 云端部署配置模板（可提交）
 !.env.example
 !.env.cloud
 
-# ===== 日志文件（不提交）=====
+# ===== 日志文件 =====
 logs/
 *.log
 *.log.zip
 backend/logs/
 nginx/logs/
+install.log
 
-# ===== 数据库文件（不提交）=====
-*.db
-*.sqlite3
-*.db-journal
-backend/*.db
-backend/novel_writer.db
-backend/data/*.db
-
-# ===== Node.js =====
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-package-lock.json
-
-# ===== 前端构建缓存 =====
-frontend/dist/
-frontend/.vite/
-
-
-# ===== 构建产物 =====
-# 发行版构建产物（不提交，通过CI/CD生成）
-dist/
-build/
-*.egg-info/
-*.egg
-
-# 后端静态文件（由前端构建生成）
-backend/app/static/assets/
-backend/app/static/index.html
-!backend/app/static/.gitkeep
-
-# ===== Docker相关 =====
-# Docker数据卷映射目录
+# ===== Docker =====
 backenddata/
-# 本地Docker配置（不提交）
 docker-daemon.json
-
-# ===== 本地开发临时文件 =====
-*.local
-*.tmp
-*.temp
-*.bak
-*.cache
-*.swp
-*.swo
 
 # ===== IDE和编辑器 =====
 .idea/
@@ -93,8 +76,9 @@ docker-daemon.json
 *.swo
 *.sublime-workspace
 *.sublime-project
+.qoder/
 
-# ===== 大模型文件（太大不上传）=====
+# ===== 大模型文件 =====
 *.bin
 *.pt
 *.pth
@@ -104,26 +88,6 @@ docker-daemon.json
 *.pickle
 marker_models/
 chonkie_models/
-backend/data/marker_models/
-
-# ===== 向量数据库和知识图谱 =====
-backend/data/chroma/
-backend/data/knowledge_graphs/
-backend/data/exports/
-backend/data/novel_projects/
-backend/data/uploads/
-backend/data/backups/
-
-# ===== 编译后的二进制文件 =====
-*.pyd
-*.pyi
-backend/*.pyd
-backend/*.pyi
-
-# ===== PyArmor相关 =====
-pyarmor.bug.log
-.pyarmor/
-backend/pyarmor.bug.log
 
 # ===== 敏感信息 =====
 *.pem
@@ -139,6 +103,13 @@ nginx/ssl/*.key
 Thumbs.db
 Desktop.ini
 
+# ===== 构建产物 =====
+dist/
+build/
+backend/app/static/assets/
+backend/app/static/index.html
+!backend/app/static/.gitkeep
+
 # ===== 测试 =====
 .pytest_cache/
 .coverage
@@ -146,14 +117,16 @@ htmlcov/
 .tox/
 .nox/
 
-# ===== Qoder配置 =====
-.qoder/
-
 # ===== 备份和打包文件 =====
 *.backup
+*.bak
 *.rar
 *.zip
 *.7z
+*.tar
+*.tmp
+*.temp
+*.cache
 pack-exclude.txt
 
 # ===== 保留云端部署必需文件 =====

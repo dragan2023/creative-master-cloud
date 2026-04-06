@@ -82,13 +82,10 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  // 初始化时检查登录状态
-  if (token.value && !userInfo.value) {
-    fetchProfile().catch(() => {
-      // 获取用户信息失败，清除token
-      logout()
-    })
-  }
+  // 注意：移除了自动检查登录状态的代码
+  // 原因：在 store 模块初始化时执行异步操作可能导致问题
+  // 登录状态检查应该在组件的生命周期钩子（如 onMounted）中进行
+  // 如果需要在组件中检查登录状态，请手动调用 fetchProfile()
 
   return {
     userInfo,

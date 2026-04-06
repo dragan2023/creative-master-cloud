@@ -2,6 +2,11 @@
 文件解析工具
 支持 PDF、Word、TXT 等格式的文件解析
 集成文档预处理流水线 (Cleaner -> Filter -> Refiner)
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import List, Dict, Any, Optional, Callable
 from pathlib import Path

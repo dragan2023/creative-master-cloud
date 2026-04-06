@@ -12,6 +12,11 @@
 使用方式：
     formatter = DocumentFormatter(content_type="novel")
     formatted_content, stats = formatter.format(content)
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import re
 from typing import List, Dict, Any, Optional, Tuple
@@ -691,7 +696,8 @@ class DocumentFormatter:
             ) else self._chinese_to_number(section_num)
             if num > 20:  # 小节编号通常不会超过20
                 return False
-        except:
+        except (ValueError, IndexError) as e:
+            logger.warning(f"解析小节编号失败: {e}")
             pass
 
         return True

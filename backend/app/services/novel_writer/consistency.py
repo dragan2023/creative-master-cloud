@@ -1,9 +1,15 @@
 """
 一致性管理器
 维护角色状态、前文摘要等一致性保障机制
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import os
 import json
+import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
@@ -296,19 +302,15 @@ class ConsistencyManager:
     def _parse_json_response(self, response: str) -> Optional[Dict[str, Any]]:
         """解析JSON响应"""
         try:
-            # 清理响应
-            cleaned = self._clean_llm_output(response)
-
-            # 尝试找到JSON部分
-            start = cleaned.find("{")
-            end = cleaned.rfind("}") + 1
-
-            if start != -1 and end > start:
-                json_str = cleaned[start:end]
-                return json.loads(json_str)
-
+            result = json.loads(response)
+            if isinstance(result, dict):
+                return result
             return None
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            self.logger.warning(f"一致性检查JSON解析失败: {e}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"一致性检查JSON解析失败: {e}")
             return None
 
     def _simple_character_extraction(self, content: str, current_state: Dict[str, Any]):

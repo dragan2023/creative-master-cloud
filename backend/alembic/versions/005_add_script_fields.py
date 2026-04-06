@@ -17,21 +17,33 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # 检查列是否已存在
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    np_columns = [col['name'] for col in inspector.get_columns('novel_projects')]
+    nc_columns = [col['name'] for col in inspector.get_columns('novel_chapters')]
+    nc_indexes = [idx['name'] for idx in inspector.get_indexes('novel_chapters')]
+
     # 添加 novel_projects 表的剧本专用配置字段
-    op.add_column('novel_projects', sa.Column('script_config',
-                  sa.JSON(), nullable=True, comment='剧本专用配置'))
+    if 'script_config' not in np_columns:
+        op.add_column('novel_projects', sa.Column('script_config',
+                      sa.JSON(), nullable=True, comment='剧本专用配置'))
 
     # 添加 novel_chapters 表的场景编号字段
-    op.add_column('novel_chapters', sa.Column('episode_number',
-                  sa.Integer(), nullable=True, comment='集数（剧本专用）'))
-    op.add_column('novel_chapters', sa.Column('scene_number',
-                  sa.Integer(), nullable=True, comment='场景编号（剧本专用）'))
+    if 'episode_number' not in nc_columns:
+        op.add_column('novel_chapters', sa.Column('episode_number',
+                      sa.Integer(), nullable=True, comment='集数（剧本专用）'))
+    if 'scene_number' not in nc_columns:
+        op.add_column('novel_chapters', sa.Column('scene_number',
+                      sa.Integer(), nullable=True, comment='场景编号（剧本专用）'))
 
     # 创建索引
-    op.create_index('ix_novel_chapters_episode_number',
-                    'novel_chapters', ['episode_number'])
-    op.create_index('ix_novel_chapters_episode_scene', 'novel_chapters', [
-                    'project_id', 'episode_number', 'scene_number'])
+    if 'ix_novel_chapters_episode_number' not in nc_indexes:
+        op.create_index('ix_novel_chapters_episode_number',
+                        'novel_chapters', ['episode_number'])
+    if 'ix_novel_chapters_episode_scene' not in nc_indexes:
+        op.create_index('ix_novel_chapters_episode_scene', 'novel_chapters', [
+                        'project_id', 'episode_number', 'scene_number'])
 
 
 def downgrade() -> None:

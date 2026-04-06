@@ -35,15 +35,20 @@ export default defineConfig(({ mode }) => {
       }
     },
     server: {
+      host: '0.0.0.0',  // 监听所有网络接口
       port: parseInt(env.VITE_FRONTEND_PORT || '5173'),
       strictPort: true,  // 端口被占用时报错，不自动切换端口
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_URL || 'http://localhost:8000',
-          changeOrigin: true
+          target: env.VITE_BACKEND_URL || 'http://localhost:7000',
+          changeOrigin: true,
+          ws: true  // 支持 WebSocket 代理（写作任务实时进度）
         }
       },
-      open: true  // 启动时自动打开浏览器
+      open: !env.BROWSER || env.BROWSER !== 'none',  // 容器内禁用自动打开
+      // HMR 配置（热模块替换）
+      // Docker 容器中需要配置 clientPort: 80
+      // 本地开发时使用默认配置即可
     }
   }
 

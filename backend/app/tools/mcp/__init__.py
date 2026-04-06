@@ -1,4 +1,11 @@
-# MCP 多内容提供商工具模块
+"""
+MCP 多内容提供商工具模块
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
+"""
 # 核心客户端和缓存
 from app.tools.mcp.mcp_client import MCPClient, get_mcp_client
 from app.tools.mcp.mcp_cache import MCPCache, get_mcp_cache

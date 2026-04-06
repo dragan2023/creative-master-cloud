@@ -2,6 +2,11 @@
 原创IP计划生成服务
 核心逻辑：基于用户简化的描述输入，AI自动解析并构建完整的角色IP档案
 遵循核心公式：记忆锚点 + 情感投射 + 行为惯性 = 角色生命力
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, Any, Optional, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession

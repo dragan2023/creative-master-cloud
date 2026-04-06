@@ -18,49 +18,63 @@ depends_on = None
 
 def upgrade():
     """添加项目专属知识库相关字段"""
+    # 检查列是否已存在
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('novel_projects')]
+
     # 添加项目专属知识库字段
-    op.add_column(
-        'novel_projects',
-        sa.Column('project_kb_id', sa.Integer(),
-                  nullable=True, comment='项目专属知识库ID')
-    )
+    if 'project_kb_id' not in columns:
+        op.add_column(
+            'novel_projects',
+            sa.Column('project_kb_id', sa.Integer(),
+                      nullable=True, comment='项目专属知识库ID')
+        )
 
-    op.add_column(
-        'novel_projects',
-        sa.Column('project_kb_collection', sa.String(
-            100), nullable=True, comment='知识库集合名称')
-    )
+    if 'project_kb_collection' not in columns:
+        op.add_column(
+            'novel_projects',
+            sa.Column('project_kb_collection', sa.String(
+                100), nullable=True, comment='知识库集合名称')
+        )
 
-    op.add_column(
-        'novel_projects',
-        sa.Column('global_outline_graph_path', sa.String(
-            255), nullable=True, comment='全局大纲图谱文件路径')
-    )
+    if 'global_outline_graph_path' not in columns:
+        op.add_column(
+            'novel_projects',
+            sa.Column('global_outline_graph_path', sa.String(
+                255), nullable=True, comment='全局大纲图谱文件路径')
+        )
 
-    op.add_column(
-        'novel_projects',
-        sa.Column('kb_status', sa.String(20), nullable=True,
-                  default='pending', comment='知识库状态(pending/building/ready/failed)')
-    )
+    if 'kb_status' not in columns:
+        op.add_column(
+            'novel_projects',
+            sa.Column('kb_status', sa.String(20), nullable=True,
+                      default='pending', comment='知识库状态(pending/building/ready/failed)')
+        )
 
-    op.add_column(
-        'novel_projects',
-        sa.Column('kb_graphrag_enabled', sa.Boolean(), nullable=True,
-                  default=True, comment='是否启用GraphRAG')
-    )
+    if 'kb_graphrag_enabled' not in columns:
+        op.add_column(
+            'novel_projects',
+            sa.Column('kb_graphrag_enabled', sa.Boolean(), nullable=True,
+                      default=True, comment='是否启用GraphRAG')
+        )
 
-    op.add_column(
-        'novel_projects',
-        sa.Column('kb_build_progress', sa.JSON(),
-                  nullable=True, comment='知识库构建进度')
-    )
+    if 'kb_build_progress' not in columns:
+        op.add_column(
+            'novel_projects',
+            sa.Column('kb_build_progress', sa.JSON(),
+                      nullable=True, comment='知识库构建进度')
+        )
 
-    # 添加索引以加速知识库状态查询
-    op.create_index(
-        'ix_novel_projects_kb_status',
-        'novel_projects',
-        ['kb_status']
-    )
+    # 检查索引是否已存在
+    indexes = [idx['name'] for idx in inspector.get_indexes('novel_projects')]
+    if 'ix_novel_projects_kb_status' not in indexes:
+        # 添加索引以加速知识库状态查询
+        op.create_index(
+            'ix_novel_projects_kb_status',
+            'novel_projects',
+            ['kb_status']
+        )
 
 
 def downgrade():

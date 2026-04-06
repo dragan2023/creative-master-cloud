@@ -1,9 +1,17 @@
 """
 Agent 编排器
 协调 LLM、工具和记忆系统完成创意生成任务
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
+from app.models.generation import Generation, GenerationModule, GenerationStatus
+from app.models.knowledge_base import KnowledgeBase, KnowledgeBaseType, KnowledgeBaseStatus, KnowledgeBaseCategory
 from typing import AsyncGenerator, Dict, Any, Optional, List
 from datetime import datetime
+from dataclasses import dataclass, field
 import json
 import time
 import random
@@ -28,8 +36,40 @@ from app.tools.mcp.mcp_client import get_mcp_client, MCPClient
 from app.tools.creative_search import get_creative_search, OptimizedCreativeSearch
 from app.core.logger import get_logger, LoggerAdapter
 from app.core.config import PRESET_MODELS, get_settings
-from app.models.knowledge_base import KnowledgeBase, KnowledgeBaseType, KnowledgeBaseStatus, KnowledgeBaseCategory
-from app.models.generation import Generation, GenerationModule, GenerationStatus
+settings = get_settings()
+
+
+# ==================== 流式生成上下文数据类 ====================
+
+@dataclass
+class GenerateStreamContext:
+    """流式生成过程中的上下文数据"""
+    # LLM相关
+    llm_provider: Any = None
+    model_display_name: str = ""
+
+    # 提示词相关
+    system_prompt: str = ""
+    full_prompt: str = ""
+
+    # 输入参数
+    input_params: Dict[str, Any] = field(default_factory=dict)
+
+    # 知识库上下文
+    kb_contexts: Dict[str, str] = field(default_factory=lambda: {
+        "theory": "", "case": "", "user_specific": "", "manual": ""
+    })
+
+    # 生成内容
+    first_draft: str = ""
+    final_content: str = ""
+
+    # 时间相关
+    start_time: float = 0.0
+
+    # 多模态
+    converted_images: Optional[List[str]] = None
+    videos: Optional[List[str]] = None
 
 
 def convert_images_to_base64(images: Optional[List[str]]) -> Optional[List[str]]:
@@ -143,7 +183,7 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
         if logger:
             logger.warning(f"文件路径为空")
         return file_url
-    
+
     if not os.path.exists(file_path):
         if logger:
             logger.warning(f"文件不存在: {file_path}")
@@ -269,15 +309,550 @@ def get_model_friendly_name(provider: str, model_id: str) -> str:
 class AgentOrchestrator:
     """Agent 编排器"""
 
-    def __init__(self):
-        self.llm_manager = get_llm_manager()
-        self.memory_manager = get_memory_manager()
-        self.prompt_manager = get_prompt_manager()
-        self.web_search = get_web_search_tool()
-        self.knowledge_retrieval = get_knowledge_retrieval_tool()
-        self.webpage_reader = get_webpage_reader()
-        self.mcp_client = get_mcp_client()
-        self.logger = get_logger("orchestrator")
+    def __init__(
+        self,
+        llm_manager=None,
+        memory_manager=None,
+        prompt_manager=None,
+        web_search=None,
+        knowledge_retrieval=None,
+        webpage_reader=None,
+        mcp_client=None,
+        logger=None,
+    ):
+        """初始化编排器，支持依赖注入（便于测试Mock）
+
+        所有参数可选，不传时使用默认工厂函数创建实例。
+        """
+        self.llm_manager = llm_manager or get_llm_manager()
+        self.memory_manager = memory_manager or get_memory_manager()
+        self.prompt_manager = prompt_manager or get_prompt_manager()
+        self.web_search = web_search or get_web_search_tool()
+        self.knowledge_retrieval = knowledge_retrieval or get_knowledge_retrieval_tool()
+        self.webpage_reader = webpage_reader or get_webpage_reader()
+        self.mcp_client = mcp_client or get_mcp_client()
+        self.logger = logger or get_logger("orchestrator")
+
+    # ==================== 流式生成私有方法（重构） ====================
+
+    async def _load_llm_provider(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        provider: Optional[str] = None
+    ) -> tuple:
+        """
+        加载LLM提供者
+
+        Args:
+            db: 数据库会话
+            user_id: 用户ID
+            provider: 指定的提供者名称
+
+        Returns:
+            (llm_provider, model_display_name) 元组
+        """
+        llm_provider = await self.llm_manager.get_provider_from_db(
+            db=db,
+            user_id=user_id,
+            provider_name=provider
+        )
+        model_display_name = get_model_friendly_name(
+            llm_provider.get_model_info()["provider"],
+            llm_provider.model_name
+        )
+        return llm_provider, model_display_name
+
+    async def _prepare_input_params(
+        self,
+        db: AsyncSession,
+        module: str,
+        input_params: Dict[str, Any],
+        logger
+    ) -> tuple:
+        """
+        准备输入参数和系统提示词
+
+        Args:
+            db: 数据库会话
+            module: 模块名称
+            input_params: 输入参数
+            logger: 日志记录器
+
+        Returns:
+            (processed_input_params, system_prompt) 元组
+        """
+        # 处理输入参数中的文件URL
+        processed_params = await process_input_params_files(input_params, logger)
+
+        # 获取提示词模板
+        prompt_template = await self.prompt_manager.get_prompt(db, module)
+
+        # 渲染提示词
+        system_prompt = self.prompt_manager.render_prompt(
+            prompt_template, processed_params, module=module
+        )
+
+        # 添加创意变化引导
+        creative_angles = [
+            "请从一个独特的角度来诠释这个创意，避免常规套路",
+            "请在创作中融入一些出人意料的元素，让人眼前一亮",
+            "请尝试用新鲜的叙事方式来呈现，打破传统模式",
+            "请在细节处理上有一些独到的巧思，增加记忆点",
+            "请赋予作品一些独特的情感色彩，形成差异化风格",
+            "请从逆向思维出发，挑战常规认知，带来新颖的视角",
+            "请在结构上有一些创新设计，让整体更有层次感",
+            "请在开篇设计一个吸引人的钩子，迅速抓住读者注意力",
+            "请在结尾留下深刻印象，形成强烈的情感共鸣或思考",
+            "请在中间段落设置一些反转或惊喜，增加戏剧张力"
+        ]
+        creative_styles = [
+            "幽默风趣", "温馨感人", "悬疑紧张", "清新文艺",
+            "热血励志", "轻松治愈", "反差萌", "情感共鸣"
+        ]
+        creative_seed = random.choice(creative_angles)
+        creative_style_hint = random.choice(creative_styles)
+        creative_id = random.randint(
+            settings.CREATIVE_ID_MIN, settings.CREATIVE_ID_MAX)
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        system_prompt += f"""
+
+## 创意差异化指引
+**本次创意编号**: #{creative_id}
+**生成时间**: {current_time}
+**风格倾向**: {creative_style_hint}
+
+{creative_seed}
+
+⚠️ 重要提示：本次创作必须与之前的创作有明显区别。请充分发挥创意，在保持主题一致的前提下，展现全新的创意思路和表达方式。避免重复使用相似的框架、句式和表达。"""
+
+        return processed_params, system_prompt
+
+    async def _gather_context(
+        self,
+        ctx: GenerateStreamContext,
+        db: AsyncSession,
+        user_id: int,
+        module: str,
+        enable_knowledge: bool,
+        kb_vertical: bool,
+        kb_user_specific: bool,
+        kb_manual: bool,
+        kb_vertical_ids: Optional[List[int]],
+        kb_user_specific_ids: Optional[List[int]],
+        kb_manual_ids: Optional[List[int]],
+        actual_enable_creative_search: bool,
+        search_keywords: Optional[List[str]],
+        search_depth: str,
+        actual_enable_trending: bool,
+        reference_urls: Optional[List[str]],
+        logger
+    ) -> AsyncGenerator[str, None]:
+        """
+        收集上下文信息（搜索+知识库+热点）
+
+        Yields:
+            SSE 格式的事件字符串
+        """
+        full_prompt = ""
+
+        # 1. 创作辅助搜索
+        if actual_enable_creative_search:
+            is_user_initiated_search = bool(search_keywords)
+
+            if is_user_initiated_search:
+                yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "running", "message": f"正在搜索创作素材，关键词：{', '.join(search_keywords)}...", "icon": "Search"})
+            else:
+                yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "running", "message": "正在智能分析是否需要搜索创作素材...", "icon": "Search"})
+
+            try:
+                creative_search = get_creative_search()
+                search_result = await creative_search.search(
+                    input_params=ctx.input_params,
+                    module=module,
+                    user_keywords=search_keywords,
+                    force_search=is_user_initiated_search,
+                    search_depth=search_depth,
+                    user_id=user_id,
+                    db=db
+                )
+
+                if search_result["searched"] and search_result["results"]:
+                    full_prompt += f"\n\n{search_result['formatted_context']}\n"
+                    cache_status = "（来自缓存）" if search_result["cached"] else ""
+                    search_type = "用户指定" if is_user_initiated_search else "智能"
+                    yield self._format_sse("workflow", {
+                        "type": "step",
+                        "step": "creative_search",
+                        "status": "done",
+                        "message": f"{search_type}搜索完成，找到 {len(search_result['results'])} 条参考资料{cache_status}，关键词：{', '.join(search_result['keywords'])}"
+                    })
+                    logger.info(
+                        f"创作辅助搜索完成: keywords={search_result['keywords']}, results={len(search_result['results'])}, reason={search_result['reason']}")
+                elif search_result["searched"] and not search_result["results"]:
+                    search_type = "用户指定" if is_user_initiated_search else "智能"
+                    keywords_info = f"，关键词：{', '.join(search_result['keywords'])}" if search_result.get(
+                        'keywords') else ""
+                    yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "done", "message": f"{search_type}搜索未返回结果{keywords_info}"})
+                else:
+                    yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "done", "message": f"跳过搜索：{search_result['reason']}"})
+
+            except Exception as e:
+                self.logger.exception("创作辅助搜索失败")
+                logger.exception(f"创作辅助搜索异常: {str(e)}")
+                yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "done", "message": "搜索服务暂时不可用，跳过"})
+
+        # 2. 知识库检索
+        kb_contexts = {"theory": "", "case": "",
+                       "user_specific": "", "manual": ""}
+        query_text = ctx.input_params.get(
+            "topic", "") or json.dumps(ctx.input_params)
+
+        logger.info(
+            f"知识库增强状态: enable_knowledge={enable_knowledge}, kb_vertical={kb_vertical}, kb_user_specific={kb_user_specific}, kb_manual={kb_manual}")
+
+        if enable_knowledge:
+            kb_types = ["通用"]
+            if kb_vertical:
+                kb_types.append("垂直领域")
+            if kb_user_specific:
+                kb_types.append("用户专属")
+            if kb_manual:
+                kb_types.append("官方手册")
+            yield self._format_sse("workflow", {"type": "step", "step": "kb_retrieve", "status": "running", "message": f"正在检索知识库（{' → '.join(kb_types)})...", "icon": "Collection"})
+
+            kb_contexts = await self._retrieve_classified_knowledge(
+                db=db,
+                user_id=user_id,
+                module=module,
+                query_text=query_text,
+                kb_vertical=kb_vertical,
+                kb_user_specific=kb_user_specific,
+                kb_manual=kb_manual,
+                kb_vertical_ids=kb_vertical_ids,
+                kb_user_specific_ids=kb_user_specific_ids,
+                kb_manual_ids=kb_manual_ids
+            )
+
+            # 统计检索结果
+            theory_count = len(
+                [1 for line in kb_contexts["theory"].split("\n") if line.startswith("###")])
+            case_count = len(
+                [1 for line in kb_contexts["case"].split("\n") if line.startswith("###")])
+            user_specific_count = len(
+                [1 for line in kb_contexts["user_specific"].split("\n") if line.startswith("###")])
+            manual_count = len(
+                [1 for line in kb_contexts["manual"].split("\n") if line.startswith("###")])
+
+            result_parts = [f"通用:{theory_count}个"]
+            if kb_vertical:
+                result_parts.append(f"垂直领域:{case_count}个")
+            if kb_user_specific:
+                result_parts.append(f"用户专属:{user_specific_count}个")
+            if kb_manual:
+                result_parts.append(f"官方手册:{manual_count}个")
+            yield self._format_sse("workflow", {"type": "step", "step": "kb_retrieve", "status": "done", "message": f"已检索知识库（{', '.join(result_parts)}）"})
+
+            # 将知识库内容添加到 prompt
+            if kb_contexts["theory"].strip():
+                full_prompt += f"\n\n## 通用创意理论知识库\n{kb_contexts['theory']}\n"
+            if kb_contexts["case"].strip():
+                full_prompt += f"\n\n## 垂直领域案例知识库\n{kb_contexts['case']}\n"
+            if kb_contexts["user_specific"].strip():
+                full_prompt += f"\n\n## 用户专属知识库\n{kb_contexts['user_specific']}\n"
+            if kb_contexts["manual"].strip():
+                full_prompt += f"\n\n## 官方规范手册\n{kb_contexts['manual']}\n"
+
+        # 更新上下文中的知识库内容
+        ctx.kb_contexts = kb_contexts
+
+        # 3. 添加参考网页内容
+        if reference_urls:
+            yield self._format_sse("workflow", {"type": "step", "step": "webpage", "status": "running", "message": "智能体正在访问参考链接...", "icon": "Link"})
+            webpage_contents = await self.webpage_reader.read_urls(reference_urls)
+            if webpage_contents:
+                webpage_context = self.webpage_reader.format_for_context(
+                    webpage_contents)
+                full_prompt += f"\n\n## 参考资料（网页链接）\n{webpage_context}\n"
+            yield self._format_sse("workflow", {"type": "step", "step": "webpage", "status": "done", "message": f"已读取 {len(reference_urls)} 个链接"})
+
+        # 4. 添加实时热点数据
+        if actual_enable_trending:
+            yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "running", "message": "正在聚合实时热点（通过搜索引擎获取）...", "icon": "TrendCharts"})
+            try:
+                logger.info(f"热点聚合开始: user_id={user_id}")
+                trending_result = await self.mcp_client.get_trending_topics(
+                    platforms=None,
+                    provider="search_hotnews",
+                    limit=15,
+                    use_cache=True,
+                    db_session=db,
+                    user_id=user_id
+                )
+                logger.info(
+                    f"热点聚合结果: success={trending_result.success}, total_items={trending_result.total_items}, platforms={trending_result.platforms_count}")
+
+                if trending_result.success and trending_result.data:
+                    trending_context = self.mcp_client.format_for_context(
+                        trending_result, max_items=15)
+                    hot_items_count = sum(len(p.items)
+                                          for p in trending_result.data if p.items)
+                    full_prompt += f"\n\n{trending_context}"
+                    full_prompt += f"\n\n**🔥 热点融合创作指令**："
+                    full_prompt += f"\n当前已获取 {hot_items_count} 条实时热点。你必须："
+                    full_prompt += f"\n1. 从热点列表中选择1-3个与创作主题最相关的话题"
+                    full_prompt += f"\n2. 将热点元素自然融入你的创作内容（可以是话题、事件、人物等）"
+                    full_prompt += f"\n3. 在内容末尾添加\"📌 参考热点：[具体热点名称]\"标注"
+                    full_prompt += f"\n4. 如果没有任何热点与主题相关，请说明原因并在内容中体现时效性"
+
+                    total_items = sum(len(p.items)
+                                      for p in trending_result.data if p.items)
+                    platform_count = len(
+                        [p for p in trending_result.data if p.items])
+                    yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "done", "message": f"已获取 {total_items} 条热点（来自{platform_count}个平台）"})
+                else:
+                    error_msg = trending_result.error.message if trending_result.error else "未知错误"
+                    logger.warning(f"热点聚合失败或无数据: {error_msg}")
+                    yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "done", "message": "暂无热点数据"})
+
+            except Exception as e:
+                self.logger.exception("获取热点数据失败")
+                logger.exception("热点聚合异常")
+                yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "done", "message": "热点数据获取失败，跳过"})
+
+        # 5. 添加用户消息
+        full_prompt += "\n\n请根据以上信息，按照要求的格式生成内容。"
+
+        # 更新上下文
+        ctx.full_prompt = full_prompt
+
+    async def _generate_first_draft(
+        self,
+        ctx: GenerateStreamContext,
+        db: AsyncSession,
+        user_id: int,
+        module: str,
+        temperature: float,
+        cancel_event: Optional[asyncio.Event],
+        logger
+    ) -> AsyncGenerator[str, None]:
+        """
+        生成初稿内容
+
+        Yields:
+            SSE 格式的事件字符串
+        """
+        logger.info(
+            f"开始流式生成 - 模块: {module}, 模型: {ctx.llm_provider.model_name}")
+
+        # 转换图片URL为base64格式
+        converted_images = convert_images_to_base64(ctx.converted_images)
+        if converted_images:
+            logger.info(f"已转换 {len(converted_images)} 张图片为base64格式")
+        ctx.converted_images = converted_images
+
+        # 处理视频URL
+        if ctx.videos:
+            logger.info(f"接收到 {len(ctx.videos)} 个视频URL: {ctx.videos}")
+
+        yield self._format_sse("workflow", {"type": "step", "step": "generate", "status": "running", "message": "正在生成初稿内容...", "icon": "ChatDotRound"})
+
+        # 获取模型支持的最大输出 token，并设置安全上限
+        safe_output_limit = min(
+            ctx.llm_provider.get_max_output_tokens(), settings.MAX_LLM_OUTPUT_TOKENS)
+        logger.info(f"初次回答生成 - max_tokens: {safe_output_limit}")
+
+        first_draft_content = []
+        try:
+            stream = ctx.llm_provider.generate_stream(
+                prompt=ctx.full_prompt,
+                system_prompt=ctx.system_prompt,
+                temperature=temperature,
+                max_tokens=safe_output_limit,
+                images=converted_images,
+                videos=ctx.videos
+            )
+
+            async for chunk in stream:
+                if cancel_event and cancel_event.is_set():
+                    logger.info(f"用户 {user_id} 取消了生成任务")
+                    yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
+                    return
+
+                first_draft_content.append(chunk)
+                yield self._format_sse("content", {"text": chunk})
+
+        except Exception as stream_error:
+            logger.exception(f"流式生成异常: {stream_error}")
+            yield self._format_sse("workflow", {"type": "error", "message": f"生成过程出错: {str(stream_error)}"})
+            return
+
+        yield self._format_sse("workflow", {"type": "step", "step": "generate", "status": "done", "message": "初稿内容生成完成"})
+
+        # 更新上下文
+        ctx.first_draft = "".join(first_draft_content)
+        ctx.final_content = ctx.first_draft
+
+    async def _evaluate_and_revise(
+        self,
+        ctx: GenerateStreamContext,
+        db: AsyncSession,
+        user_id: int,
+        module: str,
+        enable_knowledge: bool,
+        temperature: float,
+        cancel_event: Optional[asyncio.Event],
+        logger
+    ) -> AsyncGenerator[str, None]:
+        """
+        评估和修正内容
+
+        Yields:
+            SSE 格式的事件字符串
+        """
+        # 知识库评估与修正
+        if enable_knowledge and (ctx.kb_contexts["theory"].strip() or ctx.kb_contexts["case"].strip() or ctx.kb_contexts["manual"].strip()):
+            yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "running", "message": "智能体正在评估内容质量...", "icon": "DataAnalysis"})
+
+            if cancel_event and cancel_event.is_set():
+                logger.info(f"用户 {user_id} 在评估阶段取消了生成任务")
+                yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
+                return
+
+            evaluation_result = await self._evaluate_with_llm(
+                llm_provider=ctx.llm_provider,
+                first_answer=ctx.first_draft,
+                kb_contexts=ctx.kb_contexts,
+                input_params=ctx.input_params
+            )
+
+            if evaluation_result.get("needs_revision"):
+                issue_count = len(evaluation_result.get("theory_issues", [])) + \
+                    len(evaluation_result.get("case_insights", [])) + \
+                    len(evaluation_result.get("compliance_issues", []))
+                yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "done", "message": f"检测到可优化点：{issue_count}处"})
+
+                if cancel_event and cancel_event.is_set():
+                    logger.info(f"用户 {user_id} 在修正阶段取消了生成任务")
+                    yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
+                    return
+
+                yield self._format_sse("workflow", {"type": "step", "step": "revise", "status": "running", "message": "正在优化内容...", "icon": "Edit"})
+
+                revised_content = await self._generate_revised_content(
+                    llm_provider=ctx.llm_provider,
+                    original_content=ctx.first_draft,
+                    evaluation_result=evaluation_result,
+                    kb_contexts=ctx.kb_contexts,
+                    system_prompt=ctx.system_prompt,
+                    temperature=temperature,
+                    input_params=ctx.input_params,
+                    cancel_event=cancel_event
+                )
+
+                if revised_content:
+                    yield self._format_sse("content", {"text": "\n\n---\n\n### 🔄 基于知识库的优化建议\n\n"})
+                    yield self._format_sse("content", {"text": revised_content})
+                    ctx.final_content = ctx.first_draft + \
+                        "\n\n---\n\n### 🔄 基于知识库的优化建议\n\n" + revised_content
+
+                yield self._format_sse("workflow", {"type": "step", "step": "revise", "status": "done", "message": "内容优化完成"})
+            else:
+                yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "done", "message": "知识库验证通过"})
+
+        # 自洽性检查
+        yield self._format_sse("workflow", {"type": "step", "step": "consistency", "status": "running", "message": "执行自洽性检查...", "icon": "CircleCheck"})
+
+        if cancel_event and cancel_event.is_set():
+            logger.info(f"用户 {user_id} 在自洽性检查阶段取消了生成任务")
+            yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
+            return
+
+        consistency_result = await self._check_self_consistency(
+            llm_provider=ctx.llm_provider,
+            content=ctx.first_draft,
+            input_params=ctx.input_params,
+            module=module,
+            temperature=temperature
+        )
+
+        if consistency_result.get("issues"):
+            issues_count = len(consistency_result.get("issues", []))
+            yield self._format_sse("workflow", {"type": "step", "step": "consistency", "status": "done", "message": f"自洽性检查完成，发现{issues_count}处问题"})
+
+            if consistency_result.get("needs_fix"):
+                fix_content = await self._auto_fix_issues(
+                    llm_provider=ctx.llm_provider,
+                    original_content=ctx.first_draft,
+                    consistency_result=consistency_result,
+                    temperature=temperature
+                )
+                if fix_content:
+                    yield self._format_sse("content", {"text": "\n\n---\n\n### 🤖 Agent修正建议\n\n"})
+                    yield self._format_sse("content", {"text": fix_content})
+                    ctx.final_content = ctx.first_draft + \
+                        "\n\n---\n\n### 🤖 Agent修正建议\n\n" + fix_content
+        else:
+            yield self._format_sse("workflow", {"type": "step", "step": "consistency", "status": "done", "message": "自洽性检查通过"})
+
+    async def _save_and_complete(
+        self,
+        ctx: GenerateStreamContext,
+        db: AsyncSession,
+        user_id: int,
+        logger
+    ) -> AsyncGenerator[str, None]:
+        """
+        保存生成记录并发送完成事件
+
+        Yields:
+            SSE 格式的事件字符串
+        """
+        # 添加专业标识
+        yield self._format_sse("content", {"text": "\n\n---\n\n✨ *该方案已经过全能创意大师智能验证与优化*"})
+        ctx.final_content += "\n\n---\n\n✨ *该方案已经过全能创意大师智能验证与优化*"
+
+        # 保存生成记录到数据库
+        try:
+            title = None
+            if ctx.input_params:
+                title_keys = ['title', 'topic', 'theme', 'subject', 'name']
+                for key in title_keys:
+                    if key in ctx.input_params and ctx.input_params[key]:
+                        title = str(ctx.input_params[key])[:200]
+                        break
+
+            generation = Generation(
+                user_id=user_id,
+                module=GenerationModule(
+                    ctx.input_params.get("module", "short_video")),
+                status=GenerationStatus.COMPLETED,
+                input_params=ctx.input_params,
+                title=title,
+                output_content=ctx.final_content,
+                provider=ctx.llm_provider.get_model_info()["provider"],
+                model_name=ctx.llm_provider.model_name,
+                duration_ms=int((time.time() - ctx.start_time) * 1000)
+            )
+            db.add(generation)
+            await db.commit()
+            logger.info(f"生成记录已保存 - ID: {generation.id}, 标题: {title}")
+        except Exception as save_error:
+            logger.exception("保存生成记录失败")
+            await db.rollback()
+
+        # 发送完成事件
+        duration_ms = int((time.time() - ctx.start_time) * 1000)
+        logger.info(f"流式生成完成 - 耗时: {duration_ms}ms")
+
+        yield self._format_sse("workflow", {"type": "complete", "message": "生成完成"})
+        yield self._format_sse("done", {
+            "model": ctx.model_display_name,
+            "model_id": ctx.llm_provider.model_name,
+            "provider": ctx.llm_provider.get_model_info()["provider"],
+            "duration_ms": duration_ms
+        })
 
     async def generate(
         self,
@@ -354,7 +929,8 @@ class AgentOrchestrator:
             ]
             creative_seed = random.choice(creative_angles)
             creative_style_hint = random.choice(creative_styles)
-            creative_id = random.randint(100000, 999999)
+            creative_id = random.randint(
+                settings.CREATIVE_ID_MIN, settings.CREATIVE_ID_MAX)
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             system_prompt += f"""\n\n## 创意差异化指引
@@ -383,7 +959,7 @@ class AgentOrchestrator:
                                 UserAPIKey.user_id == user_id,
                                 UserAPIKey.provider == provider,
                                 UserAPIKey.is_valid == True
-                            ).order_by(UserAPIKey.is_default.desc())
+                            ).order_by(UserAPIKey.is_default.desc()).limit(1)
                         )
                         api_key_record = result.scalar_one_or_none()
                         if api_key_record:
@@ -521,7 +1097,15 @@ class AgentOrchestrator:
         enable_trending: bool = False
     ) -> AsyncGenerator[str, None]:
         """
-        执行创意生成（流式输出）
+        执行创意生成（流式输出）- 重构后的编排器方法
+
+        此方法现在作为编排器，调用各个私有方法完成生成流程：
+        1. _load_llm_provider() - LLM加载
+        2. _prepare_input_params() - 参数准备
+        3. _gather_context() - 上下文收集
+        4. _generate_first_draft() - 初稿生成
+        5. _evaluate_and_revise() - 评估和修正
+        6. _save_and_complete() - 保存和完成
 
         Args:
             db: 数据库会话
@@ -558,441 +1142,86 @@ class AgentOrchestrator:
         actual_enable_creative_search = enable_creative_search or enable_search
         actual_enable_trending = enable_trending or enable_mcp
 
-        # 定义工作流程步骤
-        workflow_steps = []
-
         try:
             # 发送开始事件
             yield self._format_sse("workflow", {"type": "start", "steps": []})
 
-            # 1. 获取 LLM 提供者
-            workflow_steps.append(
-                {"step": "model", "status": "running", "message": "正在加载AI模型..."})
+            # 1. 加载 LLM 提供者
             yield self._format_sse("workflow", {"type": "step", "step": "model", "status": "running", "message": "正在加载AI模型...", "icon": "Cpu"})
-            llm_provider = await self.llm_manager.get_provider_from_db(
-                db=db,
-                user_id=user_id,
-                provider_name=provider
-            )
-            # 获取模型友好名称用于显示
-            model_display_name = get_model_friendly_name(
-                llm_provider.get_model_info()["provider"],
-                llm_provider.model_name
-            )
+            llm_provider, model_display_name = await self._load_llm_provider(db, user_id, provider)
             yield self._format_sse("workflow", {"type": "step", "step": "model", "status": "done", "message": f"已加载模型: {model_display_name}"})
 
-            # 2. 处理输入参数中的文件URL（将文件内容提取出来）
-            input_params = await process_input_params_files(input_params, logger)
-
-            # 3. 获取提示词模板
+            # 2. 准备输入参数和系统提示词
             yield self._format_sse("workflow", {"type": "step", "step": "prompt", "status": "running", "message": "正在准备提示词...", "icon": "Document"})
-            prompt_template = await self.prompt_manager.get_prompt(db, module)
-
-            # 4. 渲染提示词
-            system_prompt = self.prompt_manager.render_prompt(
-                prompt_template, input_params, module=module)
-
-            # 3.1 添加创意变化引导（确保每次生成不同）
-            creative_angles = [
-                "请从一个独特的角度来诠释这个创意，避免常规套路",
-                "请在创作中融入一些出人意料的元素，让人眼前一亮",
-                "请尝试用新鲜的叙事方式来呈现，打破传统模式",
-                "请在细节处理上有一些独到的巧思，增加记忆点",
-                "请赋予作品一些独特的情感色彩，形成差异化风格",
-                "请从逆向思维出发，挑战常规认知，带来新颖的视角",
-                "请在结构上有一些创新设计，让整体更有层次感",
-                "请在开篇设计一个吸引人的钩子，迅速抓住读者注意力",
-                "请在结尾留下深刻印象，形成强烈的情感共鸣或思考",
-                "请在中间段落设置一些反转或惊喜，增加戏剧张力"
-            ]
-            creative_styles = [
-                "幽默风趣", "温馨感人", "悬疑紧张", "清新文艺",
-                "热血励志", "轻松治愈", "反差萌", "情感共鸣"
-            ]
-            creative_seed = random.choice(creative_angles)
-            creative_style_hint = random.choice(creative_styles)
-            creative_id = random.randint(100000, 999999)
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            system_prompt += f"""\n\n## 创意差异化指引
-**本次创意编号**: #{creative_id}
-**生成时间**: {current_time}
-**风格倾向**: {creative_style_hint}
-
-{creative_seed}
-
-⚠️ 重要提示：本次创作必须与之前的创作有明显区别。请充分发挥创意，在保持主题一致的前提下，展现全新的创意思路和表达方式。避免重复使用相似的框架、句式和表达。"""
-
+            processed_input_params, system_prompt = await self._prepare_input_params(db, module, input_params, logger)
             yield self._format_sse("workflow", {"type": "step", "step": "prompt", "status": "done", "message": "提示词准备完成"})
 
-            # 4. 构建完整提示
-            full_prompt = ""
-
-            # 4.1 创作辅助搜索（智能搜索创作素材和背景信息）
-            if actual_enable_creative_search:
-                # 判断是否为用户主动搜索（用户指定了关键词）
-                is_user_initiated_search = bool(search_keywords)
-
-                if is_user_initiated_search:
-                    # 用户主动搜索，直接使用用户指定的关键词
-                    yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "running", "message": f"正在搜索创作素材，关键词：{', '.join(search_keywords)}...", "icon": "Search"})
-                else:
-                    # 智能分析是否需要搜索
-                    yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "running", "message": "正在智能分析是否需要搜索创作素材...", "icon": "Search"})
-
-                try:
-                    # 获取创作辅助搜索实例
-                    creative_search = get_creative_search()
-
-                    # 执行智能搜索（用户指定关键词时强制搜索）
-                    search_result = await creative_search.search(
-                        input_params=input_params,
-                        module=module,
-                        user_keywords=search_keywords,
-                        force_search=is_user_initiated_search,  # 用户指定关键词时强制搜索
-                        search_depth=search_depth,
-                        user_id=user_id,
-                        db=db
-                    )
-
-                    if search_result["searched"] and search_result["results"]:
-                        # 搜索成功，添加到提示词
-                        full_prompt += f"\n\n{search_result['formatted_context']}\n"
-                        cache_status = "（来自缓存）" if search_result["cached"] else ""
-                        search_type = "用户指定" if is_user_initiated_search else "智能"
-                        yield self._format_sse("workflow", {
-                            "type": "step",
-                            "step": "creative_search",
-                            "status": "done",
-                            "message": f"{search_type}搜索完成，找到 {len(search_result['results'])} 条参考资料{cache_status}，关键词：{', '.join(search_result['keywords'])}"
-                        })
-                        logger.info(
-                            f"创作辅助搜索完成: keywords={search_result['keywords']}, results={len(search_result['results'])}, reason={search_result['reason']}")
-                    elif search_result["searched"] and not search_result["results"]:
-                        search_type = "用户指定" if is_user_initiated_search else "智能"
-                        keywords_info = f"，关键词：{', '.join(search_result['keywords'])}" if search_result.get(
-                            'keywords') else ""
-                        yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "done", "message": f"{search_type}搜索未返回结果{keywords_info}"})
-                    else:
-                        # 不需要搜索（仅智能分析场景）
-                        yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "done", "message": f"跳过搜索：{search_result['reason']}"})
-
-                except Exception as e:
-                    self.logger.exception("创作辅助搜索失败")
-                    logger.exception(f"创作辅助搜索异常: {str(e)}")
-                    yield self._format_sse("workflow", {"type": "step", "step": "creative_search", "status": "done", "message": "搜索服务暂时不可用，跳过"})
-
-            # 4.2 知识库检索（通用固定调用 + 用户选择的类别）
-            kb_contexts = {"theory": "", "case": "",
-                           "user_specific": "", "manual": ""}
-            query_text = input_params.get(
-                "topic", "") or json.dumps(input_params)
-
-            # 记录知识库检索状态
-            logger.info(
-                f"知识库增强状态: enable_knowledge={enable_knowledge}, kb_vertical={kb_vertical}, kb_user_specific={kb_user_specific}, kb_manual={kb_manual}")
-
-            if enable_knowledge:
-                # 构建检索状态消息
-                kb_types = ["通用"]
-                if kb_vertical:
-                    kb_types.append("垂直领域")
-                if kb_user_specific:
-                    kb_types.append("用户专属")
-                if kb_manual:
-                    kb_types.append("官方手册")
-                yield self._format_sse("workflow", {"type": "step", "step": "kb_retrieve", "status": "running", "message": f"正在检索知识库（{' → '.join(kb_types)})...", "icon": "Collection"})
-
-                kb_contexts = await self._retrieve_classified_knowledge(
-                    db=db,
-                    user_id=user_id,
-                    module=module,
-                    query_text=query_text,
-                    kb_vertical=kb_vertical,
-                    kb_user_specific=kb_user_specific,
-                    kb_manual=kb_manual,
-                    kb_vertical_ids=kb_vertical_ids,
-                    kb_user_specific_ids=kb_user_specific_ids,
-                    kb_manual_ids=kb_manual_ids
-                )
-
-                # 统计检索结果
-                theory_count = len(
-                    [1 for line in kb_contexts["theory"].split("\n") if line.startswith("###")])
-                case_count = len(
-                    [1 for line in kb_contexts["case"].split("\n") if line.startswith("###")])
-                user_specific_count = len(
-                    [1 for line in kb_contexts["user_specific"].split("\n") if line.startswith("###")])
-                manual_count = len(
-                    [1 for line in kb_contexts["manual"].split("\n") if line.startswith("###")])
-
-                # 构建结果消息
-                result_parts = [f"通用:{theory_count}个"]
-                if kb_vertical:
-                    result_parts.append(f"垂直领域:{case_count}个")
-                if kb_user_specific:
-                    result_parts.append(f"用户专属:{user_specific_count}个")
-                if kb_manual:
-                    result_parts.append(f"官方手册:{manual_count}个")
-                yield self._format_sse("workflow", {"type": "step", "step": "kb_retrieve", "status": "done", "message": f"已检索知识库（{', '.join(result_parts)}）"})
-
-                # 将知识库内容添加到 prompt
-                if kb_contexts["theory"].strip():
-                    full_prompt += f"\n\n## 通用创意理论知识库\n{kb_contexts['theory']}\n"
-                if kb_contexts["case"].strip():
-                    full_prompt += f"\n\n## 垂直领域案例知识库\n{kb_contexts['case']}\n"
-                if kb_contexts["user_specific"].strip():
-                    full_prompt += f"\n\n## 用户专属知识库\n{kb_contexts['user_specific']}\n"
-                if kb_contexts["manual"].strip():
-                    full_prompt += f"\n\n## 官方规范手册\n{kb_contexts['manual']}\n"
-
-            # 4.3 添加参考网页内容
-            if reference_urls:
-                yield self._format_sse("workflow", {"type": "step", "step": "webpage", "status": "running", "message": "智能体正在访问参考链接...", "icon": "Link"})
-                webpage_contents = await self.webpage_reader.read_urls(reference_urls)
-                if webpage_contents:
-                    webpage_context = self.webpage_reader.format_for_context(
-                        webpage_contents)
-                    full_prompt += f"\n\n## 参考资料（网页链接）\n{webpage_context}\n"
-                yield self._format_sse("workflow", {"type": "step", "step": "webpage", "status": "done", "message": f"已读取 {len(reference_urls)} 个链接"})
-
-            # 4.4 添加实时热点数据（热点聚合）
-            if actual_enable_trending:
-                yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "running", "message": "正在聚合实时热点（通过搜索引擎获取）...", "icon": "TrendCharts"})
-                try:
-                    logger.info(f"热点聚合开始: user_id={user_id}")
-                    # 获取热点数据（使用 search_hotnews provider，传递用户上下文以获取API Key）
-                    trending_result = await self.mcp_client.get_trending_topics(
-                        platforms=None,  # 获取所有平台
-                        provider="search_hotnews",  # 使用基于搜索的热点聚合
-                        limit=15,
-                        use_cache=True,
-                        db_session=db,
-                        user_id=user_id
-                    )
-                    logger.info(
-                        f"热点聚合结果: success={trending_result.success}, total_items={trending_result.total_items}, platforms={trending_result.platforms_count}")
-                    if trending_result.success and trending_result.data:
-                        trending_context = self.mcp_client.format_for_context(
-                            trending_result, max_items=15)
-                        # 添加明确的热点使用指令
-                        hot_items_count = sum(len(p.items)
-                                              for p in trending_result.data if p.items)
-                        full_prompt += f"\n\n{trending_context}"
-                        full_prompt += f"\n\n**🔥 热点融合创作指令**："
-                        full_prompt += f"\n当前已获取 {hot_items_count} 条实时热点。你必须："
-                        full_prompt += f"\n1. 从热点列表中选择1-3个与创作主题最相关的话题"
-                        full_prompt += f"\n2. 将热点元素自然融入你的创作内容（可以是话题、事件、人物等）"
-                        full_prompt += f"\n3. 在内容末尾添加\"📌 参考热点：[具体热点名称]\"标注"
-                        full_prompt += f"\n4. 如果没有任何热点与主题相关，请说明原因并在内容中体现时效性"
-                        # 统计热点数量
-                        total_items = sum(len(p.items)
-                                          for p in trending_result.data if p.items)
-                        platform_count = len(
-                            [p for p in trending_result.data if p.items])
-                        yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "done", "message": f"已获取 {total_items} 条热点（来自{platform_count}个平台）"})
-                    else:
-                        error_msg = trending_result.error.message if trending_result.error else "未知错误"
-                        logger.warning(f"热点聚合失败或无数据: {error_msg}")
-                        yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "done", "message": "暂无热点数据"})
-                except Exception as e:
-                    self.logger.exception("获取热点数据失败")
-                    logger.exception("热点聚合异常")
-                    yield self._format_sse("workflow", {"type": "step", "step": "trending", "status": "done", "message": "热点数据获取失败，跳过"})
-
-            # 4.5 添加用户消息
-            full_prompt += "\n\n请根据以上信息，按照要求的格式生成内容。"
-
-            logger.info(
-                f"开始流式生成 - 模块: {module}, 模型: {llm_provider.model_name}")
-
-            # 转换图片URL为base64格式
-            converted_images = convert_images_to_base64(images)
-            if converted_images:
-                logger.info(f"已转换 {len(converted_images)} 张图片为base64格式")
-
-            # 处理视频URL
-            if videos:
-                logger.info(f"接收到 {len(videos)} 个视频URL: {videos}")
-
-            # 5. 生成并实时输出初稿内容
-            yield self._format_sse("workflow", {"type": "step", "step": "generate", "status": "running", "message": "正在生成初稿内容...", "icon": "ChatDotRound"})
-
-            # 获取模型支持的最大输出 token，并设置安全上限
-            safe_output_limit = min(
-                llm_provider.get_max_output_tokens(), 64000)
-            logger.info(f"初次回答生成 - max_tokens: {safe_output_limit}")
-
-            first_draft_content = []
-            try:
-                # Nuitka 兼容：确保 generate_stream 返回的是异步生成器
-                stream = llm_provider.generate_stream(
-                    prompt=full_prompt,
-                    system_prompt=system_prompt,
-                    temperature=temperature,
-                    max_tokens=safe_output_limit,
-                    images=converted_images,
-                    videos=videos
-                )
-
-                async for chunk in stream:
-                    # 检查取消事件
-                    if cancel_event and cancel_event.is_set():
-                        logger.info(f"用户 {user_id} 取消了生成任务")
-                        yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
-                        return
-
-                    first_draft_content.append(chunk)
-                    # 实时输出初稿内容给用户
-                    yield self._format_sse("content", {"text": chunk})
-            except Exception as stream_error:
-                # 捕获流式生成过程中的异常
-                logger.exception(f"流式生成异常: {stream_error}")
-                yield self._format_sse("workflow", {"type": "error", "message": f"生成过程出错: {str(stream_error)}"})
-                return
-
-            yield self._format_sse("workflow", {"type": "step", "step": "generate", "status": "done", "message": "初稿内容生成完成"})
-
-            # 6. 知识库评估与修正（如果启用了知识库）
-            first_draft = "".join(first_draft_content)
-            final_content = first_draft
-
-            if enable_knowledge and (kb_contexts["theory"].strip() or kb_contexts["case"].strip() or kb_contexts["manual"].strip()):
-                yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "running", "message": "智能体正在评估内容质量...", "icon": "DataAnalysis"})
-
-                # 检查取消事件
-                if cancel_event and cancel_event.is_set():
-                    logger.info(f"用户 {user_id} 在评估阶段取消了生成任务")
-                    yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
-                    return
-
-                # 使用 LLM 评估初次回答与三类知识库的偏差
-                evaluation_result = await self._evaluate_with_llm(
-                    llm_provider=llm_provider,
-                    first_answer=first_draft,
-                    kb_contexts=kb_contexts,
-                    input_params=input_params
-                )
-
-                if evaluation_result.get("needs_revision"):
-                    issue_count = len(evaluation_result.get("theory_issues", [])) + \
-                        len(evaluation_result.get("case_insights", [])) + \
-                        len(evaluation_result.get("compliance_issues", []))
-                    yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "done", "message": f"检测到可优化点：{issue_count}处"})
-
-                    # 检查取消事件
-                    if cancel_event and cancel_event.is_set():
-                        logger.info(f"用户 {user_id} 在修正阶段取消了生成任务")
-                        yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
-                        return
-
-                    # 生成修正后的完整内容
-                    yield self._format_sse("workflow", {"type": "step", "step": "revise", "status": "running", "message": "正在优化内容...", "icon": "Edit"})
-
-                    revised_content = await self._generate_revised_content(
-                        llm_provider=llm_provider,
-                        original_content=first_draft,
-                        evaluation_result=evaluation_result,
-                        kb_contexts=kb_contexts,
-                        system_prompt=system_prompt,
-                        temperature=temperature,
-                        input_params=input_params,
-                        cancel_event=cancel_event
-                    )
-
-                    if revised_content:
-                        # 添加分隔线和修正标识
-                        yield self._format_sse("content", {"text": "\n\n---\n\n### 🔄 基于知识库的优化建议\n\n"})
-                        # 输出修正后的内容
-                        yield self._format_sse("content", {"text": revised_content})
-                        final_content = first_draft + "\n\n---\n\n### 🔄 基于知识库的优化建议\n\n" + revised_content
-
-                    yield self._format_sse("workflow", {"type": "step", "step": "revise", "status": "done", "message": "内容优化完成"})
-                else:
-                    yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "done", "message": "知识库验证通过"})
-
-            # 9. 自洽性检查
-            yield self._format_sse("workflow", {"type": "step", "step": "consistency", "status": "running", "message": "执行自洽性检查...", "icon": "CircleCheck"})
-
-            # 检查取消事件
-            if cancel_event and cancel_event.is_set():
-                logger.info(f"用户 {user_id} 在自洽性检查阶段取消了生成任务")
-                yield self._format_sse("workflow", {"type": "error", "message": "生成任务已被用户取消"})
-                return
-
-            consistency_result = await self._check_self_consistency(
+            # 3. 初始化上下文对象
+            ctx = GenerateStreamContext(
                 llm_provider=llm_provider,
-                content=first_draft,  # 检查初次回答
-                input_params=input_params,
-                module=module,
-                temperature=temperature
+                model_display_name=model_display_name,
+                system_prompt=system_prompt,
+                input_params=processed_input_params,
+                start_time=start_time,
+                converted_images=images,
+                videos=videos
             )
 
-            # 如果发现逻辑问题，展示修正建议（不修改原内容）
-            if consistency_result.get("issues"):
-                issues_count = len(consistency_result.get("issues", []))
-                yield self._format_sse("workflow", {"type": "step", "step": "consistency", "status": "done", "message": f"自洽性检查完成，发现{issues_count}处问题"})
+            # 4. 收集上下文信息
+            async for sse_event in self._gather_context(
+                ctx=ctx,
+                db=db,
+                user_id=user_id,
+                module=module,
+                enable_knowledge=enable_knowledge,
+                kb_vertical=kb_vertical,
+                kb_user_specific=kb_user_specific,
+                kb_manual=kb_manual,
+                kb_vertical_ids=kb_vertical_ids,
+                kb_user_specific_ids=kb_user_specific_ids,
+                kb_manual_ids=kb_manual_ids,
+                actual_enable_creative_search=actual_enable_creative_search,
+                search_keywords=search_keywords,
+                search_depth=search_depth,
+                actual_enable_trending=actual_enable_trending,
+                reference_urls=reference_urls,
+                logger=logger
+            ):
+                yield sse_event
 
-                if consistency_result.get("needs_fix"):
-                    fix_content = await self._auto_fix_issues(
-                        llm_provider=llm_provider,
-                        original_content=first_draft,
-                        consistency_result=consistency_result,
-                        temperature=temperature
-                    )
-                    if fix_content:
-                        # 在初次回答下方展示修正建议，不修改原内容
-                        yield self._format_sse("content", {"text": "\n\n---\n\n### 🤖 Agent修正建议\n\n"})
-                        yield self._format_sse("content", {"text": fix_content})
-                        final_content = first_draft + "\n\n---\n\n### 🤖 Agent修正建议\n\n" + fix_content
-            else:
-                yield self._format_sse("workflow", {"type": "step", "step": "consistency", "status": "done", "message": "自洽性检查通过"})
+            # 5. 生成初稿
+            async for sse_event in self._generate_first_draft(
+                ctx=ctx,
+                db=db,
+                user_id=user_id,
+                module=module,
+                temperature=temperature,
+                cancel_event=cancel_event,
+                logger=logger
+            ):
+                yield sse_event
 
-            # 10. 添加专业标识
-            yield self._format_sse("content", {"text": "\n\n---\n\n✨ *该方案已经过全能创意大师智能验证与优化*"})
-            final_content += "\n\n---\n\n✨ *该方案已经过全能创意大师智能验证与优化*"
+            # 6. 评估和修正
+            async for sse_event in self._evaluate_and_revise(
+                ctx=ctx,
+                db=db,
+                user_id=user_id,
+                module=module,
+                enable_knowledge=enable_knowledge,
+                temperature=temperature,
+                cancel_event=cancel_event,
+                logger=logger
+            ):
+                yield sse_event
 
-            # 11. 保存生成记录到数据库
-            try:
-                # 从input_params中提取标题
-                title = None
-                if input_params:
-                    # 优先级：title > topic > theme > subject > name
-                    title_keys = ['title', 'topic', 'theme', 'subject', 'name']
-                    for key in title_keys:
-                        if key in input_params and input_params[key]:
-                            title = str(input_params[key])[:200]  # 限制长度
-                            break
-
-                generation = Generation(
-                    user_id=user_id,
-                    module=GenerationModule(module),
-                    status=GenerationStatus.COMPLETED,
-                    input_params=input_params,
-                    title=title,
-                    output_content=final_content,
-                    provider=llm_provider.get_model_info()["provider"],
-                    model_name=llm_provider.model_name,
-                    duration_ms=int((time.time() - start_time) * 1000)
-                )
-                db.add(generation)
-                await db.commit()
-                logger.info(f"生成记录已保存 - ID: {generation.id}, 标题: {title}")
-            except Exception as save_error:
-                logger.exception("保存生成记录失败")
-                await db.rollback()
-
-            # 12. 发送完成事件
-            duration_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"流式生成完成 - 耗时: {duration_ms}ms")
-
-            yield self._format_sse("workflow", {"type": "complete", "message": "生成完成"})
-            yield self._format_sse("done", {
-                "model": model_display_name,
-                "model_id": llm_provider.model_name,
-                "provider": llm_provider.get_model_info()["provider"],
-                "duration_ms": duration_ms
-            })
+            # 7. 保存和完成
+            async for sse_event in self._save_and_complete(
+                ctx=ctx,
+                db=db,
+                user_id=user_id,
+                logger=logger
+            ):
+                yield sse_event
 
         except Exception as e:
             logger.exception("流式生成失败")
@@ -1186,12 +1415,15 @@ class AgentOrchestrator:
                 return kb_contexts
 
             # 定义垂直领域类别
-            # 注意：NOVEL 类别不在此列表中，因为正文板块使用独立的项目专属知识库系统
-            # 正文板块的知识库通过 ProjectKnowledgeBase 类管理，不参与公共知识库检索
+            # 注意：
+            # - NOVEL 类别不在此列表中，因为它是项目专属知识库（ProjectKnowledgeBase），
+            #   用于存储具体项目的人物/情节/世界观，完全独立
+            # - NOVEL_WRITING 是小说写作专业知识库，参与双轨检索
             vertical_categories = [
                 KnowledgeBaseCategory.SHORT_VIDEO,
                 KnowledgeBaseCategory.SCRIPT,
-                # KnowledgeBaseCategory.NOVEL,  # 已移除：正文板块使用独立的项目专属知识库
+                # KnowledgeBaseCategory.NOVEL,  # 已移除：项目专属知识库，不参与双轨检索
+                KnowledgeBaseCategory.NOVEL_WRITING,  # 新增：小说写作专业知识库，参与双轨检索
                 KnowledgeBaseCategory.PRINT_AD,
                 KnowledgeBaseCategory.TVC
             ]
@@ -1250,7 +1482,8 @@ class AgentOrchestrator:
                         continue
 
                 except Exception as e:
-                    self.logger.warning(f"知识库 '{kb.name}' (ID:{kb.id}) 检索失败，已跳过: {e}")
+                    self.logger.warning(
+                        f"知识库 '{kb.name}' (ID:{kb.id}) 检索失败，已跳过: {e}")
                     continue  # 确保继续处理下一个KB
 
             return kb_contexts
@@ -1547,7 +1780,7 @@ class AgentOrchestrator:
         try:
             # 使用流式生成修正内容，设置动态max_tokens确保内容完整
             safe_output_limit = min(
-                llm_provider.get_max_output_tokens(), 64000)
+                llm_provider.get_max_output_tokens(), settings.MAX_LLM_OUTPUT_TOKENS)
             revised_content = []
             async for chunk in llm_provider.generate_stream(
                 prompt=revision_prompt,
@@ -1829,7 +2062,7 @@ class AgentOrchestrator:
 
         try:
             safe_output_limit = min(
-                llm_provider.get_max_output_tokens(), 64000)
+                llm_provider.get_max_output_tokens(), settings.MAX_LLM_OUTPUT_TOKENS)
             fix_content = []
             async for chunk in llm_provider.generate_stream(
                 prompt=fix_prompt,

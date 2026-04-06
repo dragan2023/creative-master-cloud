@@ -85,6 +85,10 @@ class ScriptInput(BaseModel):
         default="均衡", description="对白与叙述比例")
     target_broadcast: Optional[str] = Field(
         default="未指定", description="目标投放平台")
+    # 剧本模式（现实模式/虚拟模式）
+    script_mode: Optional[str] = Field(
+        default="real",
+        description="剧本模式(real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成)")
 
 
 # ==================== 小说大纲 ====================
@@ -141,6 +145,11 @@ class TVCInput(BaseModel):
     broadcast_platform: str = Field(default="视频平台", description="投放平台")
     style_tone: str = Field(default="温情走心", description="风格调性")
     duration: int = Field(default=30, description="时长(秒)")
+    description: Optional[str] = Field(None, description="补充说明")
+    # 生成模式（现实模式/虚拟模式）
+    mode: Optional[str] = Field(
+        default="real",
+        description="生成模式(real=现实模式用于真人拍摄，virtual=虚拟模式用于AI生成)")
     generate_ai_prompt: Optional[str] = Field(
         default="否", description="是否生成AI视频生成提示")
     ai_platforms: Optional[str] = Field(

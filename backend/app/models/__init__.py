@@ -14,6 +14,14 @@ from app.models.novel_project import NovelProject, ProjectType, ProjectStatus
 from app.models.novel_chapter import NovelChapter, ChapterStatus
 from app.models.operation_log import OperationLog, ActionType as LogActionType, ModuleType
 
+# 多Agent写作系统模型
+from app.models.writing_task import WritingTask, TaskStatus
+from app.models.writing_unit import WritingUnit, UnitStatus
+from app.models.writing_scene import WritingScene, SceneStatus
+from app.models.writing_checkpoint import WritingCheckpoint
+from app.models.writing_stat import WritingStat
+from app.models.writing_model_config import WritingModelConfig
+
 __all__ = [
     "BaseModel",
     "TimestampMixin",
@@ -46,4 +54,14 @@ __all__ = [
     "OperationLog",
     "LogActionType",
     "ModuleType",
+    # 多Agent写作系统模型
+    "WritingTask",
+    "TaskStatus",
+    "WritingUnit",
+    "UnitStatus",
+    "WritingScene",
+    "SceneStatus",
+    "WritingCheckpoint",
+    "WritingStat",
+    "WritingModelConfig",
 ]

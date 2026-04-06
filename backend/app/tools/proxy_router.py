@@ -1,6 +1,11 @@
 """
 代理路由工具
 国内模型直连，国外模型使用代理
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import httpx
 import socket
@@ -107,7 +112,8 @@ def get_proxy_for_url(url: str) -> Optional[str]:
         domain = parsed.netloc.lower()
         if not domain:
             domain = url.lower()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"解析URL失败: {e}")
         domain = url.lower()
 
     # 检查是否是国内服务商
@@ -147,7 +153,8 @@ def check_proxy_available() -> Tuple[bool, Optional[str]]:
 
         if result == 0:
             return True, proxy_url
-    except Exception:
+    except Exception as e:
+        logger.debug(f"代理连通性测试失败: {e}")
         pass
 
     return False, None
@@ -168,7 +175,8 @@ def is_domestic_provider(url: str) -> bool:
         domain = parsed.netloc.lower()
         if not domain:
             domain = url.lower()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"解析URL失败: {e}")
         domain = url.lower()
 
     logger = get_logger("proxy_router")

@@ -385,47 +385,5 @@ export const PROVIDERS_BY_TYPE = {
 }
 
 // 创意生成模块配置
-export const CREATIVE_MODULES = [
-  {
-    key: 'short-video',
-    title: '短视频脚本',
-    icon: 'VideoCamera',
-    description: '为抖音、快手等平台生成短视频脚本',
-    color: '#FF6B6B'
-  },
-  {
-    key: 'script',
-    title: '剧本大纲',
-    icon: 'Document',
-    description: '电影、电视剧、网剧剧本大纲生成',
-    color: '#4ECDC4'
-  },
-  {
-    key: 'novel',
-    title: '小说大纲',
-    icon: 'Notebook',
-    description: '网络小说、短篇故事大纲创作',
-    color: '#45B7D1'
-  },
-  {
-    key: 'print-ad',
-    title: '平面设计',
-    icon: 'Picture',
-    description: 'Logo、海报、宣传单、包装等多类型平面设计',
-    color: '#96CEB4'
-  },
-  {
-    key: 'tvc',
-    title: 'TVC广告脚本',
-    icon: 'Film',
-    description: '电视广告、商业视频脚本',
-    color: '#FFEAA7'
-  },
-  {
-    key: 'original-ip',
-    title: '原创IP计划',
-    icon: 'Avatar',
-    description: '从概念到落地的完整角色IP构建',
-    color: '#A855F7'
-  }
-]
+// 已从 modules.js 导入统一的模块配置
+export { CREATIVE_MODULES } from './modules'

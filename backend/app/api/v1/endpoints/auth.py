@@ -1,12 +1,18 @@
 """
 用户配置和 API Key 管理 API 端点
 （已移除用户认证系统，所有操作使用默认用户）
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.exceptions import ResourceNotFoundException
 from app.core.security import (
     mask_api_key,
     api_key_encryption
@@ -181,7 +187,7 @@ async def update_api_key(
     api_key = result.scalar_one_or_none()
 
     if not api_key:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
+        raise ResourceNotFoundException("API Key 不存在")
 
     # 更新字段
     api_key.provider = key_data.provider
@@ -235,7 +241,7 @@ async def delete_api_key(
     api_key = result.scalar_one_or_none()
 
     if not api_key:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
+        raise ResourceNotFoundException("API Key 不存在")
 
     await db.delete(api_key)
     await db.commit()
@@ -259,7 +265,7 @@ async def set_default_api_key(
     api_key = result.scalar_one_or_none()
 
     if not api_key:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
+        raise ResourceNotFoundException("API Key 不存在")
 
     # 取消其他默认
     result = await db.execute(
@@ -529,7 +535,7 @@ async def test_saved_api_key(
     api_key_record = result.scalar_one_or_none()
 
     if not api_key_record:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
+        raise ResourceNotFoundException("API Key 不存在")
 
     # 尝试解密API Key
     try:

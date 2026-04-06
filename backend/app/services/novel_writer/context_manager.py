@@ -2,9 +2,15 @@
 上下文窗口管理器
 管理章节生成时的上下文构建，包括滑动窗口、摘要压缩等
 支持知识库三层检索、GraphRAG增强、内容规则应用
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import os
 import json
+import re
 import aiofiles
 from typing import Dict, Any, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logger import get_logger
 from app.models import NovelProject, NovelChapter
 from app.services.novel_writer.vector_store import ProjectVectorStore
-from app.services.novel_writer.knowledge_integration import NovelKnowledgeIntegration
 from app.services.proofread.document_formatter import DocumentFormatter
+
+# 知识库集成模块（可选，用于兼容旧代码）
+# TODO: 迁移到新的Writing Task系统后移除
+try:
+    from app.services.novel_writer.knowledge_integration import NovelKnowledgeIntegration
+    _HAS_KNOWLEDGE_INTEGRATION = True
+except ImportError:
+    _HAS_KNOWLEDGE_INTEGRATION = False
 
 
 class ContextWindowManager:
@@ -31,10 +44,10 @@ class ContextWindowManager:
     def __init__(
         self,
         db: AsyncSession,
-        max_context_tokens: int = 4096,
-        recent_chapters_count: int = 3,
-        summary_max_chars: int = 2000,
-        vector_retrieve_k: int = 2
+        max_context_tokens: int = 8192,  # 增加上下文token限制
+        recent_chapters_count: int = 5,   # 架构优化：从3增加到5，增强前文参考
+        summary_max_chars: int = 8000,   # 增加摘要字符限制，增强连贯性
+        vector_retrieve_k: int = 5       # 架构优化：从2增加到5，增强向量检索
     ):
         self.db = db
         self.max_context_tokens = max_context_tokens
@@ -45,9 +58,10 @@ class ContextWindowManager:
         self.vector_store = ProjectVectorStore()
         # 初始化文档格式化器
         self.formatter = DocumentFormatter(content_type="novel")
-        # 上下文压缩配置
-        self.compression_threshold = 6000  # 超过此长度触发压缩
-        self.target_compressed_length = 4000  # 压缩后目标长度
+        # 上下文压缩配置 - 已禁用，不再主动截断
+        # 让LLM自然处理超长内容
+        self.compression_threshold = None  # 禁用压缩阈值
+        self.target_compressed_length = None  # 禁用压缩目标
 
     def _compress_context(
         self,
@@ -55,135 +69,35 @@ class ContextWindowManager:
         max_length: int = None
     ) -> Dict[str, Any]:
         """
-        智能压缩上下文内容
+        上下文压缩（已禁用）
 
-        当上下文总长度超过阈值时，按优先级压缩各部分内容：
-        1. 低优先级：历史参考、向量检索结果
-        2. 中优先级：前序章节摘要、角色状态
-        3. 高优先级：当前章节大纲、知识库上下文
+        不再主动截断，直接返回原始上下文，让LLM自然处理。
 
         Args:
             context: 原始上下文字典
-            max_length: 最大允许长度
+            max_length: 最大允许长度（已忽略）
 
         Returns:
-            压缩后的上下文字典
+            原始上下文字典（不做修改）
         """
-        if max_length is None:
-            max_length = self.target_compressed_length
-
-        # 计算当前总长度
-        total_length = sum(
-            len(str(v)) for v in context.values() if isinstance(v, str)
-        )
-
-        if total_length <= max_length:
-            return context
-
-        self.logger.info(
-            f"[上下文压缩] 开始压缩: 原始长度={total_length}, 目标={max_length}")
-
-        compressed = dict(context)
-        current_length = total_length
-
-        # 定义压缩优先级（从低到高）
-        compression_order = [
-            # 低优先级 - 可以大幅压缩
-            ("vector_context", 0.3),  # 保留30%
-            ("previous_scene_ending", 0.4),  # 保留40%
-            ("short_summary", 0.5),  # 保留50%
-            # 中优先级
-            ("previous_content_summaries", 0.6),  # 保留60%
-            ("previous_outline_summaries", 0.6),
-            ("previous_episodes_summary", 0.6),
-            ("character_state", 0.7),
-            # 高优先级 - 尽量保留
-            ("global_summary", 0.8),
-            ("knowledge_context", 0.8),
-            ("unit_outline_summary", 0.9),
-            ("chapter_detailed_outline", 0.9),
-            ("current_unit_outline", 0.9),
-        ]
-
-        for field, keep_ratio in compression_order:
-            if current_length <= max_length:
-                break
-
-            original_value = compressed.get(field, "")
-            if not original_value or not isinstance(original_value, str):
-                continue
-
-            original_len = len(original_value)
-            target_len = int(original_len * keep_ratio)
-
-            if target_len < original_len:
-                # 智能截断：在句子边界处截断
-                truncated = self._smart_truncate(original_value, target_len)
-                compressed[field] = truncated
-                reduction = original_len - len(truncated)
-                current_length -= reduction
-                self.logger.debug(
-                    f"[上下文压缩] {field}: {original_len} -> {len(truncated)} (-{reduction})"
-                )
-
-        # 最终检查
-        final_length = sum(
-            len(str(v)) for v in compressed.values() if isinstance(v, str)
-        )
-        self.logger.info(
-            f"[上下文压缩] 压缩完成: {total_length} -> {final_length}")
-
-        return compressed
+        # 不再压缩，直接返回原始上下文
+        return context
 
     def _smart_truncate(self, text: str, max_len: int) -> str:
         """
-        智能截断文本
+        智能截断（已禁用）
 
-        在句子边界处截断，保持语义完整性。
+        不再主动截断，直接返回原始文本。
 
         Args:
             text: 原始文本
-            max_len: 最大长度
+            max_len: 最大长度（已忽略）
 
         Returns:
-            截断后的文本
+            原始文本（不做截断）
         """
-        if len(text) <= max_len:
-            return text
-
-        # 在max_len附近寻找句子边界
-        # 优先在句号、感叹号、问号后截断
-        search_start = max(0, max_len - 100)
-        search_end = min(len(text), max_len + 50)
-        search_text = text[search_start:search_end]
-
-        # 查找句子结束标记
-        sentence_enders = ['。', '！', '？', '."',
-                           '!”', '？”', '.\n', '!\n', '?\n']
-        best_pos = -1
-
-        for ender in sentence_enders:
-            pos = search_text.rfind(ender)
-            if pos > best_pos:
-                best_pos = pos + len(ender)
-
-        if best_pos > 0:
-            # 在句子边界处截断
-            truncate_pos = search_start + best_pos
-            if truncate_pos <= max_len + 50:
-                return text[:truncate_pos].strip()
-
-        # 没找到句子边界，在词边界处截断
-        # 查找最后一个空格或换行
-        last_space = text[:max_len].rfind(' ')
-        last_newline = text[:max_len].rfind('\n')
-        truncate_pos = max(last_space, last_newline)
-
-        if truncate_pos > max_len * 0.8:
-            return text[:truncate_pos].strip()
-
-        # 最后手段：直接截断
-        return text[:max_len].strip()
+        # 不再截断，直接返回原始文本
+        return text
 
     async def build_chapter_context(
         self,
@@ -262,18 +176,13 @@ class ContextWindowManager:
                 project, chapter_num, chapter_metadata
             )
 
-            # 9. 获取单章详细大纲（从 chapter_outlines 数据库字段）
-            context["chapter_detailed_outline"] = await self._get_chapter_detailed_outline(
-                project, chapter_num
-            )
-
-            # 10. 剧集剧本专用：获取当前分集的大纲
+            # 9. 剧集剧本专用：获取当前分集的大纲
             if content_type in ('series_script', 'script'):
                 episode_num = chapter_metadata.get('episode_number', 1)
                 context["episode_outline"] = await self._get_episode_outline(
                     project, episode_num
                 )
-                # 11. 获取前序集数的大纲摘要
+                # 10. 获取前序集数的大纲摘要
                 context["previous_episodes_summary"] = await self._get_previous_episodes_summary(
                     project, episode_num
                 )
@@ -292,9 +201,7 @@ class ContextWindowManager:
         try:
             async with aiofiles.open(project.summary_file, 'r', encoding='utf-8') as f:
                 summary = await f.read()
-                # 限制长度
-                if len(summary) > self.summary_max_chars:
-                    summary = summary[:self.summary_max_chars] + "..."
+                # 不再限制长度，直接返回完整内容
                 return summary
         except Exception as e:
             self.logger.warning(f"读取摘要文件失败: {str(e)}")
@@ -432,28 +339,26 @@ class ContextWindowManager:
     def _format_vector_results(self, results: List[Dict[str, Any]], current_chapter: int = 1) -> str:
         """格式化向量检索结果（应用时间距离规则）"""
         formatted = []
-        for i, result in enumerate(results[:2], 1):
+        for i, result in enumerate(results, 1):  # 不再限制结果数量
             content = result.get("content", "")
             metadata = result.get("metadata", {})
             ref_chapter = metadata.get("chapter_number", 0)
 
-            # 应用时间距离规则
+            # 应用时间距离规则 - 不再截断内容
             if isinstance(ref_chapter, int) and ref_chapter > 0:
                 distance = current_chapter - ref_chapter
                 if distance <= 2:
                     rule_tag = f"[SKIP] 跳过近{distance}章内容"
-                    content_excerpt = content[:300]  # 截短
                 elif 3 <= distance <= 5:
                     rule_tag = "[MOD40%] 需修改≥40%"
-                    content_excerpt = content[:500]
                 else:
                     rule_tag = "[OK] 可引用核心"
-                    content_excerpt = content[:500]
                 formatted.append(
-                    f"[历史参考 {i}] {rule_tag} - 第{ref_chapter}章:\n{content_excerpt}")
+                    # 完整内容
+                    f"[历史参考 {i}] {rule_tag} - 第{ref_chapter}章:\n{content}")
             else:
                 formatted.append(
-                    f"[历史参考 {i}] 第{ref_chapter}章相关内容:\n{content[:500]}")
+                    f"[历史参考 {i}] 第{ref_chapter}章相关内容:\n{content}")  # 完整内容
         return "\n\n".join(formatted)
 
     async def _get_knowledge_context(
@@ -496,8 +401,8 @@ class ContextWindowManager:
             except Exception as e:
                 self.logger.warning(f"项目专属知识库检索失败: {str(e)}")
 
-        # 2. 检索公共知识库（如果配置了）
-        if any([
+        # 2. 检索公共知识库（如果配置了且模块可用）
+        if _HAS_KNOWLEDGE_INTEGRATION and any([
             kb_config.get("kb_vertical_enabled"),
             kb_config.get("kb_user_specific_enabled"),
             kb_config.get("kb_manual_enabled")
@@ -713,16 +618,16 @@ class ContextWindowManager:
         project: NovelProject,
         current_unit: int,
         content_type: str,
-        max_units: int = 3
+        max_units: int = 5  # 架构优化：从3增加到5，增强前文参考
     ) -> str:
         """
-        获取前三单元的正文摘要
+        获取前N单元的正文摘要（架构优化版：增强滑动窗口）
 
         Args:
             project: 项目对象
             current_unit: 当前单元号
             content_type: 内容类型
-            max_units: 最多获取前几个单元
+            max_units: 最多获取前几个单元（默认5个）
 
         Returns:
             正文摘要字符串
@@ -766,9 +671,8 @@ class ContextWindowManager:
             for chapter in chapters:
                 content = chapter.final_content or ""
                 if content:
-                    # 提取摘要（取前500字）
-                    summary = content[:500] + \
-                        "..." if len(content) > 500 else content
+                    # 不再截断，直接使用完整内容
+                    summary = content
                     unit_num = chapter.chapter_number or chapter.episode_number or chapter.scene_number or 0
 
                     if content_type == "novel":
@@ -813,7 +717,8 @@ class ContextWindowManager:
         try:
             # 根据内容类型获取大纲数据
             if content_type == "novel":
-                outlines = project.chapter_outlines or {}
+                # 使用 unit_summaries 替代废弃的 chapter_outlines
+                outlines = project.unit_summaries or {}
                 unit_label = "章"
             elif content_type in ("series_script", "script"):
                 outlines = project.episode_outlines or {}
@@ -832,19 +737,19 @@ class ContextWindowManager:
                 if unit_key in outlines:
                     outline = outlines[unit_key]
 
-                    # 提取摘要信息
+                    # 提取摘要信息 - 不再截断
                     if content_type == "novel":
-                        title = outline.get("chapter_title", f"第{unit_num}章")
-                        summary = outline.get("chapter_summary", "") or outline.get(
-                            "detailed_outline", "")[:300]
+                        # unit_summaries 使用 title 和 summary 字段
+                        title = outline.get("title", f"第{unit_num}章")
+                        summary = outline.get("summary", "")  # 完整内容
                     elif content_type in ("series_script", "script"):
                         title = outline.get("episode_title", f"第{unit_num}集")
                         summary = outline.get("episode_summary", "") or outline.get(
-                            "detailed_outline", "")[:300]
+                            "detailed_outline", "")  # 完整内容
                     else:
                         title = outline.get("scene_title", f"第{unit_num}场")
                         summary = outline.get("scene_summary", "") or outline.get(
-                            "detailed_outline", "")[:200]
+                            "detailed_outline", "")  # 完整内容
 
                     if summary:
                         summaries.append(
@@ -881,24 +786,20 @@ class ContextWindowManager:
         try:
             # 根据内容类型获取大纲数据
             if content_type == "novel":
-                outlines = project.chapter_outlines or {}
+                # 使用 unit_summaries 替代废弃的 chapter_outlines
+                outlines = project.unit_summaries or {}
                 unit_key = str(current_unit)
                 unit_label = "章"
 
                 if unit_key in outlines:
                     outline = outlines[unit_key]
-                    title = outline.get("chapter_title", f"第{current_unit}章")
-                    summary = outline.get("chapter_summary", "")
-                    detailed = outline.get("detailed_outline", "")
-                    key_events = outline.get("key_events", [])
+                    # unit_summaries 使用 title 和 summary 字段
+                    title = outline.get("title", f"第{current_unit}章")
+                    summary = outline.get("summary", "")
 
                     result = f"【第{current_unit}{unit_label}《{title}》大纲】\n"
                     if summary:
                         result += f"章节概要：{summary}\n"
-                    if key_events:
-                        result += f"关键事件：{'；'.join(key_events[:3])}\n"
-                    if detailed and not summary:
-                        result += f"详细大纲：{detailed[:500]}...\n"
 
                     return result
 
@@ -1470,90 +1371,6 @@ class ContextWindowManager:
         self.logger.info("[前序大纲] 无前序集数，这是第一集")
         return "（无前序集数，这是第一集）"
 
-    async def _get_chapter_detailed_outline(
-        self,
-        project: NovelProject,
-        chapter_num: int
-    ) -> str:
-        """
-        获取单章详细大纲（从 chapter_outlines 数据库字段）
-
-        当基础大纲（outline_content）中没有章节概述时，
-        使用单章详细大纲作为补充，确保LLM有足够的参考信息生成正文。
-
-        Args:
-            project: 项目对象
-            chapter_num: 章节号
-
-        Returns:
-            格式化的单章详细大纲文本
-        """
-        chapter_outlines = project.chapter_outlines or {}
-        chapter_outline = chapter_outlines.get(str(chapter_num), {})
-
-        if not chapter_outline:
-            self.logger.debug(f"[单章详细大纲] 第{chapter_num}章无详细大纲数据")
-            return ""
-
-        # 提取详细大纲的各个字段
-        chapter_title = chapter_outline.get(
-            "chapter_title", f"第{chapter_num}章")
-        chapter_summary = chapter_outline.get("chapter_summary", "")
-        detailed_outline = chapter_outline.get("detailed_outline", "")
-        key_events = chapter_outline.get("key_events", [])
-        character_arcs = chapter_outline.get("character_arcs", "")
-
-        # 如果没有详细大纲内容，返回空
-        if not detailed_outline and not chapter_summary:
-            self.logger.debug(f"[单章详细大纲] 第{chapter_num}章详细大纲内容为空")
-            return ""
-
-        self.logger.info(
-            f"[单章详细大纲] 使用第{chapter_num}章详细大纲（来自chapter_outlines）"
-        )
-
-        # 对详细大纲内容进行格式化处理
-        if detailed_outline:
-            try:
-                formatted_outline, stats = self.formatter.format(
-                    detailed_outline)
-                if stats.titles_normalized > 0 or stats.noise_content_removed > 0:
-                    self.logger.info(
-                        f"[单章详细大纲] 格式化处理: 标准化{stats.titles_normalized}个标题, "
-                        f"移除{stats.noise_content_removed}处干扰内容"
-                    )
-                detailed_outline = formatted_outline
-            except Exception as e:
-                self.logger.warning(f"[单章详细大纲] 格式化处理失败: {e}")
-
-        # 构建格式化的大纲文本
-        sections = []
-
-        # 章节标题
-        sections.append(f"【第{chapter_num}章《{chapter_title}》详细大纲】")
-
-        # 章节梗概
-        if chapter_summary:
-            sections.append(f"\n**章节梗概**：\n{chapter_summary}")
-
-        # 详细剧情
-        if detailed_outline:
-            sections.append(f"\n**详细剧情**：\n{detailed_outline}")
-
-        # 关键事件
-        if key_events:
-            events_text = "\n".join([f"- {event}" for event in key_events])
-            sections.append(f"\n**关键事件**：\n{events_text}")
-
-        # 角色发展
-        if character_arcs:
-            sections.append(f"\n**角色发展**：\n{character_arcs}")
-
-        # 添加结尾提示
-        sections.append(f"\n【以上是第{chapter_num}章的详细大纲，请严格按照此大纲进行正文创作】")
-
-        return "\n".join(sections)
-
     def _chinese_numbers(self) -> str:
         """返回中文数字字符串"""
         return "一二三四五六七八九十百千万"
@@ -1671,7 +1488,8 @@ class ContextWindowManager:
 
             # 10. 获取单元大纲摘要
             context["unit_outline_summary"] = await self._get_current_unit_outline_summary(
-                project, episode_number, "series_script", {"episode_number": episode_number}
+                project, episode_number, "series_script", {
+                    "episode_number": episode_number}
             )
 
             return context
@@ -1822,6 +1640,10 @@ class ContextWindowManager:
         Returns:
             上下文字典
         """
+        # 获取剧本模式（从项目配置中读取）
+        movie_config = project.movie_script_config or {}
+        script_mode = movie_config.get("script_mode", "real")
+
         context = {
             # 基础大纲相关
             "outline_content": "",
@@ -1836,7 +1658,10 @@ class ContextWindowManager:
             "vector_context": "",
             # 当前单元大纲（用于提示词模板）
             "current_unit_outline": "",
-            "unit_outline_summary": ""
+            "unit_outline_summary": "",
+            # 剧本模式与可行性评估
+            "script_mode": script_mode,
+            "feasibility_check_enabled": script_mode == "real"  # 仅现实模式启用拍摄可行性评估
         }
 
         try:
@@ -1880,7 +1705,8 @@ class ContextWindowManager:
 
             # 10. 获取单元大纲摘要
             context["unit_outline_summary"] = await self._get_current_unit_outline_summary(
-                project, scene_number, "movie_script", {"scene_number": scene_number}
+                project, scene_number, "movie_script", {
+                    "scene_number": scene_number}
             )
 
             return context

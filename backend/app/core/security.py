@@ -1,6 +1,11 @@
 """
 安全模块
 提供密码加密、JWT Token 生成与验证、API Key 加密等功能
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from datetime import datetime, timedelta
 from typing import Optional, Any

@@ -1,6 +1,11 @@
 """
 章节识别器
 识别文档中的章节标题（小说章节、剧本分集、电影场景）
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import re
 from typing import List, Dict, Any, Optional, Tuple

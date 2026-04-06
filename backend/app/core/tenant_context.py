@@ -1,11 +1,17 @@
 """
 租户上下文管理
 用于在请求中管理租户信息
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional
 from contextvars import ContextVar
-from fastapi import Request, HTTPException, status
+from fastapi import Request
 
+from app.core.exceptions import ValidationException
 from app.models import Tenant, TenantStatus
 
 
@@ -47,9 +53,8 @@ class TenantContext:
         """获取当前租户，如果不存在则抛出异常"""
         tenant = _current_tenant.get()
         if not tenant:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="租户上下文未设置"
+            raise ValidationException(
+                message="租户上下文未设置"
             )
         return tenant
     
@@ -58,9 +63,8 @@ class TenantContext:
         """获取当前租户ID，如果不存在则抛出异常"""
         tenant_id = _current_tenant_id.get()
         if tenant_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="租户上下文未设置"
+            raise ValidationException(
+                message="租户上下文未设置"
             )
         return tenant_id
 
@@ -139,6 +143,11 @@ def get_current_tenant_id() -> Optional[int]:
 def require_tenant() -> Tenant:
     """获取当前租户（必须存在）"""
     return TenantContext.require_tenant()
+
+
+def require_tenant_id() -> int:
+    """获取当前租户ID（必须存在）"""
+    return TenantContext.require_tenant_id()
 
 
 def require_tenant_id() -> int:

@@ -1,6 +1,11 @@
 """
 配置管理模块
 使用 pydantic-settings 管理环境变量和应用配置
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional
 from pydantic_settings import BaseSettings
@@ -73,9 +78,11 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
-    DASHSCOPE_API_KEY: Optional[str] = None  # 千问
-    ARK_API_KEY: Optional[str] = None  # 豆包
+    DASHSCOPE_API_KEY: Optional[str] = None  # 千问（阿里云百炼）
+    ARK_API_KEY: Optional[str] = None  # 豆包（火山引擎）
     T8STAR_API_KEY: Optional[str] = None  # 贞贞AI工坊
+    SILICONFLOW_API_KEY: Optional[str] = None  # 硅基流动
+    OPENROUTER_API_KEY: Optional[str] = None  # OpenRouter
 
     # 向量数据库配置
     CHROMA_PERSIST_DIR: str = "./data/chroma"
@@ -153,6 +160,20 @@ class Settings(BaseSettings):
         description="重试基础延迟时间（秒），实际延迟 = base_delay * (2 ^ retry_count)"
     )
 
+    # ==================== 创意生成常量 ====================
+    CREATIVE_ID_MIN: int = Field(
+        default=100000,
+        description="创意ID最小值（用于随机生成创意ID）"
+    )
+    CREATIVE_ID_MAX: int = Field(
+        default=999999,
+        description="创意ID最大值（用于随机生成创意ID）"
+    )
+    MAX_LLM_OUTPUT_TOKENS: int = Field(
+        default=64000,
+        description="LLM最大输出token安全上限，用于防止模型输出过长"
+    )
+
     # ==================== MCP 多内容提供商配置 ====================
     # MCP 服务总开关
     MCP_ENABLED: bool = Field(
@@ -190,6 +211,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "ignore"  # 忽略 .env 中未定义的字段
 
     def _normalize_path(self, path: str) -> str:
         """规范化路径，移除 ./ 前缀并确保格式正确"""
@@ -198,8 +220,8 @@ class Settings(BaseSettings):
             if not os.path.exists(path):
                 os.makedirs(path, exist_ok=True)
             return path
-        
-        # 移除 ./ 或 .\ 前缀
+
+        # 移除 ./ 或 .\\ 前缀
         normalized = path.lstrip("./").lstrip(".\\")
         # 获取 backend 目录的绝对路径
         backend_dir = os.path.dirname(os.path.dirname(

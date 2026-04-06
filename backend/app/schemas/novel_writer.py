@@ -109,6 +109,12 @@ class SeriesScriptConfig(BaseModel):
     """剧集剧本正文生成专属配置
 
     生成单位：分集（按大纲中的集数划分）
+
+    【核心指标说明】
+    剧本以"时长"为核心控制指标，字数为参考值：
+    - 时长控制：通过 episode_duration_range 设置每集时长范围
+    - 字数参考：可选，仅作为LLM参考，不强制约束
+    - 实际篇幅由剧情需要和场景规划决定
     """
     # 剧集类型
     series_type: str = Field(
@@ -116,10 +122,16 @@ class SeriesScriptConfig(BaseModel):
         description="剧集类型（电视剧/网络剧/短剧/微短剧/网剧/竖屏剧）"
     )
 
-    # 每集时长范围
-    episode_duration_range: List[int] = Field(
-        default=[30, 45],
-        description="每集时长区间(分钟)"
+    # 每集时长范围（核心指标）
+    # 注意：时长范围根据剧集类型动态确定，以下为通用默认值
+    # 实际默认值在前端根据series_type设置：
+    # - 电视剧: 45-60分钟
+    # - 网络剧: 30-50分钟
+    # - 短剧/微短剧: 3-15分钟
+    # - 竖屏剧: 1-5分钟
+    episode_duration_range: Optional[List[int]] = Field(
+        default=None,
+        description="每集时长区间(分钟) - 根据剧集类型自动设置，也可手动指定"
     )
 
     # 场景数范围（可选）
@@ -150,6 +162,12 @@ class SeriesScriptConfig(BaseModel):
     episode_count: Optional[int] = Field(
         None,
         description="总集数"
+    )
+
+    # 每集字数（可选参考）
+    words_per_episode: Optional[int] = Field(
+        None,
+        description="每集参考字数（可选，剧本以时长为核心指标，字数仅供参考）"
     )
 
     # 风格模仿参数
@@ -187,6 +205,12 @@ class MovieScriptConfig(BaseModel):
     """电影剧本正文生成专属配置
 
     生成单位：场景（按大纲中的场景或段落划分）
+
+    【核心指标说明】
+    电影剧本以"时长"为核心控制指标：
+    - 总时长控制：通过 total_duration 设置电影总时长
+    - 每场戏时长：根据场景大纲中的 duration_minutes 分配
+    - 字数参考：约250字/分钟，不强制约束
     """
     # 电影类型
     movie_type: str = Field(
@@ -194,10 +218,17 @@ class MovieScriptConfig(BaseModel):
         description="电影类型（院线电影/网络电影/微电影/纪录片/动画电影）"
     )
 
-    # 电影总时长
-    total_duration: int = Field(
-        default=90,
-        description="电影总时长(分钟)"
+    # 电影总时长（核心指标）
+    # 注意：时长根据电影类型动态确定，以下为通用默认值
+    # 实际默认值在前端根据movie_type设置：
+    # - 院线电影: 90-120分钟
+    # - 网络电影: 60-90分钟
+    # - 微电影: 20-45分钟
+    # - 纪录片: 45-90分钟（灵活）
+    # - 动画电影: 80-100分钟
+    total_duration: Optional[int] = Field(
+        default=None,
+        description="电影总时长(分钟) - 根据电影类型自动设置，也可手动指定"
     )
 
     # 剧本格式标准
@@ -389,6 +420,7 @@ class NovelProjectUpdate(BaseModel):
     title: Optional[str] = Field(
         None, min_length=1, max_length=200, description="项目标题")
     genre: Optional[str] = Field(None, max_length=50, description="题材标签")
+    outline_content: Optional[str] = Field(None, description="大纲内容")
 
     # 新版配置字段
     novel_config: Optional[NovelConfig] = Field(None, description="小说配置")
@@ -435,7 +467,13 @@ class NovelProjectResponse(BaseModel):
     project_code: Optional[str] = None
     total_tokens: int = 0
     total_duration_ms: int = 0
-    outline_content: Optional[str] = None  # 大纲内容
+    outline_content: Optional[str] = None  # 大纲内容（截断预览用）
+    outline_word_count: int = 0  # 大纲真实字数（去除空白字符）
+
+    # 单元概述相关字段
+    unit_summaries: Optional[Dict[str, Any]] = None  # 单元概述数据
+    unit_summaries_status: Optional[str] = None  # 单元概述状态
+
     created_at: datetime
     updated_at: datetime
 
@@ -907,7 +945,13 @@ class ChapterOutlineGenerateRequest(BaseModel):
     """章节详细大纲生成请求"""
     chapter_numbers: Optional[List[int]] = Field(
         None, description="指定要生成的章节列表，None表示生成全部")
+    start_unit: Optional[int] = Field(
+        None, description="起始单元编号，与unit_count配合使用")
+    unit_count: Optional[int] = Field(
+        None, description="生成数量，与start_unit配合使用")
     stop_on_error: bool = Field(default=True, description="出错时是否停止")
+    skip_existing: bool = Field(
+        default=True, description="是否跳过已生成的章节（断点续传）")
 
 
 # ==================== 场景详细大纲（电影剧本专用） ====================
@@ -971,3 +1015,131 @@ class SceneOutlineGenerateRequest(BaseModel):
     scene_numbers: Optional[List[int]] = Field(
         None, description="指定要生成的场景列表，None表示生成全部")
     stop_on_error: bool = Field(default=True, description="出错时是否停止")
+
+
+# ==================== 风格文档相关 Schema ====================
+
+class VocabularyProfile(BaseModel):
+    """词汇偏好"""
+    word_preference: Optional[str] = Field(None, description="词汇偏好")
+    vocabulary_density: Optional[str] = Field(None, description="词汇密度")
+    signature_words: Optional[List[str]] = Field(
+        default_factory=list, description="标志性词汇")
+    special_expressions: Optional[List[str]] = Field(
+        default_factory=list, description="特殊表达")
+
+
+class SentenceStructureProfile(BaseModel):
+    """句式结构"""
+    average_length: Optional[str] = Field(None, description="平均句长")
+    length_ratio: Optional[str] = Field(None, description="长短句比例")
+    preferred_patterns: Optional[List[str]] = Field(
+        default_factory=list, description="偏好句式")
+    punctuation_style: Optional[str] = Field(None, description="标点风格")
+
+
+class NarrativeStyleProfile(BaseModel):
+    """叙事风格"""
+    perspective: Optional[str] = Field(None, description="叙事视角")
+    pacing: Optional[str] = Field(None, description="节奏控制")
+    time_space_handling: Optional[str] = Field(None, description="时空处理")
+    narrative_distance: Optional[str] = Field(None, description="叙事距离")
+
+
+class DescriptionStyleProfile(BaseModel):
+    """描写风格"""
+    focus_areas: Optional[List[str]] = Field(
+        default_factory=list, description="关注领域")
+    sensory_usage: Optional[Dict[str, Any]] = Field(
+        default_factory=dict, description="感官运用")
+    rhetorical_devices: Optional[List[str]] = Field(
+        default_factory=list, description="修辞手法")
+    detail_level: Optional[str] = Field(None, description="细节程度")
+
+
+class DialogueStyleProfile(BaseModel):
+    """对话风格"""
+    overall_style: Optional[str] = Field(None, description="整体风格")
+    density: Optional[str] = Field(None, description="对话密度")
+    character_distinction: Optional[str] = Field(None, description="角色区分")
+    functional_focus: Optional[str] = Field(None, description="功能焦点")
+
+
+class EmotionalExpressionProfile(BaseModel):
+    """情感表达"""
+    tone: Optional[str] = Field(None, description="情感基调")
+    expression_method: Optional[str] = Field(None, description="表达方式")
+    intensity: Optional[str] = Field(None, description="情感强度")
+    complexity: Optional[str] = Field(None, description="情感复杂性")
+
+
+class StructuralFeaturesProfile(BaseModel):
+    """结构特征"""
+    paragraph_length: Optional[str] = Field(None, description="段落长度")
+    opening_style: Optional[str] = Field(None, description="开篇风格")
+    transition_style: Optional[str] = Field(None, description="过渡风格")
+    ending_style: Optional[str] = Field(None, description="结尾风格")
+    hook_usage: Optional[str] = Field(None, description="悬念运用")
+
+
+class StyleProfile(BaseModel):
+    """风格画像"""
+    name: Optional[str] = Field(None, description="风格名称")
+    vocabulary: Optional[VocabularyProfile] = Field(None, description="词汇偏好")
+    sentence_structure: Optional[SentenceStructureProfile] = Field(
+        None, description="句式结构")
+    narrative_style: Optional[NarrativeStyleProfile] = Field(
+        None, description="叙事风格")
+    description_style: Optional[DescriptionStyleProfile] = Field(
+        None, description="描写风格")
+    dialogue_style: Optional[DialogueStyleProfile] = Field(
+        None, description="对话风格")
+    emotional_expression: Optional[EmotionalExpressionProfile] = Field(
+        None, description="情感表达")
+    structural_features: Optional[StructuralFeaturesProfile] = Field(
+        None, description="结构特征")
+
+
+class ExampleTransformation(BaseModel):
+    """示例转换"""
+    original: Optional[str] = Field(None, description="原始文本")
+    styled: Optional[str] = Field(None, description="风格化文本")
+    explanation: Optional[str] = Field(None, description="转换说明")
+
+
+class StyleDocumentResponse(BaseModel):
+    """风格文档响应"""
+    project_id: int
+    style_document_uploaded: bool = Field(
+        default=False, description="是否已上传风格文档")
+    style_document_name: Optional[str] = Field(None, description="风格文档名称")
+    style_profile: Optional[StyleProfile] = Field(None, description="风格画像")
+    style_guide_for_writing: Optional[str] = Field(None, description="写作风格指南")
+    key_imitation_points: Optional[List[str]] = Field(
+        default_factory=list, description="关键模仿要点")
+    example_transformations: Optional[List[ExampleTransformation]] = Field(
+        default_factory=list, description="示例转换")
+    avoid_patterns: Optional[List[str]] = Field(
+        default_factory=list, description="避免模式")
+    ai_elimination_enabled: bool = Field(
+        default=True, description="是否启用AI文风消除")
+    ai_elimination_threshold: int = Field(default=50, description="AI文风消除阈值")
+    created_at: Optional[datetime] = Field(None, description="创建时间")
+    updated_at: Optional[datetime] = Field(None, description="更新时间")
+
+
+class StyleDocumentUpdate(BaseModel):
+    """风格文档更新请求"""
+    ai_elimination_enabled: Optional[bool] = Field(
+        None, description="是否启用AI文风消除")
+    ai_elimination_threshold: Optional[int] = Field(
+        None, ge=0, le=100, description="AI文风消除阈值")
+
+
+class RealTimeStyleGuide(BaseModel):
+    """实时风格指导"""
+    style_instructions: Dict[str, Any] = Field(
+        default_factory=dict, description="风格指导指令")
+    key_reminders: List[str] = Field(default_factory=list, description="关键提醒")
+    style_examples: Dict[str, str] = Field(
+        default_factory=dict, description="风格示例")

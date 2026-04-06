@@ -2,6 +2,11 @@
 文档预处理器模块
 构建两层预处理流水线：Cleaner -> Filter
 优化 GraphRAG 的输入质量，降低 Token 消耗并提升知识图谱准确性
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import List, Dict, Any, Optional, Callable
 from pathlib import Path

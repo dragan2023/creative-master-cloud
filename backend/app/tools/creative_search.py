@@ -8,6 +8,11 @@
 3. 质量评估 - 多维度评分过滤低质量结果
 4. 高质量格式化 - LLM友好的结构化输出
 5. 缓存机制 - 减少重复API调用
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, List, Any, Optional, Tuple
 import re
@@ -532,7 +537,8 @@ class SearchResultQualityEvaluator:
                     score = min(score + 0.2, 1.0)
                 elif days_old < 1825:
                     score = min(score + 0.1, 1.0)
-            except:
+            except (ValueError, TypeError) as e:
+                logger.debug(f"解析日期失败: {e}")
                 pass
 
         return score
@@ -960,7 +966,7 @@ class OptimizedCreativeSearch:
                         UserAPIKey.user_id == user_id,
                         UserAPIKey.provider == provider,
                         UserAPIKey.is_valid == True
-                    ).order_by(UserAPIKey.is_default.desc())
+                    ).order_by(UserAPIKey.is_default.desc()).limit(1)
                 )
                 api_key_record = result.scalar_one_or_none()
                 if api_key_record:
@@ -1023,7 +1029,7 @@ class OptimizedCreativeSearch:
                             UserAPIKey.user_id == user_id,
                             UserAPIKey.provider == provider,
                             UserAPIKey.is_valid == True
-                        ).order_by(UserAPIKey.is_default.desc())
+                        ).order_by(UserAPIKey.is_default.desc()).limit(1)
                     )
                     api_key_record = result.scalar_one_or_none()
                     if api_key_record:

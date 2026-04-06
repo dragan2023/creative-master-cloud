@@ -69,10 +69,16 @@ const routes = [
         meta: { title: '小说/剧本生成' }
       },
       {
+        path: 'novel-writer/model-config',
+        name: 'NovelWriterModelConfig',
+        component: () => import('@/views/novel-writer/ModelConfigPage.vue'),
+        meta: { title: 'LLM模型配置' }
+      },
+      {
         path: 'novel-writer/:id',
         name: 'NovelWriterDetail',
-        component: () => import('@/views/novel-writer/ProjectDetail.vue'),
-        meta: { title: '项目详情' }
+        component: () => import('@/views/novel-writer/WritingWorkbench.vue'),
+        meta: { title: '写作工作台' }
       },
       // 管理员后台路由
       {

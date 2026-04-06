@@ -1,4 +1,11 @@
-# 工具类模块
+"""
+工具类模块
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
+"""
 from app.tools.web_search import WebSearchTool, get_web_search_tool, web_search_tool
 from app.tools.knowledge_retrieval import KnowledgeRetrievalTool, get_knowledge_retrieval_tool, knowledge_retrieval_tool
 from app.tools.file_parser import FileParser, get_file_parser, file_parser

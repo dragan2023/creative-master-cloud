@@ -6,7 +6,7 @@ import router from '@/router'
 // 创建axios实例
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 1800000, // 30分钟超时，用于大文件上传和文档处理
+  timeout: 30000, // 默认30秒超时（普通API请求）
   maxContentLength: 200 * 1024 * 1024, // 200MB
   maxBodyLength: 200 * 1024 * 1024, // 200MB
   headers: {
@@ -39,11 +39,13 @@ api.interceptors.response.use(
     
     // 401 未授权 - 跳转登录页
     if (status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('userInfo')
-      // 避免登录页循环重定向
-      if (router.currentRoute.value.path !== '/login') {
-        router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
+      // 检查是否已经是登录页，避免重复跳转
+      const currentPath = router.currentRoute.value.path
+      if (currentPath !== '/login' && currentPath !== '/register') {
+        localStorage.removeItem('token')
+        localStorage.removeItem('userInfo')
+        console.warn('[API] 401 未授权，跳转登录页')
+        router.push({ path: '/login', query: { redirect: currentPath } })
       }
       return Promise.reject(error)
     }
@@ -102,8 +104,8 @@ export const generateApi = {
   // 原创IP计划
   originalIp: (data, onMessage, onWorkflow, onStreamStart, sessionId) => streamGenerate('/api/v1/generate/original-ip/stream', data, onMessage, onWorkflow, onStreamStart, sessionId),
   
-  // 提示词优化
-  optimize: (data) => api.post('/api/v1/generate/optimize', data),
+  // 提示词优化（需要较长超时时间，因为需要调用LLM）
+  optimize: (data) => api.post('/api/v1/generate/optimize', data, { timeout: 120000 }),
   
   // 获取支持的优化模块列表
   getOptimizeModules: () => api.get('/api/v1/generate/optimize/modules'),
@@ -217,7 +219,10 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
       url += `?${paramString}`
     }
     
-    console.log('[API] Request URL:', url)  // 调试日志
+    // 调试日志：输出完整的请求参数
+    console.log('[API] Request URL:', url)
+    console.log('[API] Query Params:', Object.fromEntries(params))
+    console.log('[API] Request Body:', requestBody)
     
     // 获取认证 token
     const token = localStorage.getItem('token')
@@ -563,12 +568,8 @@ export const novelWriterApi = {
   updateChapter: (projectId, chapterNum, data) => api.put(`/api/v1/novel-writer/projects/${projectId}/chapters/${chapterNum}`, data),
   deleteChapter: (projectId, chapterNum) => api.delete(`/api/v1/novel-writer/projects/${projectId}/chapters/${chapterNum}`),
 
-  // 章节生成
-  generateChapter: (projectId, chapterNum) => api.post(`/api/v1/novel-writer/projects/${projectId}/generate-chapter/${chapterNum}`),
-  generateAll: (projectId, data) => api.post(`/api/v1/novel-writer/projects/${projectId}/generate-all`, data),
-
   // 进度获取
-  getProgress: (projectId) => api.get(`/api/v1/novel-writer/projects/${projectId}/progress`),
+  // TODO: 已迁移到新的Writing Task系统
 
   // 导出
   exportProject: (projectId, data) => api.post(`/api/v1/novel-writer/projects/${projectId}/export`, data, {
@@ -576,14 +577,7 @@ export const novelWriterApi = {
   }),
 
   // ==================== 分集详细大纲 API ====================
-
-  // 生成分集详细大纲（单集）
-  generateEpisodeOutline: (projectId, episode) => 
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-episode-outline/${episode}`),
-
-  // 批量生成分集详细大纲
-  generateAllEpisodeOutlines: (projectId, data, signal) => 
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-all-episode-outlines`, data, { signal }),
+  // TODO: 大纲生成已迁移到新的Writing Task系统
 
   // 获取分集大纲列表
   getEpisodeOutlines: (projectId) => 
@@ -602,20 +596,10 @@ export const novelWriterApi = {
     api.delete(`/api/v1/novel-writer/projects/${projectId}/episode-outlines/${episode}`),
 
   // ==================== 单集正文生成 API ====================
-
-  // 生成单集正文（完整单集，包含所有场景）
-  generateEpisodeContent: (projectId, episode, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-episode-content/${episode}`, {}, { signal }),
+  // TODO: 正文生成已迁移到新的Writing Task系统
 
   // ==================== 章节详细大纲 API ====================
-
-  // 生成章节详细大纲（单章）
-  generateChapterOutline: (projectId, chapter) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-chapter-outline/${chapter}`),
-
-  // 批量生成章节详细大纲
-  generateAllChapterOutlines: (projectId, data, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-all-chapter-outlines`, data, { signal }),
+  // TODO: 大纲生成已迁移到新的Writing Task系统
 
   // 获取章节大纲列表
   getChapterOutlines: (projectId) =>
@@ -633,21 +617,31 @@ export const novelWriterApi = {
   deleteChapterOutline: (projectId, chapter) =>
     api.delete(`/api/v1/novel-writer/projects/${projectId}/chapter-outlines/${chapter}`),
 
-  // ==================== 章节正文生成 API ====================
+  // 生成章节详细大纲
+  generateChapterOutlines: (projectId, data = {}) =>
+    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-chapter-outlines`, data),
 
-  // 生成小说章节正文
-  generateChapterContent: (projectId, chapter, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-chapter-content/${chapter}`, {}, { signal }),
+  // 异步生成章节详细大纲（支持中断）
+  generateChapterOutlinesAsync: (projectId, data = {}) =>
+    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-chapter-outlines-async`, data),
+
+  // 中断章节大纲生成
+  interruptChapterOutlines: (projectId) =>
+    api.post(`/api/v1/novel-writer/projects/${projectId}/interrupt-chapter-outlines`),
+
+  // 获取章节大纲生成进度
+  getChapterOutlinesProgress: (projectId) =>
+    api.get(`/api/v1/novel-writer/projects/${projectId}/chapter-outlines-progress`),
+
+  // 获取章节大纲生成SSE事件流
+  getChapterOutlinesEventsUrl: (projectId, token) =>
+    `/api/v1/novel-writer/projects/${projectId}/chapter-outlines-events?token=${token}`,
+
+  // ==================== 章节正文生成 API ====================
+  // TODO: 正文生成已迁移到新的Writing Task系统
 
   // ==================== 场景详细大纲 API ====================
-
-  // 生成场景详细大纲（单场景）
-  generateSceneOutline: (projectId, scene) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-scene-outline/${scene}`),
-
-  // 批量生成场景详细大纲
-  generateAllSceneOutlines: (projectId, data, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-all-scene-outlines`, data, { signal }),
+  // TODO: 大纲生成已迁移到新的Writing Task系统
 
   // 获取场景大纲列表
   getSceneOutlines: (projectId) =>
@@ -666,24 +660,10 @@ export const novelWriterApi = {
     api.delete(`/api/v1/novel-writer/projects/${projectId}/scene-outlines/${scene}`),
 
   // ==================== 场景正文生成 API ====================
-
-  // 生成电影场景正文
-  generateSceneContent: (projectId, scene, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-scene-content/${scene}`, {}, { signal }),
+  // TODO: 正文生成已迁移到新的Writing Task系统
 
   // ==================== 批量正文生成 API ====================
-
-  // 批量生成剧集正文
-  generateAllEpisodeContent: (projectId, data, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-all-episode-content`, data, { signal }),
-
-  // 批量生成小说正文
-  generateAllChapterContent: (projectId, data, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-all-chapter-content`, data, { signal }),
-
-  // 批量生成电影正文
-  generateAllSceneContent: (projectId, data, signal) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/generate-all-scene-content`, data, { signal }),
+  // TODO: 批量正文生成已迁移到新的Writing Task系统
 
   // ==================== 批量获取正文内容 API ====================
 
@@ -717,22 +697,7 @@ export const novelWriterApi = {
   },
 
   // ==================== 用户干预机制 API ====================
-
-  // 带用户干预选项的详细大纲生成
-  generateOutlineWithIntervention: (projectId, unitNumber, data) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/outline-intervention/${unitNumber}`, data),
-
-  // 校验详细大纲一致性
-  validateOutlineConsistency: (projectId, unitNumber, contentType = 'novel') =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/validate-outline-consistency/${unitNumber}`, {
-      content_type: contentType
-    }),
-
-  // 获取位置感知上下文
-  getPositionAwareContext: (projectId, unitNumber, contentType = 'novel') =>
-    api.get(`/api/v1/novel-writer/projects/${projectId}/position-aware-context/${unitNumber}`, {
-      params: { content_type: contentType }
-    }),
+  // TODO: 用户干预机制已迁移到新的Writing Task系统
 
   // ==================== 删除内容 API ====================
 
@@ -770,6 +735,28 @@ export const novelWriterApi = {
   buildKnowledgeBase: (projectId) =>
     api.post(`/api/v1/novel-writer/projects/${projectId}/build-knowledge-base`),
 
+  // ==================== 风格文档 API ====================
+
+  // 获取风格文档信息
+  getStyleDocument: (projectId) =>
+    api.get(`/api/v1/novel-writer/projects/${projectId}/style-document`),
+
+  // 上传风格文档
+  uploadStyleDocument: (projectId, formData) =>
+    api.post(`/api/v1/novel-writer/projects/${projectId}/style-document`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  // 删除风格文档
+  deleteStyleDocument: (projectId) =>
+    api.delete(`/api/v1/novel-writer/projects/${projectId}/style-document`),
+
+  // 更新风格文档设置（AI消除开关和阈值）
+  updateStyleDocumentSettings: (projectId, data) =>
+    api.put(`/api/v1/novel-writer/projects/${projectId}/style-document`, data),
+
+  // ==================== 项目专属知识库 API ====================
+
   // 获取知识库状态
   getKnowledgeBaseStatus: (projectId) =>
     api.get(`/api/v1/novel-writer/projects/${projectId}/knowledge-base-status`),
@@ -806,7 +793,38 @@ export const novelWriterApi = {
 
   // 重置知识库构建状态（用于清除幽灵状态）
   resetKnowledgeBaseStatus: (projectId) =>
-    api.post(`/api/v1/novel-writer/projects/${projectId}/knowledge-base/reset-status`)
+    api.post(`/api/v1/novel-writer/projects/${projectId}/knowledge-base/reset-status`),
+
+  // ==================== 一致性检查报告 API ====================
+
+  // 获取一致性检查报告
+  getConsistencyReport: (projectId, unitNumber = null) => {
+    const params = unitNumber !== null ? { unit_number: unitNumber } : {}
+    return api.get(`/api/v1/novel-writer/projects/${projectId}/consistency-report`, { params })
+  },
+
+  // 获取人物状态详情
+  getCharacterStates: (projectId, unitNumber = null, characterName = null) => {
+    const params = {}
+    if (unitNumber !== null) params.unit_number = unitNumber
+    if (characterName) params.character_name = characterName
+    return api.get(`/api/v1/novel-writer/projects/${projectId}/character-states`, { params })
+  },
+
+  // 获取扩展实体状态
+  getExtendedEntities: (projectId, unitNumber = null, entityType = null) => {
+    const params = {}
+    if (unitNumber !== null) params.unit_number = unitNumber
+    if (entityType) params.entity_type = entityType
+    return api.get(`/api/v1/novel-writer/projects/${projectId}/extended-entities`, { params })
+  },
+
+  // 检查内容一致性
+  checkContentConsistency: (projectId, content, unitNumber = null) => {
+    const params = { content }
+    if (unitNumber !== null) params.unit_number = unitNumber
+    return api.post(`/api/v1/novel-writer/projects/${projectId}/check-content-consistency`, null, { params })
+  }
 
 }
 

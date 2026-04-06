@@ -1,14 +1,25 @@
-﻿"""
+"""
 创意生成 API 端点
 提供短视频脚本、剧本大纲、小说大纲、平面广告、TVC广告脚本的生成功能
 支持流式和非流式生成
 支持多模态文件上传
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, Any
 from pydantic import BaseModel
 from app.services.outline_generator import get_outline_generator
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query
+from fastapi import APIRouter, Depends, status, File, UploadFile, Query
+from app.core.exceptions import (
+    ResourceNotFoundException,
+    ValidationException,
+    AuthorizationException,
+    GenerationException,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
@@ -27,10 +38,17 @@ from app.schemas.generation import (
 )
 from app.schemas.common import ResponseModel
 from app.models import User, Generation, GenerationModule, GenerationStatus, UserAction
+from app.services.generation_service import GenerationService
+from app.services.user_action_service import UserActionService
 from app.agents.orchestrator import get_agent_orchestrator
 from app.core.logger import get_logger
 from app.core.config import get_settings
 from app.core.redis_client import redis_manager
+from app.core.module_registry import (
+    get_module_config, MODULE_REGISTRY,
+    MODULE_SHORT_VIDEO, MODULE_SCRIPT, MODULE_NOVEL,
+    MODULE_PRINT_AD, MODULE_TVC, MODULE_ORIGINAL_IP
+)
 import json
 import asyncio
 
@@ -39,6 +57,7 @@ CANCEL_KEY_PREFIX = "generate:cancel:"
 # 取消令牌过期时间（秒）
 CANCEL_EXPIRE_SECONDS = 3600  # 1小时
 # 内存取消令牌存储（用于流式生成的取消控制）
+# TODO: 考虑完全迁移到Redis后移除内存级取消令牌
 cancel_tokens: Dict[str, asyncio.Event] = {}
 
 router = APIRouter(prefix="/generate", tags=["创意生成"])
@@ -77,13 +96,21 @@ async def cancel_generation(
     """
     取消生成任务
     使用 Redis 存储取消状态，支持多 worker 环境
+    同时设置内存中的 Event 实现立即中断
     """
     cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
-    
+
     try:
-        # 设置取消标记
+        # 1. 设置 Redis 取消标记（支持多 worker 环境）
         await redis_manager.set(cancel_key, "1", expire=CANCEL_EXPIRE_SECONDS)
-        logger.info(f"用户 {current_user.id} 请求取消生成任务: {session_id}, Redis key: {cancel_key}")
+
+        # 2. 设置内存中的 Event（实现立即中断）
+        if session_id in cancel_tokens:
+            cancel_tokens[session_id].set()
+            logger.info(f"已设置内存取消事件: {session_id}")
+
+        logger.info(
+            f"用户 {current_user.id} 请求取消生成任务: {session_id}, Redis key: {cancel_key}")
         return ResponseModel(success=True, message="取消请求已发送")
     except Exception as e:
         logger.error(f"设置取消标记失败: {e}")
@@ -115,10 +142,10 @@ async def is_cancelled(session_id: str) -> bool:
     """
     检查生成任务是否被取消
     使用 Redis 存储取消状态，支持多 worker 环境
-    
+
     Args:
         session_id: 会话ID
-        
+
     Returns:
         是否被取消
     """
@@ -154,6 +181,9 @@ async def upload_file(
     from app.core.config import get_settings
     settings = get_settings()
 
+    logger.info(
+        f"[上传] 开始处理文件上传: filename={file.filename}, content_type={file.content_type}")
+
     content_type = file.content_type or ""
     file_ext = None
     file_type = None  # 'image' or 'document'
@@ -177,18 +207,17 @@ async def upload_file(
             file_type = 'document'
             max_size = settings.MAX_DOC_SIZE
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的文件类型: {content_type or original_ext}。支持图片(png/jpg/gif/webp)或文档(txt/md/doc/docx/pdf)，最大{int(settings.MAX_IMAGE_SIZE / 1024 / 1024)}MB"
+            logger.warning(f"[上传] 不支持的文件类型: {content_type or original_ext}")
+            raise ValidationException(
+                f"不支持的文件类型: {content_type or original_ext}。支持图片(png/jpg/gif/webp)或文档(txt/md/doc/docx/pdf)，最大{int(settings.MAX_IMAGE_SIZE / 1024 / 1024)}MB"
             )
 
     # 检查文件大小
     content = await file.read()
     if len(content) > max_size:
         size_mb = max_size / 1024 / 1024
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"文件大小超过限制（{file_type == 'image' and '图片' or '文档'}最大{int(size_mb)}MB）"
+        raise ValidationException(
+            f"文件大小超过限制（{file_type == 'image' and '图片' or '文档'}最大{int(size_mb)}MB）"
         )
 
     # 获取上传目录
@@ -204,6 +233,9 @@ async def upload_file(
 
     # 返回文件URL
     file_url = f"/api/v1/generate/uploads/{file_name}"
+
+    logger.info(
+        f"[上传] 文件上传成功: filename={file.filename}, saved_as={file_name}, size={len(content)} bytes, url={file_url}")
 
     return ResponseModel(data={
         "url": file_url,
@@ -229,19 +261,16 @@ async def upload_multiple_files(
         文件URL列表
     """
     if len(files) > 5:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="最多同时上传5个文件"
-        )
+        raise ValidationException("最多同时上传5个文件")
 
     results = []
     for file in files:
         try:
             result = await upload_file(file, current_user)
             results.append(result.data)
-        except HTTPException as e:
+        except ValidationException as e:
             results.append({
-                "error": e.detail,
+                "error": e.message,
                 "file_name": file.filename
             })
 
@@ -267,17 +296,11 @@ async def get_uploaded_file(file_name: str):
     file_path = os.path.join(upload_dir, file_name)
 
     if not os.path.exists(file_path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="文件不存在"
-        )
+        raise ResourceNotFoundException("文件不存在")
 
     # 安全检查：防止目录遍历攻击
     if not os.path.abspath(file_path).startswith(os.path.abspath(upload_dir)):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="访问被拒绝"
-        )
+        raise AuthorizationException(message="访问被拒绝")
 
     return FileResponse(file_path)
 
@@ -326,6 +349,116 @@ async def get_session_messages(
     return {"messages": messages}
 
 
+# ==================== 流式生成端点工厂 ====================
+
+async def _create_streaming_endpoint(
+    module: str,
+    input_params: dict,
+    user_id: int,
+    db: AsyncSession,
+    session_id: Optional[str] = None,
+    enable_search: bool = False,
+    enable_knowledge: bool = False,
+    enable_mcp: bool = False,
+    enable_trending: bool = False,
+    provider: Optional[str] = None,
+    temperature: float = 0.7,
+    search_keywords: Optional[List[str]] = None,
+    kb_vertical: bool = False,
+    kb_user_specific: bool = False,
+    kb_manual: bool = False,
+    kb_vertical_ids: Optional[List[int]] = None,
+    kb_user_specific_ids: Optional[List[int]] = None,
+    kb_manual_ids: Optional[List[int]] = None,
+    **kwargs
+) -> StreamingResponse:
+    """
+    通用流式生成端点工厂 - 消除8个端点的重复代码
+
+    Args:
+        module: 模块名称 (short_video, script, novel, print_ad, tvc, original_ip)
+        input_params: 输入参数字典
+        user_id: 用户ID
+        db: 数据库会话
+        session_id: 会话ID
+        enable_search: 是否启用搜索
+        enable_knowledge: 是否启用知识库
+        enable_mcp: 是否启用MCP
+        enable_trending: 是否启用趋势
+        provider: 模型提供者
+        temperature: 温度参数
+        search_keywords: 搜索关键词列表
+        kb_vertical: 是否启用垂直知识库
+        kb_user_specific: 是否启用用户专属知识库
+        kb_manual: 是否启用手动知识库
+        kb_vertical_ids: 垂直知识库ID列表
+        kb_user_specific_ids: 用户专属知识库ID列表
+        kb_manual_ids: 手动知识库ID列表
+        **kwargs: 额外参数（videos, images等）
+
+    Returns:
+        StreamingResponse: 流式响应
+    """
+    orchestrator = get_agent_orchestrator()
+
+    # 创建内存取消事件（实现立即中断）
+    cancel_event = asyncio.Event()
+    if session_id:
+        cancel_tokens[session_id] = cancel_event
+
+    async def event_generator():
+        try:
+            async for chunk in orchestrator.generate_stream(
+                db=db,
+                module=module,
+                user_id=user_id,
+                input_params=input_params,
+                session_id=session_id,
+                enable_search=enable_search,
+                search_keywords=search_keywords,
+                enable_knowledge=enable_knowledge,
+                enable_mcp=enable_mcp or enable_trending,
+                reference_urls=input_params.get("reference_urls"),
+                provider=provider,
+                temperature=temperature,
+                cancel_event=cancel_event,  # 传入内存事件
+                kb_vertical=kb_vertical,
+                kb_user_specific=kb_user_specific,
+                kb_manual=kb_manual,
+                kb_vertical_ids=kb_vertical_ids,
+                kb_user_specific_ids=kb_user_specific_ids,
+                kb_manual_ids=kb_manual_ids,
+                **kwargs
+            ):
+                # 优先检查内存事件（立即中断）
+                if cancel_event.is_set():
+                    logger.info(f"生成任务被立即取消: {session_id}")
+                    break
+                # 同时检查 Redis（多 worker 兼容）
+                if await is_cancelled(session_id):
+                    logger.info(f"生成任务被取消(Redis): {session_id}")
+                    break
+                yield chunk
+        finally:
+            # 清理取消令牌
+            if session_id and session_id in cancel_tokens:
+                del cancel_tokens[session_id]
+            # 清理 Redis 标记
+            if session_id:
+                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+                await redis_manager.delete(cancel_key)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
+
+
 # ==================== 短视频脚本生成 ====================
 
 @router.post("/short-video")
@@ -352,7 +485,7 @@ async def generate_short_video(
 
     result = await orchestrator.generate(
         db=db,
-        module="short_video",
+        module=MODULE_SHORT_VIDEO,
         user_id=current_user.id,
         input_params=input_params,
         session_id=session_id,
@@ -375,10 +508,7 @@ async def generate_short_video(
             generation_id=result.get("generation_id")
         )
     else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "生成失败")
-        )
+        raise GenerationException(result.get("error", "生成失败"))
 
 
 @router.post("/short-video/stream")
@@ -391,80 +521,49 @@ async def generate_short_video_stream(
     enable_trending: bool = False,
     provider: Optional[str] = None,
     temperature: float = 0.7,
-    # 搜索关键词参数
     search_keywords: Optional[List[str]] = Query(default=None),
-    # 知识库类别选择参数
     kb_vertical: bool = False,
     kb_user_specific: bool = False,
     kb_manual: bool = False,
-    kb_vertical_ids: Optional[str] = None,  # 逗号分隔的ID列表
+    kb_vertical_ids: Optional[str] = None,
     kb_user_specific_ids: Optional[str] = None,
     kb_manual_ids: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    生成短视频脚本（流式）
-    """
-    # 解析ID列表
-    vertical_ids = parse_kb_ids(kb_vertical_ids)
-    user_specific_ids = parse_kb_ids(kb_user_specific_ids)
-    manual_ids = parse_kb_ids(kb_manual_ids)
-
-    logger.info(
-        f"短视频流式生成请求: enable_knowledge={enable_knowledge}, kb_vertical={kb_vertical}, kb_user_specific={kb_user_specific}, kb_manual={kb_manual}, session_id={session_id}")
-
-    orchestrator = get_agent_orchestrator()
-
+    """生成短视频脚本（流式）"""
     input_params = data.model_dump()
-
-    # 提取参考视频URL（如果存在）
     reference_video = input_params.get("reference_video")
     videos = [reference_video] if reference_video else None
 
-    async def event_generator():
-        try:
-            async for chunk in orchestrator.generate_stream(
-                db=db,
-                module="short_video",
-                user_id=current_user.id,
-                input_params=input_params,
-                session_id=session_id,
-                enable_search=enable_search,
-                search_keywords=search_keywords,
-                enable_knowledge=enable_knowledge,
-                enable_mcp=enable_mcp or enable_trending,
-                reference_urls=input_params.get("reference_urls"),
-                provider=provider,
-                temperature=temperature,
-                videos=videos,
-                cancel_event=None,  # 使用 Redis 取消机制
-                kb_vertical=kb_vertical,
-                kb_user_specific=kb_user_specific,
-                kb_manual=kb_manual,
-                kb_vertical_ids=vertical_ids,
-                kb_user_specific_ids=user_specific_ids,
-                kb_manual_ids=manual_ids
-            ):
-                # 检查是否被取消（使用 Redis）
-                if await is_cancelled(session_id):
-                    logger.info(f"生成任务被取消: {session_id}")
-                    break
-                yield chunk
-        finally:
-            # 清理取消标记
-            if session_id:
-                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
-                await redis_manager.delete(cancel_key)
+    # 详细日志：记录所有关键参数
+    logger.info(
+        f"短视频流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+        f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, kb_user_specific={kb_user_specific}, "
+        f"kb_manual={kb_manual}, kb_vertical_ids={kb_vertical_ids}, session_id={session_id}"
+    )
+    logger.debug(f"短视频输入参数: {input_params}")
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive"
-        }
+    return await _create_streaming_endpoint(
+        module=MODULE_SHORT_VIDEO,
+        input_params=input_params,
+        user_id=current_user.id,
+        db=db,
+        session_id=session_id,
+        enable_search=enable_search,
+        enable_knowledge=enable_knowledge,
+        enable_mcp=enable_mcp,
+        enable_trending=enable_trending,
+        provider=provider,
+        temperature=temperature,
+        search_keywords=search_keywords,
+        kb_vertical=kb_vertical,
+        kb_user_specific=kb_user_specific,
+        kb_manual=kb_manual,
+        kb_vertical_ids=parse_kb_ids(kb_vertical_ids),
+        kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
+        kb_manual_ids=parse_kb_ids(kb_manual_ids),
+        videos=videos
     )
 
 
@@ -490,7 +589,7 @@ async def generate_script(
 
     result = await orchestrator.generate(
         db=db,
-        module="script",
+        module=MODULE_SCRIPT,
         user_id=current_user.id,
         input_params=input_params,
         session_id=session_id,
@@ -512,10 +611,7 @@ async def generate_script(
             generation_id=result.get("generation_id")
         )
     else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "生成失败")
-        )
+        raise GenerationException(result.get("error", "生成失败"))
 
 
 @router.post("/script/stream")
@@ -528,9 +624,7 @@ async def generate_script_stream(
     enable_trending: bool = False,
     provider: Optional[str] = None,
     temperature: float = 0.7,
-    # 搜索关键词参数
     search_keywords: Optional[List[str]] = Query(default=None),
-    # 知识库类别选择参数
     kb_vertical: bool = False,
     kb_user_specific: bool = False,
     kb_manual: bool = False,
@@ -540,60 +634,31 @@ async def generate_script_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    生成剧本大纲（流式）
-    """
-    # 解析ID列表
-    vertical_ids = parse_kb_ids(kb_vertical_ids)
-    user_specific_ids = parse_kb_ids(kb_user_specific_ids)
-    manual_ids = parse_kb_ids(kb_manual_ids)
-
-    orchestrator = get_agent_orchestrator()
-
+    """生成剧本大纲（流式）"""
     input_params = data.model_dump()
-
-    async def event_generator():
-        try:
-            async for chunk in orchestrator.generate_stream(
-                db=db,
-                module="script",
-                user_id=current_user.id,
-                input_params=input_params,
-                session_id=session_id,
-                enable_search=enable_search,
-                search_keywords=search_keywords,
-                enable_knowledge=enable_knowledge,
-                enable_mcp=enable_mcp or enable_trending,
-                reference_urls=input_params.get("reference_urls"),
-                provider=provider,
-                temperature=temperature,
-                cancel_event=None,  # 使用 Redis 取消机制
-                kb_vertical=kb_vertical,
-                kb_user_specific=kb_user_specific,
-                kb_manual=kb_manual,
-                kb_vertical_ids=vertical_ids,
-                kb_user_specific_ids=user_specific_ids,
-                kb_manual_ids=manual_ids
-            ):
-                # 检查是否被取消（使用 Redis）
-                if await is_cancelled(session_id):
-                    logger.info(f"生成任务被取消: {session_id}")
-                    break
-                yield chunk
-        finally:
-            # 清理取消标记
-            if session_id:
-                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
-                await redis_manager.delete(cancel_key)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive"
-        }
+    logger.info(
+        f"剧本流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+        f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, session_id={session_id}"
+    )
+    return await _create_streaming_endpoint(
+        module=MODULE_SCRIPT,
+        input_params=input_params,
+        user_id=current_user.id,
+        db=db,
+        session_id=session_id,
+        enable_search=enable_search,
+        enable_knowledge=enable_knowledge,
+        enable_mcp=enable_mcp,
+        enable_trending=enable_trending,
+        provider=provider,
+        temperature=temperature,
+        search_keywords=search_keywords,
+        kb_vertical=kb_vertical,
+        kb_user_specific=kb_user_specific,
+        kb_manual=kb_manual,
+        kb_vertical_ids=parse_kb_ids(kb_vertical_ids),
+        kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
+        kb_manual_ids=parse_kb_ids(kb_manual_ids)
     )
 
 
@@ -619,7 +684,7 @@ async def generate_novel(
 
     result = await orchestrator.generate(
         db=db,
-        module="novel",
+        module=MODULE_NOVEL,
         user_id=current_user.id,
         input_params=input_params,
         session_id=session_id,
@@ -641,10 +706,7 @@ async def generate_novel(
             generation_id=result.get("generation_id")
         )
     else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "生成失败")
-        )
+        raise GenerationException(result.get("error", "生成失败"))
 
 
 @router.post("/novel/stream")
@@ -657,9 +719,7 @@ async def generate_novel_stream(
     enable_trending: bool = False,
     provider: Optional[str] = None,
     temperature: float = 0.7,
-    # 搜索关键词参数
     search_keywords: Optional[List[str]] = Query(default=None),
-    # 知识库类别选择参数
     kb_vertical: bool = False,
     kb_user_specific: bool = False,
     kb_manual: bool = False,
@@ -669,60 +729,31 @@ async def generate_novel_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    生成小说大纲（流式）
-    """
-    # 解析ID列表
-    vertical_ids = parse_kb_ids(kb_vertical_ids)
-    user_specific_ids = parse_kb_ids(kb_user_specific_ids)
-    manual_ids = parse_kb_ids(kb_manual_ids)
-
-    orchestrator = get_agent_orchestrator()
-
+    """生成小说大纲（流式）"""
     input_params = data.model_dump()
-
-    async def event_generator():
-        try:
-            async for chunk in orchestrator.generate_stream(
-                db=db,
-                module="novel",
-                user_id=current_user.id,
-                input_params=input_params,
-                session_id=session_id,
-                enable_search=enable_search,
-                search_keywords=search_keywords,
-                enable_knowledge=enable_knowledge,
-                enable_mcp=enable_mcp or enable_trending,
-                reference_urls=input_params.get("reference_urls"),
-                provider=provider,
-                temperature=temperature,
-                cancel_event=None,  # 使用 Redis 取消机制
-                kb_vertical=kb_vertical,
-                kb_user_specific=kb_user_specific,
-                kb_manual=kb_manual,
-                kb_vertical_ids=vertical_ids,
-                kb_user_specific_ids=user_specific_ids,
-                kb_manual_ids=manual_ids
-            ):
-                # 检查是否被取消（使用 Redis）
-                if await is_cancelled(session_id):
-                    logger.info(f"生成任务被取消: {session_id}")
-                    break
-                yield chunk
-        finally:
-            # 清理取消标记
-            if session_id:
-                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
-                await redis_manager.delete(cancel_key)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive"
-        }
+    logger.info(
+        f"小说流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+        f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, session_id={session_id}"
+    )
+    return await _create_streaming_endpoint(
+        module=MODULE_NOVEL,
+        input_params=input_params,
+        user_id=current_user.id,
+        db=db,
+        session_id=session_id,
+        enable_search=enable_search,
+        enable_knowledge=enable_knowledge,
+        enable_mcp=enable_mcp,
+        enable_trending=enable_trending,
+        provider=provider,
+        temperature=temperature,
+        search_keywords=search_keywords,
+        kb_vertical=kb_vertical,
+        kb_user_specific=kb_user_specific,
+        kb_manual=kb_manual,
+        kb_vertical_ids=parse_kb_ids(kb_vertical_ids),
+        kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
+        kb_manual_ids=parse_kb_ids(kb_manual_ids)
     )
 
 
@@ -748,7 +779,7 @@ async def generate_print_ad(
 
     result = await orchestrator.generate(
         db=db,
-        module="print_ad",
+        module=MODULE_PRINT_AD,
         user_id=current_user.id,
         input_params=input_params,
         session_id=session_id,
@@ -770,10 +801,7 @@ async def generate_print_ad(
             generation_id=result.get("generation_id")
         )
     else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "生成失败")
-        )
+        raise GenerationException(result.get("error", "生成失败"))
 
 
 @router.post("/print-ad/stream")
@@ -786,9 +814,7 @@ async def generate_print_ad_stream(
     enable_trending: bool = False,
     provider: Optional[str] = None,
     temperature: float = 0.7,
-    # 搜索关键词参数
     search_keywords: Optional[List[str]] = Query(default=None),
-    # 知识库类别选择参数
     kb_vertical: bool = False,
     kb_user_specific: bool = False,
     kb_manual: bool = False,
@@ -798,61 +824,32 @@ async def generate_print_ad_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    生成平面广告文案（流式）
-    """
-    # 解析ID列表
-    vertical_ids = parse_kb_ids(kb_vertical_ids)
-    user_specific_ids = parse_kb_ids(kb_user_specific_ids)
-    manual_ids = parse_kb_ids(kb_manual_ids)
-
-    orchestrator = get_agent_orchestrator()
-
+    """生成平面广告文案（流式）"""
     input_params = data.model_dump()
-
-    async def event_generator():
-        try:
-            async for chunk in orchestrator.generate_stream(
-                db=db,
-                module="print_ad",
-                user_id=current_user.id,
-                input_params=input_params,
-                session_id=session_id,
-                enable_search=enable_search,
-                search_keywords=search_keywords,
-                enable_knowledge=enable_knowledge,
-                enable_mcp=enable_mcp or enable_trending,
-                reference_urls=input_params.get("reference_urls"),
-                provider=provider,
-                temperature=temperature,
-                images=input_params.get("images"),
-                cancel_event=None,  # 使用 Redis 取消机制
-                kb_vertical=kb_vertical,
-                kb_user_specific=kb_user_specific,
-                kb_manual=kb_manual,
-                kb_vertical_ids=vertical_ids,
-                kb_user_specific_ids=user_specific_ids,
-                kb_manual_ids=manual_ids
-            ):
-                # 检查是否被取消（使用 Redis）
-                if await is_cancelled(session_id):
-                    logger.info(f"生成任务被取消: {session_id}")
-                    break
-                yield chunk
-        finally:
-            # 清理取消标记
-            if session_id:
-                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
-                await redis_manager.delete(cancel_key)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive"
-        }
+    logger.info(
+        f"平面广告流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+        f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, images={len(input_params.get('images', [])) if input_params.get('images') else 0}, session_id={session_id}"
+    )
+    return await _create_streaming_endpoint(
+        module=MODULE_PRINT_AD,
+        input_params=input_params,
+        user_id=current_user.id,
+        db=db,
+        session_id=session_id,
+        enable_search=enable_search,
+        enable_knowledge=enable_knowledge,
+        enable_mcp=enable_mcp,
+        enable_trending=enable_trending,
+        provider=provider,
+        temperature=temperature,
+        search_keywords=search_keywords,
+        kb_vertical=kb_vertical,
+        kb_user_specific=kb_user_specific,
+        kb_manual=kb_manual,
+        kb_vertical_ids=parse_kb_ids(kb_vertical_ids),
+        kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
+        kb_manual_ids=parse_kb_ids(kb_manual_ids),
+        images=input_params.get("images")
     )
 
 
@@ -882,7 +879,7 @@ async def generate_tvc(
 
     result = await orchestrator.generate(
         db=db,
-        module="tvc",
+        module=MODULE_TVC,
         user_id=current_user.id,
         input_params=input_params,
         session_id=session_id,
@@ -905,10 +902,7 @@ async def generate_tvc(
             generation_id=result.get("generation_id")
         )
     else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "生成失败")
-        )
+        raise GenerationException(result.get("error", "生成失败"))
 
 
 @router.post("/tvc/stream")
@@ -921,9 +915,7 @@ async def generate_tvc_stream(
     enable_trending: bool = False,
     provider: Optional[str] = None,
     temperature: float = 0.7,
-    # 搜索关键词参数
     search_keywords: Optional[List[str]] = Query(default=None),
-    # 知识库类别选择参数
     kb_vertical: bool = False,
     kb_user_specific: bool = False,
     kb_manual: bool = False,
@@ -933,65 +925,36 @@ async def generate_tvc_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    生成TVC广告脚本（流式）
-    """
-    # 解析ID列表
-    vertical_ids = parse_kb_ids(kb_vertical_ids)
-    user_specific_ids = parse_kb_ids(kb_user_specific_ids)
-    manual_ids = parse_kb_ids(kb_manual_ids)
-
-    orchestrator = get_agent_orchestrator()
-
+    """生成TVC广告脚本（流式）"""
     input_params = data.model_dump()
-
-    # 提取参考视频URL（如果存在）
     reference_video = input_params.get("reference_video")
     videos = [reference_video] if reference_video else None
 
-    async def event_generator():
-        try:
-            async for chunk in orchestrator.generate_stream(
-                db=db,
-                module="tvc",
-                user_id=current_user.id,
-                input_params=input_params,
-                session_id=session_id,
-                enable_search=enable_search,
-                search_keywords=search_keywords,
-                enable_knowledge=enable_knowledge,
-                enable_mcp=enable_mcp or enable_trending,
-                reference_urls=input_params.get("reference_urls"),
-                provider=provider,
-                temperature=temperature,
-                videos=videos,
-                cancel_event=None,  # 使用 Redis 取消机制
-                kb_vertical=kb_vertical,
-                kb_user_specific=kb_user_specific,
-                kb_manual=kb_manual,
-                kb_vertical_ids=vertical_ids,
-                kb_user_specific_ids=user_specific_ids,
-                kb_manual_ids=manual_ids
-            ):
-                # 检查是否被取消（使用 Redis）
-                if await is_cancelled(session_id):
-                    logger.info(f"生成任务被取消: {session_id}")
-                    break
-                yield chunk
-        finally:
-            # 清理取消标记
-            if session_id:
-                cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
-                await redis_manager.delete(cancel_key)
+    logger.info(
+        f"TVC流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+        f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, reference_video={'有' if reference_video else '无'}, session_id={session_id}"
+    )
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive"
-        }
+    return await _create_streaming_endpoint(
+        module=MODULE_TVC,
+        input_params=input_params,
+        user_id=current_user.id,
+        db=db,
+        session_id=session_id,
+        enable_search=enable_search,
+        enable_knowledge=enable_knowledge,
+        enable_mcp=enable_mcp,
+        enable_trending=enable_trending,
+        provider=provider,
+        temperature=temperature,
+        search_keywords=search_keywords,
+        kb_vertical=kb_vertical,
+        kb_user_specific=kb_user_specific,
+        kb_manual=kb_manual,
+        kb_vertical_ids=parse_kb_ids(kb_vertical_ids),
+        kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
+        kb_manual_ids=parse_kb_ids(kb_manual_ids),
+        videos=videos
     )
 
 
@@ -1079,10 +1042,7 @@ async def get_generation_detail(
     generation = result.scalar_one_or_none()
 
     if not generation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="生成记录不存在"
-        )
+        raise ResourceNotFoundException("生成记录不存在")
 
     return {
         "id": generation.id,
@@ -1119,10 +1079,7 @@ async def delete_generation(
     generation = result.scalar_one_or_none()
 
     if not generation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="生成记录不存在"
-        )
+        raise ResourceNotFoundException("生成记录不存在")
 
     await db.execute(
         delete(Generation).where(Generation.id == generation_id)
@@ -1145,17 +1102,14 @@ async def track_user_action(
     """
     记录用户行为（复制、下载、重新生成等）
     """
-    action = UserAction(
+    action_service = UserActionService(db)
+    action = await action_service.track_action(
         user_id=current_user.id,
         generation_id=data.generation_id,
         module=data.module,
         action=data.action,
         content_snippet=data.content_snippet
     )
-
-    db.add(action)
-    await db.commit()
-    await db.refresh(action)
 
     return UserActionResponse(
         id=action.id,
@@ -1259,16 +1213,10 @@ async def optimize_prompt(
 
     except ValueError as e:
         logger.warning(f"优化参数错误: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise ValidationException(str(e))
     except Exception as e:
         logger.error(f"优化失败: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"优化失败: {str(e)}"
-        )
+        raise GenerationException(f"优化失败: {str(e)}")
 
 
 @router.get("/optimize/modules")
@@ -1363,23 +1311,14 @@ async def generate_global_outline(
                 data=result
             )
         else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result.get("error", "生成失败")
-            )
+            raise GenerationException(result.get("error", "生成失败"))
 
     except ValueError as e:
         logger.warning(f"全局大纲参数错误: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise ValidationException(str(e))
     except Exception as e:
         logger.error(f"全局大纲生成失败: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"生成失败: {str(e)}"
-        )
+        raise GenerationException(f"生成失败: {str(e)}")
 
 
 @router.post("/outline/global/stream")
@@ -1390,7 +1329,7 @@ async def generate_global_outline_stream(
 ):
     """
     流式生成全局大纲（第一阶段）
-    
+
     支持知识库修正：生成完成后，自动调用知识库进行内容优化。
     修正后的内容会以分隔线标识，前端可识别并替换显示。
     """
@@ -1458,23 +1397,14 @@ async def generate_unit_summaries(
                 data=result
             )
         else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result.get("error", "生成失败")
-            )
+            raise GenerationException(result.get("error", "生成失败"))
 
     except ValueError as e:
         logger.warning(f"单元概述参数错误: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise ValidationException(str(e))
     except Exception as e:
         logger.error(f"单元概述生成失败: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"生成失败: {str(e)}"
-        )
+        raise GenerationException(f"生成失败: {str(e)}")
 
 
 @router.post("/outline/units/stream")
@@ -1549,10 +1479,7 @@ async def download_outline(
     from fastapi.responses import Response
 
     if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="大纲内容不能为空"
-        )
+        raise ValidationException("大纲内容不能为空")
 
     # 确保文件名以 .md 结尾
     if not filename.endswith('.md'):
@@ -1609,16 +1536,10 @@ async def check_outline_logic(
 
     except ValueError as e:
         logger.warning(f"逻辑检测参数错误: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise ValidationException(str(e))
     except Exception as e:
         logger.error(f"逻辑检测失败: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"检测失败: {str(e)}"
-        )
+        raise GenerationException(f"检测失败: {str(e)}")
 
 
 # ==================== 原创IP计划生成 ====================
@@ -1677,7 +1598,7 @@ async def generate_original_ip(
 
     result = await orchestrator.generate(
         db=db,
-        module="original_ip",
+        module=MODULE_ORIGINAL_IP,
         user_id=current_user.id,
         input_params=input_params,
         session_id=session_id,
@@ -1702,27 +1623,26 @@ async def generate_original_ip(
             title = None
             input_params_dict = data.model_dump()
             if input_params_dict:
-                title_keys = ['ip_name', 'title', 'topic', 'theme', 'subject', 'name']
+                title_keys = ['ip_name', 'title',
+                              'topic', 'theme', 'subject', 'name']
                 for key in title_keys:
                     if key in input_params_dict and input_params_dict[key]:
                         title = str(input_params_dict[key])[:200]
                         break
-            
-            generation = Generation(
+
+            generation_service = GenerationService(db)
+            generation = await generation_service.save_generation(
                 user_id=current_user.id,
                 module=GenerationModule.ORIGINAL_IP,
-                status=GenerationStatus.COMPLETED,
                 input_params=input_params_dict,
                 title=title,
                 output_content=result.get("content"),
                 provider=result.get("provider"),
                 model_name=result.get("model"),
                 token_count=result.get("usage", {}).get("total_tokens", 0),
-                duration_ms=result.get("duration_ms", 0)
+                duration_ms=result.get("duration_ms", 0),
+                status=GenerationStatus.COMPLETED,
             )
-            db.add(generation)
-            await db.commit()
-            await db.refresh(generation)
             generation_id = generation.id
         except Exception as e:
             logger.warning(f"保存生成记录失败: {e}")
@@ -1744,10 +1664,7 @@ async def generate_original_ip(
             generation_id=generation_id
         )
     else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "生成失败")
-        )
+        raise GenerationException(result.get("error", "生成失败"))
 
 
 @router.post("/original-ip/stream")
@@ -1809,7 +1726,7 @@ async def generate_original_ip_stream(
         try:
             async for chunk in orchestrator.generate_stream(
                 db=db,
-                module="original_ip",
+                module=MODULE_ORIGINAL_IP,
                 user_id=current_user.id,
                 input_params=input_params,
                 session_id=session_id,
@@ -1857,23 +1774,23 @@ async def generate_original_ip_stream(
                     title = None
                     input_params_dict = data.model_dump()
                     if input_params_dict:
-                        title_keys = ['ip_name', 'title', 'topic', 'theme', 'subject', 'name']
+                        title_keys = ['ip_name', 'title',
+                                      'topic', 'theme', 'subject', 'name']
                         for key in title_keys:
                             if key in input_params_dict and input_params_dict[key]:
                                 title = str(input_params_dict[key])[:200]
                                 break
-                    
-                    generation = Generation(
+
+                    generation_service = GenerationService(db)
+                    await generation_service.save_generation(
                         user_id=current_user.id,
                         module=GenerationModule.ORIGINAL_IP,
-                        status=GenerationStatus.COMPLETED,
                         input_params=input_params_dict,
                         title=title,
                         output_content=full_content,
-                        provider=provider
+                        provider=provider,
+                        status=GenerationStatus.COMPLETED,
                     )
-                    db.add(generation)
-                    await db.commit()
                 except Exception as e:
                     logger.warning(f"保存生成记录失败: {e}")
 

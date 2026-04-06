@@ -6,6 +6,11 @@ MCP 缓存管理模块
 - 热点数据: TTL = 30分钟
 - 趋势数据: TTL = 1小时
 - 静态资源: TTL = 24小时
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, Any, Optional
 import time

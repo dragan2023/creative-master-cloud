@@ -1,6 +1,11 @@
 """
 MCP 提供者基础抽象类
 定义所有 MCP 提供者必须实现的接口
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any

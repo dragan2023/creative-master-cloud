@@ -1,0 +1,602 @@
+"""
+提示词管理器配置模块
+定义各模块支持的变量、默认值和描述
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
+"""
+
+# ==================== 模块变量配置 ====================
+# 定义每个模块支持的变量、默认值和描述
+MODULE_VARIABLES_CONFIG = {
+    "short_video": {
+        "variables": {
+            "topic": {
+                "default": "创意短视频",
+                "description": "视频主题",
+                "required": True,
+                "front_field": "title"
+            },
+            "audience": {
+                "default": "年轻用户",
+                "description": "目标受众",
+                "required": True,
+                "front_field": "target_audience"
+            },
+            "description": {
+                "default": "待补充详细描述",
+                "description": "对视频内容的进一步说明",
+                "required": True,
+                "front_field": "description"
+            },
+            "platform": {
+                "default": "抖音",
+                "description": "发布平台",
+                "required": False
+            },
+            "style": {
+                "default": "轻松有趣",
+                "description": "风格调性",
+                "required": False,
+                "front_field": "style_types_combined"
+            },
+            "duration": {
+                "default": 60,
+                "description": "视频时长(秒)",
+                "required": False
+            },
+            "mode": {
+                "default": "virtual",
+                "description": "生成模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI生成）",
+                "required": False,
+                "options": ["real", "virtual"]
+            },
+            "generate_ai_prompt": {
+                "default": "否",
+                "description": "是否生成AI视频提示",
+                "required": False
+            },
+            "ai_platforms": {
+                "default": "无",
+                "description": "AI视频生成平台",
+                "required": False
+            },
+            "generate_storyboard_images": {
+                "default": "否",
+                "description": "是否生成分镜图提示词（用于AI绘图生成参考图）",
+                "required": False
+            },
+            "reference_video": {
+                "default": "无",
+                "description": "参考视频URL（仅Gemini 1.5 Pro/Flash支持）",
+                "required": False
+            },
+            # 运营相关自定义变量
+            "account_tone": {
+                "default": "未指定",
+                "description": "账号调性（如：专业干货型、搞笑娱乐型、情感治愈型等）",
+                "required": False
+            },
+            "target_fans": {
+                "default": "未指定",
+                "description": "目标粉丝群体（如：18-25岁女性、职场白领、宝妈群体等）",
+                "required": False
+            },
+            "content_position": {
+                "default": "未指定",
+                "description": "内容定位（如：知识科普、生活记录、好物推荐等）",
+                "required": False
+            },
+            # 参考资料上传
+            "reference_materials": {
+                "default": "",
+                "description": "参考资料（用户上传的文本文件，包含创作参考素材）",
+                "required": False,
+                "front_field": "reference_materials"
+            }
+        }
+    },
+
+    "script": {
+        "variables": {
+            "series_type": {
+                "default": "网剧",
+                "description": "剧集类型",
+                "required": True,
+                "options": ["院线电影", "网络电影", "长剧", "短剧", "微电影", "纪录片", "动画电影", "网络剧", "竖屏剧"]
+            },
+            "theme": {
+                "default": "都市",
+                "description": "题材",
+                "required": True,
+                "front_field": "genre"
+            },
+            "audience": {
+                "default": "年轻观众",
+                "description": "目标受众",
+                "required": True,
+                "front_field": "target_audience"
+            },
+            "platform": {
+                "default": "爱奇艺",
+                "description": "投放平台",
+                "required": True,
+                "options": ["央视", "地方卫视", "爱奇艺", "腾讯视频", "优酷", "芒果TV", "B站", "抖音", "快手", "西瓜视频", "Netflix", "HBO", "Disney+", "院线发行", "电影节展映"]
+            },
+            "reference_works": {
+                "default": "无",
+                "description": "对标作品（可填写作品名称）",
+                "required": False
+            },
+            "synopsis": {
+                "default": "待补充故事梗概",
+                "description": "故事梗概",
+                "required": True,
+                "front_field": "description"
+            },
+            "episode_count": {
+                "default": "",
+                "description": "集数",
+                "required": False
+            },
+            "custom_outline": {
+                "default": "",
+                "description": "自写大纲（用户上传的文本文件内容）",
+                "required": False
+            },
+            # ========== 新增：剧本专用配置变量 ==========
+            # 注意：时长参数会根据剧集类型动态设置
+            # 前端会根据 series_type 自动设置对应的时长范围：
+            # - 电视剧: 45-60分钟
+            # - 网络剧: 30-50分钟
+            # - 短剧/微短剧: 3-15分钟
+            # - 竖屏剧: 1-5分钟
+            "episode_duration_range": {
+                "default": "根据剧集类型自动设置",
+                "description": "每集时长区间（如：30-45分钟），根据剧集类型自动确定",
+                "required": False,
+                "front_field": "episode_duration_range"
+            },
+            "scenes_per_episode_range": {
+                "default": "AI自动设计",
+                "description": "每集场景数范围（如：10-20场），留空则AI根据时长自动设计",
+                "required": False
+            },
+            "format_standard": {
+                "default": "标准格式",
+                "description": "剧本格式标准",
+                "required": False,
+                "options": ["标准格式", "简格式", "网络平台格式", "短剧格式"]
+            },
+            "dialogue_narration_ratio": {
+                "default": "均衡",
+                "description": "对白与叙述比例",
+                "required": False,
+                "options": ["对话为主", "均衡", "叙述为主", "动作导向"]
+            },
+            "target_broadcast": {
+                "default": "未指定",
+                "description": "目标投放平台（央视/卫视/爱奇艺/腾讯视频/抖音/快手等）",
+                "required": False
+            }
+        }
+    },
+
+    "novel": {
+        "variables": {
+            "length": {
+                "default": "中篇",
+                "description": "篇幅体量",
+                "required": True,
+                "options": ["长篇", "中篇", "短篇"]
+            },
+            "genre": {
+                "default": "言情",
+                "description": "类型标签",
+                "required": True,
+                "options": ["言情", "悬疑推理", "科幻", "奇幻玄幻", "历史", "现实题材", "轻小说"]
+            },
+            "target_platform": {
+                "default": "起点",
+                "description": "目标读者/平台",
+                "required": True,
+                "options": ["起点", "晋江", "番茄", "实体出版", "纯个人创作"]
+            },
+            "tone": {
+                "default": "正剧",
+                "description": "基调氛围",
+                "required": True,
+                "options": ["正剧", "喜剧", "虐恋催泪", "爽文", "治愈温暖"]
+            },
+            "theme": {
+                "default": "",
+                "description": "故事主题——想表达的核心思想",
+                "required": False
+            },
+            "unique_selling_point": {
+                "default": "",
+                "description": "独特卖点——最吸引人的钩子",
+                "required": False
+            },
+            "synopsis": {
+                "default": "待补充故事梗概",
+                "description": "故事梗概",
+                "required": True,
+                "front_field": "description"
+            },
+            "chapter_count": {
+                "default": "",
+                "description": "章节数",
+                "required": False
+            },
+            "custom_outline": {
+                "default": "",
+                "description": "自写大纲（用户上传的文本文件内容）",
+                "required": False
+            }
+        }
+    },
+
+    # ==================== 两阶段大纲生成模块变量配置 ====================
+
+    "novel_global_outline": {
+        "variables": {
+            "length": {
+                "default": "中篇",
+                "description": "篇幅体量",
+                "required": True,
+                "options": ["长篇", "中篇", "短篇"]
+            },
+            "genre": {
+                "default": "言情",
+                "description": "类型标签",
+                "required": True,
+                "options": ["言情", "悬疑推理", "科幻", "奇幻玄幻", "历史", "现实题材", "轻小说"]
+            },
+            "target_platform": {
+                "default": "起点",
+                "description": "目标读者/平台",
+                "required": True,
+                "options": ["起点", "晋江", "番茄", "实体出版", "纯个人创作"]
+            },
+            "tone": {
+                "default": "正剧",
+                "description": "基调氛围",
+                "required": True,
+                "options": ["正剧", "喜剧", "虐恋催泪", "爽文", "治愈温暖"]
+            },
+            "synopsis": {
+                "default": "待补充故事梗概",
+                "description": "故事梗概",
+                "required": True,
+                "front_field": "description"
+            },
+            "theme": {
+                "default": "",
+                "description": "故事主题",
+                "required": False
+            },
+            "unique_selling_point": {
+                "default": "",
+                "description": "独特卖点",
+                "required": False
+            },
+            "chapter_count": {
+                "default": "",
+                "description": "预计章节数",
+                "required": False
+            },
+            "custom_outline": {
+                "default": "",
+                "description": "自写大纲",
+                "required": False
+            }
+        }
+    },
+
+    "novel_unit_summaries": {
+        "variables": {
+            "global_outline": {
+                "default": "",
+                "description": "全局大纲内容",
+                "required": True
+            },
+            "chapter_count": {
+                "default": "",
+                "description": "章节数",
+                "required": True
+            }
+        }
+    },
+
+    "script_global_outline": {
+        "variables": {
+            "series_type": {
+                "default": "网剧",
+                "description": "剧本类型",
+                "required": True,
+                "options": ["院线电影", "网络电影", "长剧", "短剧", "微电影", "纪录片", "动画电影", "网络剧", "竖屏剧"]
+            },
+            "theme": {
+                "default": "都市",
+                "description": "题材",
+                "required": True,
+                "front_field": "genre"
+            },
+            "audience": {
+                "default": "年轻观众",
+                "description": "目标受众",
+                "required": True,
+                "front_field": "target_audience"
+            },
+            "platform": {
+                "default": "爱奇艺",
+                "description": "投放平台",
+                "required": True
+            },
+            "reference_works": {
+                "default": "无",
+                "description": "对标作品",
+                "required": False
+            },
+            "synopsis": {
+                "default": "待补充故事梗概",
+                "description": "故事梗概",
+                "required": True,
+                "front_field": "description"
+            },
+            "episode_count": {
+                "default": "",
+                "description": "单元数量",
+                "required": False
+            },
+            "custom_outline": {
+                "default": "",
+                "description": "自写大纲",
+                "required": False
+            },
+            "episode_duration_range": {
+                "default": "根据剧集类型自动设置",
+                "description": "每集时长区间，根据剧集类型自动确定",
+                "required": False
+            },
+            "format_standard": {
+                "default": "标准格式",
+                "description": "剧本格式标准",
+                "required": False
+            },
+            "dialogue_narration_ratio": {
+                "default": "均衡",
+                "description": "对白与叙述比例",
+                "required": False
+            },
+            "script_mode": {
+                "default": "real",
+                "description": "剧本模式(real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成)",
+                "required": False,
+                "options": ["real", "virtual"]
+            }
+        }
+    },
+
+    "script_unit_summaries": {
+        "variables": {
+            "global_outline": {
+                "default": "",
+                "description": "全局大纲内容",
+                "required": True
+            },
+            "series_type": {
+                "default": "网剧",
+                "description": "剧本类型",
+                "required": True
+            },
+            "episode_count": {
+                "default": "",
+                "description": "单元数量",
+                "required": True
+            },
+            "episode_duration_range": {
+                "default": "根据剧集类型自动设置",
+                "description": "每集时长区间，根据剧集类型自动确定",
+                "required": False
+            },
+            "script_mode": {
+                "default": "real",
+                "description": "剧本模式(real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成)",
+                "required": False,
+                "options": ["real", "virtual"]
+            }
+        }
+    },
+
+    "print_ad": {
+        "variables": {
+            "design_category": {
+                "default": "商业广告",
+                "description": "设计类别（logo设计/商业广告/宣传单页/公益广告/政府宣传/海报设计/展架设计/包装设计/其他设计）",
+                "required": True,
+                "front_field": "design_category",
+                "options": ["logo设计", "商业广告", "宣传单页", "公益广告", "政府宣传", "海报设计", "展架设计", "包装设计", "其他设计"]
+            },
+            "brand_product": {
+                "default": "",
+                "description": "品牌/产品名称（具体品牌+产品，新品牌需说明调性）",
+                "required": True,
+                "front_field": "brand_product"
+            },
+            "ad_purpose": {
+                "default": "",
+                "description": "广告目的",
+                "required": True,
+                "front_field": "ad_purpose"
+            },
+            "core_message": {
+                "default": "",
+                "description": "核心信息（如果受众看完只记住一件事，你希望是什么？必须用一句话说清楚）",
+                "required": True,
+                "front_field": "core_message"
+            },
+            "audience_profile": {
+                "default": "",
+                "description": "受众特征（年龄+性别+学历+职业+收入+地域）",
+                "required": True,
+                "front_field": "audience_profile"
+            },
+            "contact_scene": {
+                "default": "",
+                "description": "接触场景（他们通常在哪里看到这则广告？）",
+                "required": True,
+                "front_field": "contact_scene"
+            },
+            "style_tone": {
+                "default": "视觉冲击",
+                "description": "风格调性",
+                "required": True,
+                "options": ["视觉冲击", "极简留白", "幽默搞怪", "温情走心", "功能直给", "复古怀旧", "科技感", "高级感", "国潮风", "赛博朋克", "手绘插画", "摄影写实"]
+            },
+            "copy_content": {
+                "default": "",
+                "description": "文案内容",
+                "required": False,
+                "front_field": "copy_content"
+            },
+            "size_spec": {
+                "default": "",
+                "description": "具体尺寸",
+                "required": False,
+                "front_field": "size_spec"
+            },
+            "publish_media": {
+                "default": "",
+                "description": "发布媒介",
+                "required": False,
+                "front_field": "publish_media"
+            },
+            "ai_platforms": {
+                "default": "豆包",
+                "description": "AI提示词目标平台",
+                "required": False,
+                "options": ["豆包", "即梦", "千问", "Gemini", "GPT", "Grok", "可灵", "Midjourney", "Stable Diffusion"]
+            },
+            "description": {
+                "default": "",
+                "description": "详细描述（用户对广告创意的详细要求说明）",
+                "required": False,
+                "front_field": "description"
+            }
+        }
+    },
+
+    "tvc": {
+        "variables": {
+            "brand_product": {
+                "default": "",
+                "description": "品牌/产品名称（具体品牌+产品线）",
+                "required": True,
+                "front_field": "brand_product"
+            },
+            "ad_purpose": {
+                "default": "",
+                "description": "广告目的（如：品牌认知、产品推广、节日营销、形象升级、促销活动）",
+                "required": True,
+                "front_field": "ad_purpose"
+            },
+            "core_message": {
+                "default": "",
+                "description": "核心信息（如果观众看完只记住一句话，你希望是什么？）",
+                "required": True,
+                "front_field": "core_message"
+            },
+            "audience_profile": {
+                "default": "",
+                "description": "受众特征（年龄+性别+学历+职业+收入+地域）",
+                "required": True,
+                "front_field": "audience_profile"
+            },
+            "broadcast_platform": {
+                "default": "视频平台",
+                "description": "投放平台",
+                "required": True,
+                "options": ["电视台-央视", "电视台-卫视", "电视台-地方台", "视频平台-爱奇艺", "视频平台-腾讯视频", "视频平台-优酷", "视频平台-芒果TV", "视频平台-B站", "网络贴片广告", "户外大屏-商圈", "户外大屏-机场", "户外大屏-高铁站", "电梯广告", "影院映前广告", "社交媒体-抖音", "社交媒体-快手", "社交媒体-视频号"]
+            },
+            "style_tone": {
+                "default": "温情走心",
+                "description": "风格调性",
+                "required": True,
+                "options": ["温情走心", "幽默搞怪", "视觉冲击", "极简留白", "功能直给", "史诗大气", "悬疑烧脑", "热血励志", "复古怀旧", "科技感", "高级感", "纪实风格"]
+            },
+            "duration": {
+                "default": 30,
+                "description": "时长(秒)",
+                "required": True
+            },
+            "generate_ai_prompt": {
+                "default": "否",
+                "description": "是否生成AI视频生成提示",
+                "required": False
+            },
+            "ai_platforms": {
+                "default": "可灵",
+                "description": "AI视频生成平台",
+                "required": False,
+                "options": ["可灵", "Seedance 2.0", "Sora 2", "Veo 3.1", "Runway", "Pika", "Wan 2.2"]
+            },
+            "reference_video": {
+                "default": "",
+                "description": "参考视频URL（仅Gemini 1.5 Pro/Flash支持）",
+                "required": False
+            },
+            "description": {
+                "default": "",
+                "description": "详细描述（用户对广告创意的详细要求说明）",
+                "required": False,
+                "front_field": "description"
+            },
+            "mode": {
+                "default": "real",
+                "description": "生成模式(real=现实模式用于真人拍摄，virtual=虚拟模式用于AI生成)",
+                "required": False,
+                "options": ["real", "virtual"]
+            }
+        }
+    },
+
+    # ==================== 原创IP计划模块变量配置 ====================
+    "original_ip": {
+        "variables": {
+            "ip_description": {
+                "default": "",
+                "description": "IP角色概括性描述（自由文本，AI将自动解析并补足各维度信息）",
+                "required": True,
+                "front_field": "ip_description"
+            },
+            "target_platform": {
+                "default": "综合",
+                "description": "目标平台（漫画/动画/游戏/周边/短视频/综合）",
+                "required": False,
+                "front_field": "target_platform"
+            },
+            "reference_ip": {
+                "default": "无",
+                "description": "参考的知名IP（可选，用于风格借鉴）",
+                "required": False,
+                "front_field": "reference_ip"
+            },
+            "commercial_goal": {
+                "default": "打造具有商业价值的原创IP角色",
+                "description": "商业目标（可选，如：品牌代言、周边开发、内容IP化等）",
+                "required": False,
+                "front_field": "commercial_goal"
+            },
+            "custom_requirements": {
+                "default": "无特殊要求",
+                "description": "其他特殊要求（可选）",
+                "required": False,
+                "front_field": "custom_requirements"
+            }
+        }
+    }
+}

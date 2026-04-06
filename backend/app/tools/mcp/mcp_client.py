@@ -3,6 +3,11 @@ MCP 多内容提供商客户端
 统一管理所有 MCP 服务，提供统一的调用接口
 
 设计模式：策略模式 + 工厂模式
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, List, Optional, Any
 import asyncio

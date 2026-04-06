@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.logger import get_logger
 from app.core.tenant_context import TenantContext
+from app.core.exceptions import AuthenticationException, ErrorCode
 from app.models import User, UserRole, Tenant, TenantStatus
 
 
@@ -48,16 +49,14 @@ async def verify_token(token: str) -> dict:
         )
         return payload
     except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token已过期",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise AuthenticationException(
+            error_code=ErrorCode.AUTH_TOKEN_EXPIRED,
+            message="Token已过期"
         )
     except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的Token",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise AuthenticationException(
+            error_code=ErrorCode.AUTH_TOKEN_INVALID,
+            message="无效的Token"
         )
 
 

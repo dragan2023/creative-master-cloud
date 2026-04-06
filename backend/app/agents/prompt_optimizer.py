@@ -2,6 +2,11 @@
 提示词优化器
 将用户笼统的创意描述优化为结构化的提示词
 支持短视频脚本、剧本大纲、小说大纲、平面广告、TVC广告等板块
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession

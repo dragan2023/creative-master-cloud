@@ -7,6 +7,11 @@
 - 标记内容中的潜在合规问题
 - 提供详细的违规位置和修改建议
 - 不中断生成流程，仅做标记提醒
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, Any, List, Optional
 from datetime import datetime

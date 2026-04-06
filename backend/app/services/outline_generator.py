@@ -242,8 +242,8 @@ class OutlineGenerator:
                 f"[全局大纲] 生成完成，耗时: {duration_ms}ms，内容长度: {len(content)}")
 
         except Exception as e:
-            self.logger.error(f"[全局大纲] 生成失败: {str(e)}")
-            result["error"] = str(e)
+            self.logger.error(f"[全局大纲] 生成失败: {e!r}")
+            result["error"] = str(e)[:500]
 
         return result
 
@@ -355,8 +355,8 @@ class OutlineGenerator:
             yield self._format_sse("workflow", {"type": "complete"})
 
         except Exception as e:
-            self.logger.error(f"[全局大纲流式] 生成失败: {str(e)}")
-            yield self._format_sse("workflow", {"type": "error", "message": f"生成失败: {str(e)}"})
+            self.logger.error(f"[全局大纲流式] 生成失败: {e!r}")
+            yield self._format_sse("workflow", {"type": "error", "message": f"生成失败: {str(e)[:200]}"})
 
     async def generate_unit_summaries(
         self,
@@ -579,21 +579,13 @@ class OutlineGenerator:
             if not llm_provider:
                 raise ValueError(f"未找到LLM提供商: {provider}")
 
-            # 获取模型支持的最大输出 token 数，确保不会因输出限制而截断
-            max_output_tokens = llm_provider.get_max_output_tokens()
-            # 对于大量单元的情况，确保有足够的输出空间
-            # 估算：每单元约200字，约需 unit_count * 300 tokens
-            estimated_tokens = unit_count * 300
-            safe_max_tokens = min(
-                max(estimated_tokens, 30000), max_output_tokens)
             self.logger.info(
-                f"[单元概述流式] 模型最大输出: {max_output_tokens}, 预估需要: {estimated_tokens}, 使用: {safe_max_tokens}")
+                f"[单元概述流式] 开始生成 {unit_count} 个单元概述，不设置token上限")
 
-            # 流式调用LLM生成（不传递model参数，使用provider初始化时的model_name）
+            # 流式调用LLM生成（不传递max_tokens，让LLM自主控制输出长度）
             async for chunk in llm_provider.generate_stream(
                 prompt=filled_prompt,
-                temperature=temperature,
-                max_tokens=safe_max_tokens
+                temperature=temperature
             ):
                 # 检查是否被取消
                 if cancel_event and cancel_event.is_set():
@@ -815,9 +807,7 @@ class OutlineGenerator:
         Returns:
             修正后的内容，如果修正失败返回None
         """
-        # 常量定义
-        MAX_QUERY_LENGTH = 500  # 查询文本最大长度
-        MAX_CONTENT_LENGTH = 8000  # 大纲内容截断阈值
+        # 常量定义 - 已禁用截断
         MIN_REVISION_LENGTH = 100  # 修正结果最小长度阈值
 
         try:
@@ -842,13 +832,9 @@ class OutlineGenerator:
                          _safe_get_str(input_params, 'theme') + " " +
                          _safe_get_str(input_params, 'genre')).strip()
 
-            # 查询文本长度限制
-            if len(query_text) > MAX_QUERY_LENGTH:
-                self.logger.info(f"[知识库修正] 查询文本被截断: 原始长度 {len(query_text)}，截断至 {MAX_QUERY_LENGTH}")
-                query_text = query_text[:MAX_QUERY_LENGTH]
-
+            # 不再截断查询文本
             if not query_text.strip():
-                query_text = original_content[:500]
+                query_text = original_content  # 使用完整内容
 
             # 确定模块名称
             module_name = f"{content_type}_global_outline"
@@ -873,14 +859,11 @@ class OutlineGenerator:
                 self.logger.info("[知识库修正] 无相关知识点，跳过修正")
                 return None
 
-            # 大纲内容截断处理
-            if len(original_content) > MAX_CONTENT_LENGTH:
-                self.logger.warning(f"[知识库修正] 大纲内容被截断: 原始长度 {len(original_content)}，截断至 {MAX_CONTENT_LENGTH} 字符")
-            truncated_content = original_content[:MAX_CONTENT_LENGTH]
+            # 不再截断大纲内容，直接使用完整内容
 
             # 构建修正提示词
             revision_prompt = OUTLINE_REVISION_PROMPT.format(
-                original_outline=truncated_content,  # 使用截断后的内容
+                original_outline=original_content,  # 使用完整内容
                 theory_context=theory_context or "无相关理论",
                 case_context=case_context or "无相关案例",
                 manual_context=manual_context or "无规范手册"
@@ -950,7 +933,7 @@ class OutlineGenerator:
 
             # 构建检测提示词
             check_prompt = LOGIC_CHECK_PROMPT.format(
-                global_outline=global_outline[:6000],  # 限制长度
+                global_outline=global_outline,  # 使用完整内容
                 unit_summaries=formatted_units
             )
 

@@ -12,18 +12,18 @@ from app.models.base import BaseModel
 
 class TenantStatus(str, enum.Enum):
     """租户状态枚举"""
-    TRIAL = "trial"        # 试用中
-    ACTIVE = "active"      # 正常使用
-    SUSPENDED = "suspended"  # 已暂停
-    EXPIRED = "expired"    # 已过期
+    TRIAL = "TRIAL"        # 试用中
+    ACTIVE = "ACTIVE"      # 正常使用
+    SUSPENDED = "SUSPENDED"  # 已暂停
+    EXPIRED = "EXPIRED"    # 已过期
 
 
 class TenantPlan(str, enum.Enum):
     """租户套餐枚举"""
-    FREE = "free"          # 免费版
-    BASIC = "basic"        # 基础版
-    PRO = "pro"            # 专业版
-    ENTERPRISE = "enterprise"  # 企业版
+    FREE = "FREE"          # 免费版
+    BASIC = "BASIC"        # 基础版
+    PRO = "PRO"            # 专业版
+    ENTERPRISE = "ENTERPRISE"  # 企业版
 
 
 class Tenant(BaseModel):

@@ -1,24 +1,34 @@
 """
 后台管理API端点
 提供用户管理、租户管理、系统配置等功能
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_
 from pydantic import BaseModel, EmailStr, Field
 
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.security import get_password_hash
 from app.core.logger import get_logger
+from app.core.exceptions import (
+    ResourceNotFoundException,
+    ValidationException,
+    AuthorizationException,
+)
 from app.api.deps import get_current_superuser, get_current_tenant_admin, get_current_user
 from app.models import (
     User, UserRole, Tenant, TenantStatus, TenantPlan,
     OperationLog, NovelProject, KnowledgeBase, Generation
 )
 from app.schemas.common import ResponseModel
+from app.services.admin_service import AdminService
 
 router = APIRouter(prefix="/admin", tags=["后台管理"])
 settings = get_settings()
@@ -102,40 +112,10 @@ async def get_dashboard(
     
     需要超级管理员权限
     """
-    # 统计用户数
-    total_users = await db.scalar(select(func.count(User.id)))
+    admin_service = AdminService(db)
+    stats = await admin_service.get_dashboard_stats()
     
-    # 统计租户数
-    total_tenants = await db.scalar(select(func.count(Tenant.id)))
-    
-    # 统计今日活跃用户
-    today = datetime.utcnow().date()
-    active_today = await db.scalar(
-        select(func.count(User.id)).where(
-            func.date(User.last_login_at) == today
-        )
-    )
-    
-    # 统计项目数
-    total_projects = await db.scalar(select(func.count(NovelProject.id)))
-    
-    # 统计生成任务数
-    total_generations = await db.scalar(select(func.count(Generation.id)))
-    
-    # 统计本周新用户
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    new_users_week = await db.scalar(
-        select(func.count(User.id)).where(User.created_at >= week_ago)
-    )
-    
-    return ResponseModel(data=DashboardStats(
-        total_users=total_users or 0,
-        total_tenants=total_tenants or 0,
-        active_users_today=active_today or 0,
-        total_projects=total_projects or 0,
-        total_generations=total_generations or 0,
-        new_users_this_week=new_users_week or 0
-    ))
+    return ResponseModel(data=DashboardStats(**stats))
 
 
 # ==================== 用户管理 ====================
@@ -155,43 +135,23 @@ async def list_users(
     
     超级管理员可查看所有用户，租户管理员只能查看本租户用户
     """
-    query = select(User)
-    
-    # 租户管理员只能查看本租户用户
-    if not admin.is_super_admin:
-        query = query.where(User.tenant_id == admin.tenant_id)
-    elif tenant_id:
-        query = query.where(User.tenant_id == tenant_id)
-    
-    # 搜索条件
-    if search:
-        query = query.where(
-            or_(
-                User.username.ilike(f"%{search}%"),
-                User.email.ilike(f"%{search}%")
-            )
-        )
-    
-    # 状态过滤
-    if is_active is not None:
-        query = query.where(User.is_active == is_active)
-    
-    # 排序和分页
-    query = query.order_by(User.created_at.desc())
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    
-    result = await db.execute(query)
-    users = result.scalars().all()
+    admin_service = AdminService(db)
+    users = await admin_service.list_users(
+        page=page,
+        page_size=page_size,
+        search=search,
+        tenant_id=tenant_id,
+        is_active=is_active,
+        admin_tenant_id=admin.tenant_id,
+        is_super_admin=admin.is_super_admin
+    )
     
     # 构建响应
     data = []
     for user in users:
         tenant_name = None
         if user.tenant_id:
-            tenant_result = await db.execute(
-                select(Tenant.name).where(Tenant.id == user.tenant_id)
-            )
-            tenant_name = tenant_result.scalar()
+            tenant_name = await admin_service.get_tenant_name_by_id(user.tenant_id)
         
         data.append(UserListResponse(
             id=user.id,
@@ -220,28 +180,27 @@ async def update_user(
     
     超级管理员可更新所有用户，租户管理员只能更新本租户用户
     """
+    admin_service = AdminService(db)
+    
     # 查找用户
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    user = await admin_service.get_user_by_id(user_id)
     
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise ResourceNotFoundException(message="用户不存在")
     
     # 权限检查
     if not admin.is_super_admin and user.tenant_id != admin.tenant_id:
-        raise HTTPException(status_code=403, detail="无权操作此用户")
+        raise AuthorizationException(message="无权操作此用户")
     
-    # 更新字段
-    if data.is_active is not None:
-        user.is_active = data.is_active
-    if data.role is not None:
-        # 只有超级管理员可以修改角色
-        if admin.is_super_admin:
-            user.role = data.role
-    if data.nickname is not None:
-        user.nickname = data.nickname
+    # 更新字段 - 只有超级管理员可以修改角色
+    role_to_update = data.role if admin.is_super_admin else None
     
-    await db.commit()
+    await admin_service.update_user(
+        user=user,
+        is_active=data.is_active,
+        role=role_to_update,
+        nickname=data.nickname
+    )
     
     logger.info(f"管理员 {admin.username} 更新用户 {user.username}")
     
@@ -259,19 +218,20 @@ async def delete_user(
     
     需要超级管理员权限
     """
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    admin_service = AdminService(db)
+    
+    user = await admin_service.get_user_by_id(user_id)
     
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise ResourceNotFoundException(message="用户不存在")
     
     if user.id == admin.id:
-        raise HTTPException(status_code=400, detail="不能删除自己")
+        raise ValidationException(message="不能删除自己")
     
-    await db.delete(user)
-    await db.commit()
+    username = user.username
+    await admin_service.delete_user(user)
     
-    logger.info(f"超级管理员 {admin.username} 删除用户 {user.username}")
+    logger.info(f"超级管理员 {admin.username} 删除用户 {username}")
     
     return ResponseModel(message="删除成功")
 
@@ -293,31 +253,14 @@ async def list_tenants(
     
     需要超级管理员权限
     """
-    query = select(Tenant)
-    
-    # 搜索条件
-    if search:
-        query = query.where(
-            or_(
-                Tenant.name.ilike(f"%{search}%"),
-                Tenant.slug.ilike(f"%{search}%")
-            )
-        )
-    
-    # 状态过滤
-    if status:
-        query = query.where(Tenant.status == status)
-    
-    # 套餐过滤
-    if plan:
-        query = query.where(Tenant.plan == plan)
-    
-    # 排序和分页
-    query = query.order_by(Tenant.created_at.desc())
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    
-    result = await db.execute(query)
-    tenants = result.scalars().all()
+    admin_service = AdminService(db)
+    tenants = await admin_service.list_tenants(
+        page=page,
+        page_size=page_size,
+        search=search,
+        status=status,
+        plan=plan
+    )
     
     data = [
         TenantListResponse(
@@ -351,27 +294,22 @@ async def update_tenant(
     
     需要超级管理员权限
     """
-    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
-    tenant = result.scalar_one_or_none()
+    admin_service = AdminService(db)
+    
+    tenant = await admin_service.get_tenant_by_id(tenant_id)
     
     if not tenant:
-        raise HTTPException(status_code=404, detail="租户不存在")
+        raise ResourceNotFoundException(message="租户不存在")
     
-    # 更新字段
-    if data.name is not None:
-        tenant.name = data.name
-    if data.status is not None:
-        tenant.status = data.status
-    if data.plan is not None:
-        tenant.plan = data.plan
-    if data.max_users is not None:
-        tenant.max_users = data.max_users
-    if data.max_projects is not None:
-        tenant.max_projects = data.max_projects
-    if data.max_storage_mb is not None:
-        tenant.max_storage_mb = data.max_storage_mb
-    
-    await db.commit()
+    await admin_service.update_tenant(
+        tenant=tenant,
+        name=data.name,
+        status=data.status,
+        plan=data.plan,
+        max_users=data.max_users,
+        max_projects=data.max_projects,
+        max_storage_mb=data.max_storage_mb
+    )
     
     logger.info(f"超级管理员 {superuser.username} 更新租户 {tenant.name}")
     
@@ -395,26 +333,16 @@ async def list_operation_logs(
     
     超级管理员可查看所有日志，租户管理员只能查看本租户日志
     """
-    query = select(OperationLog)
-    
-    # 权限过滤
-    if not admin.is_super_admin:
-        query = query.where(OperationLog.tenant_id == admin.tenant_id)
-    elif tenant_id:
-        query = query.where(OperationLog.tenant_id == tenant_id)
-    
-    # 条件过滤
-    if user_id:
-        query = query.where(OperationLog.user_id == user_id)
-    if action:
-        query = query.where(OperationLog.action == action)
-    
-    # 排序和分页
-    query = query.order_by(OperationLog.created_at.desc())
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    
-    result = await db.execute(query)
-    logs = result.scalars().all()
+    admin_service = AdminService(db)
+    logs = await admin_service.list_operation_logs(
+        page=page,
+        page_size=page_size,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        action=action,
+        admin_tenant_id=admin.tenant_id,
+        is_super_admin=admin.is_super_admin
+    )
     
     data = [
         {
@@ -447,12 +375,10 @@ async def system_health(
     
     需要超级管理员权限
     """
+    admin_service = AdminService(db)
+    
     # 检查数据库
-    try:
-        await db.execute(select(1))
-        database_status = "healthy"
-    except Exception:
-        database_status = "unhealthy"
+    database_status = await admin_service.check_database_health()
     
     # 检查Redis
     try:

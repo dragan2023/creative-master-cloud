@@ -17,9 +17,15 @@ depends_on = None
 
 
 def upgrade():
+    # 检查列是否已存在
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('generations')]
+
     # 添加 title 字段到 generations 表
-    op.add_column('generations', sa.Column(
-        'title', sa.String(200), nullable=True, comment='生成标题'))
+    if 'title' not in columns:
+        op.add_column('generations', sa.Column(
+            'title', sa.String(200), nullable=True, comment='生成标题'))
 
 
 def downgrade():

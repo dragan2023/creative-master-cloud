@@ -25,15 +25,23 @@ class KnowledgeBaseStatus(str, enum.Enum):
 
 
 class KnowledgeBaseCategory(str, enum.Enum):
-    """知识库业务板块分类"""
-    SHORT_VIDEO = "short-video"     # 短视频（垂直领域）
-    SCRIPT = "script"               # 剧本（垂直领域）
-    NOVEL = "novel"                 # 小说（垂直领域）
-    PRINT_AD = "print-ad"           # 平面广告（垂直领域）
-    TVC = "tvc"                     # TVC广告（垂直领域）
-    GENERAL = "general"             # 通用知识库（理论知识库，固定调用）
-    USER_SPECIFIC = "user-specific"  # 用户专属知识库（支持GraphRAG，用户选择启用）
-    MANUAL = "manual"               # 官方手册（不使用GraphRAG）
+    """知识库业务板块分类
+
+    注意：
+    - NOVEL: 项目专属知识库（ProjectKnowledgeBase），用于存储具体项目的人物/情节/世界观，
+             完全独立，不参与双轨检索
+    - NOVEL_WRITING: 小说写作专业知识库，用于存储写作技巧/方法论/案例分析，
+                     参与双轨检索，为创意生成提供理论指导
+    """
+    SHORT_VIDEO = "short-video"       # 短视频（垂直领域，参与双轨检索）
+    SCRIPT = "script"                 # 剧本（垂直领域，参与双轨检索）
+    NOVEL = "novel"                   # 【项目专属】正文生成知识库，不参与双轨检索
+    NOVEL_WRITING = "novel-writing"   # 小说写作专业知识库（垂直领域，参与双轨检索）
+    PRINT_AD = "print-ad"             # 平面广告（垂直领域，参与双轨检索）
+    TVC = "tvc"                       # TVC广告（垂直领域，参与双轨检索）
+    GENERAL = "general"               # 通用知识库（理论知识库，固定调用）
+    USER_SPECIFIC = "user-specific"   # 用户专属知识库（支持GraphRAG，用户选择启用）
+    MANUAL = "manual"                 # 官方手册（不使用GraphRAG）
 
 
 class KnowledgeBase(BaseModel):
@@ -111,6 +119,41 @@ class KnowledgeBase(BaseModel):
 
     # 关联关系
     user = relationship("User", back_populates="knowledge_bases")
+
+    # ==================== 业务方法 ====================
+
+    def is_expired(self) -> bool:
+        """检查知识库是否已过期（仅临时知识库有过期时间）"""
+        from datetime import datetime
+        if not self.expires_at:
+            return False
+        return datetime.utcnow() > self.expires_at
+
+    def is_ready_for_use(self) -> bool:
+        """检查知识库是否就绪可用"""
+        return self.status == KnowledgeBaseStatus.READY and not self.is_expired()
+
+    def is_processing(self) -> bool:
+        """检查知识库是否处理中"""
+        return self.status == KnowledgeBaseStatus.PROCESSING
+
+    def is_failed(self) -> bool:
+        """检查知识库是否处理失败"""
+        return self.status == KnowledgeBaseStatus.FAILED
+
+    def mark_ready(self, document_count: int = 0) -> None:
+        """标记为就绪"""
+        self.status = KnowledgeBaseStatus.READY
+        if document_count > 0:
+            self.document_count = document_count
+
+    def mark_failed(self) -> None:
+        """标记为失败"""
+        self.status = KnowledgeBaseStatus.FAILED
+
+    def mark_processing(self) -> None:
+        """标记为处理中"""
+        self.status = KnowledgeBaseStatus.PROCESSING
 
     def __repr__(self):
         return f"<KnowledgeBase(id={self.id}, name='{self.name}', type={self.type}, category={self.category})>"

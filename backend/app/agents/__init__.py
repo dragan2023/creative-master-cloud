@@ -1,4 +1,15 @@
-# Agent 引擎模块
+"""
+Agent 引擎模块
+
+模块: agents
+文件: __init__.py
+功能: 导出Agent引擎的公共接口，包括LLM提供商、管理器和协调器
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
+"""
 from app.agents.base_provider import BaseLLMProvider, LLMResponse, LLMProvider
 from app.agents.deepseek_provider import DeepSeekProvider
 from app.agents.openai_provider import OpenAIProvider

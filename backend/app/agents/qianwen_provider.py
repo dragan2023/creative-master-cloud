@@ -2,6 +2,11 @@
 千问 (Qianwen) LLM 提供者
 调用阿里云通义千问 API
 支持多模态内容（qwen-vl模型）
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import AsyncGenerator, Optional, Dict, List, Any
 import dashscope

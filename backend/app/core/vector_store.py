@@ -7,25 +7,42 @@
 - HNSW 索引在内存中缓存，可能导致多进程/多实例数据不一致
 - 需要在写入后验证数据完整性，确保数据正确持久化
 """
-# 使用pysqlite3替代系统sqlite（解决ChromaDB版本要求）
+# [2026-03-27] 多Agent重构: Embedding模型从 all-MiniLM-L6-v2 升级为 BAAI/bge-small-zh-v1.5（中文优化）
+# 使用pysqlite3替代系统sqlite（解决ChromaDB版本要求）- 必须在导入chromadb之前执行
+import sys
 try:
     __import__('pysqlite3')
-    import sys
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
     pass  # 如果pysqlite3不可用，使用系统sqlite
 
-import chromadb
-from chromadb.utils import embedding_functions
-from typing import Optional, List, Dict, Any
+# [关键] 在导入 chromadb 之前设置环境变量，确保 sentence-transformers 缓存目录正确
+import os as _os
+try:
+    from app.core.config import get_settings as _get_settings
+    _settings_module = _get_settings()
+    _os.environ["SENTENCE_TRANSFORMERS_HOME"] = _settings_module.get_chroma_model_cache_dir()
+    if _settings_module.HF_ENDPOINT:
+        _os.environ["HF_ENDPOINT"] = _settings_module.HF_ENDPOINT
+except Exception:
+    pass  # 如果配置加载失败，使用默认值
+
+# 标准库导入
 import os
 import asyncio
 import time
 import threading
 from functools import wraps
+from typing import Optional, List, Dict, Any
 
-from app.core.config import get_settings
+# 第三方库导入
+import chromadb
+from chromadb.utils import embedding_functions
+
+# 本地模块导入
 from app.core.logger import get_logger
+from app.core.config import get_settings
+
 
 logger = get_logger("vector_store")
 
@@ -36,7 +53,7 @@ _embedding_function = None
 def get_embedding_function():
     """
     获取嵌入函数（使用sentence-transformers，支持自定义模型缓存目录）
-    
+
     相比ChromaDB默认的ONNX嵌入函数：
     - 支持自定义模型缓存目录（通过环境变量SENTENCE_TRANSFORMERS_HOME）
     - 更灵活的模型管理
@@ -45,48 +62,62 @@ def get_embedding_function():
     global _embedding_function
     if _embedding_function is None:
         settings = get_settings()
-        
-        # 设置sentence-transformers模型缓存目录
+
+        # 设置sentence-transformers模型缓存目录（必须在导入前设置）
         model_cache_dir = settings.get_chroma_model_cache_dir()
         os.environ["SENTENCE_TRANSFORMERS_HOME"] = model_cache_dir
-        
+
         # 设置HuggingFace镜像（国内加速）
         if settings.HF_ENDPOINT:
             os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
-        
+
         logger.info(f"[向量库] 嵌入模型缓存目录: {model_cache_dir}")
-        
-        # 创建sentence-transformers嵌入函数
-        _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2",
-            cache_folder=model_cache_dir,
-            device="cpu"  # 使用CPU，确保兼容性
-        )
-        
-        logger.info("[向量库] 嵌入函数初始化完成: all-MiniLM-L6-v2")
-    
+
+        try:
+            # 创建sentence-transformers嵌入函数
+            # ChromaDB 1.5.0+ 不再支持 cache_folder 参数，改用环境变量
+            _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="BAAI/bge-small-zh-v1.5",
+                device="cpu",  # 使用CPU，确保兼容性
+                normalize_embeddings=True  # 归一化向量，提高检索效果
+            )
+
+            logger.info("[向量库] 嵌入函数初始化完成: BAAI/bge-small-zh-v1.5")
+        except Exception as e:
+            logger.error(f"[向量库] 嵌入函数初始化失败: {e}")
+            # 尝试使用默认模型作为回退
+            try:
+                _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                    model_name="all-MiniLM-L6-v2",
+                    device="cpu"
+                )
+                logger.warning("[向量库] 使用回退模型: all-MiniLM-L6-v2")
+            except Exception as fallback_error:
+                logger.error(f"[向量库] 回退模型初始化也失败: {fallback_error}")
+                raise
+
     return _embedding_function
 
 
 def _setup_chroma_environment():
     """设置 ChromaDB 环境变量（模型缓存目录等）
-    
+
     必须在 ChromaDB 初始化前调用，确保所有模型缓存路径正确。
     """
     settings = get_settings()
 
     # 设置模型缓存目录到项目文件夹
     model_cache_dir = settings.get_chroma_model_cache_dir()
-    
+
     # ChromaDB ONNX 模型缓存目录（关键：必须在 ChromaDB 导入前设置）
     os.environ["CHROMA_MODEL_CACHE_DIR"] = model_cache_dir
-    
+
     # sentence-transformers 模型缓存目录
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = model_cache_dir
-    
+
     # ONNX Runtime 模型缓存（ChromaDB 内部使用）
     os.environ["ORT_HOME"] = model_cache_dir
-    
+
     # 设置 HuggingFace 镜像（国内加速）
     if settings.HF_ENDPOINT:
         os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
@@ -97,7 +128,7 @@ def _setup_chroma_environment():
         os.environ["HTTPS_PROXY"] = settings.HTTPS_PROXY
     if settings.HTTP_PROXY:
         os.environ["HTTP_PROXY"] = settings.HTTP_PROXY
-    
+
     logger.info(f"[向量库] 环境变量已设置: CHROMA_MODEL_CACHE_DIR={model_cache_dir}")
 
 
@@ -159,7 +190,7 @@ class VectorStore:
         if name not in self._collections:
             # 使用自定义嵌入函数（支持自定义模型缓存目录）
             embedding_func = get_embedding_function()
-            
+
             try:
                 # 首先尝试获取已存在的集合（不传 embedding_function）
                 # 这样可以避免与已存在的集合发生 embedding function 冲突
@@ -177,7 +208,7 @@ class VectorStore:
             except Exception as e:
                 # 集合不存在或其他错误，继续创建新集合
                 logger.debug(f"[向量库] 获取集合失败，将创建新集合: {name}, 原因: {e}")
-            
+
             try:
                 # 创建新集合（使用自定义 embedding function）
                 self._collections[name] = self.client.create_collection(
@@ -197,7 +228,7 @@ class VectorStore:
                     )
                 else:
                     raise
-                
+
         return self._collections[name]
 
     def delete_collection(self, name: str) -> None:
@@ -211,7 +242,8 @@ class VectorStore:
             self.client.delete_collection(name=name)
             if name in self._collections:
                 del self._collections[name]
-        except Exception:
+        except Exception as e:
+            logger.warning(f"删除集合失败: {e}")
             pass
 
     def add_documents(
@@ -337,7 +369,8 @@ class VectorStore:
                             try:
                                 collection = self.get_or_create_collection(
                                     collection_name)
-                            except Exception:
+                            except Exception as e:
+                                logger.warning(f"重建集合失败: {e}")
                                 pass
                             continue
                     else:
@@ -516,11 +549,11 @@ class VectorStore:
         except Exception as e:
             error_msg = str(e).lower()
             # 处理 HNSW 索引错误和其他 ChromaDB 内部错误
-            if ("hnsw" in error_msg or 
-                "nothing found on disk" in error_msg or 
+            if ("hnsw" in error_msg or
+                "nothing found on disk" in error_msg or
                 "error finding id" in error_msg or
                 "internal error" in error_msg or
-                "error executing plan" in error_msg):
+                    "error executing plan" in error_msg):
                 logger.warning(
                     f"[向量库] 查询遇到内部错误，返回空结果: {collection_name}, error={str(e)[:100]}")
                 # 返回空结果而不是抛出异常

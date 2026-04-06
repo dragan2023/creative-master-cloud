@@ -1,6 +1,11 @@
 """
 日志配置模块
 使用 Loguru 实现日志记录，支持多级别、自动轮转、多进程安全
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import sys
 import os

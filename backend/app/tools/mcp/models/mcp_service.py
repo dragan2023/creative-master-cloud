@@ -1,6 +1,11 @@
 """
 MCP 服务定义模型
 定义 MCP 服务的配置、状态和类型
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field

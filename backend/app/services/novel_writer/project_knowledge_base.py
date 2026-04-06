@@ -1,9 +1,15 @@
 """
 项目专属知识库管理器
 管理正文生成板块的独立知识库系统，支持GraphRAG知识图谱生成与检索
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import os
 import json
+import re
 import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -41,8 +47,14 @@ class ProjectKnowledgeBase:
     # 微观层实体类型
     MICRO_ENTITY_TYPES = ["详细事件", "核心冲突",
                           "角色发展弧", "关键对话", "情节线", "场景"]
+    # 人物状态追踪实体类型
+    CHARACTER_STATE_ENTITY_TYPES = [
+        "身份变化", "位置变化", "关系变化", "性格发展",
+        "能力成长", "心理状态", "行为模式"
+    ]
     # 所有实体类型
-    ENTITY_TYPES = MACRO_ENTITY_TYPES + MICRO_ENTITY_TYPES
+    ENTITY_TYPES = MACRO_ENTITY_TYPES + \
+        MICRO_ENTITY_TYPES + CHARACTER_STATE_ENTITY_TYPES
 
     def __init__(self, db: AsyncSession = None, persist_dir: str = None):
         """
@@ -221,7 +233,34 @@ class ProjectKnowledgeBase:
                 entities = []
                 relations = []
 
-            # 4. 添加实体到图谱（支持分层结构）
+            # 4.5 实体消歧和指代关系解析（后处理步骤）
+            if entities and len(entities) > 1:
+                await report_progress("entity_resolution", 52, "正在执行实体消歧...")
+
+                resolution_result = self._resolve_entity_coreference(
+                    entities=entities,
+                    relations=relations,
+                    context_content=actual_outline_content
+                )
+
+                original_entity_count = len(entities)
+                entities = resolution_result.get("entities", [])
+                relations = resolution_result.get("relations", [])
+                merge_count = resolution_result.get("merge_count", 0)
+
+                if merge_count > 0:
+                    self.logger.info(
+                        f"实体消歧完成: 原始{original_entity_count}个实体 → 消歧后{len(entities)}个实体 "
+                        f"(合并了{merge_count}个别名实体)"
+                    )
+                    await report_progress(
+                        "entity_resolution_done", 54,
+                        f"实体消歧完成: 合并了{merge_count}个别名实体"
+                    )
+                else:
+                    self.logger.info("实体消歧完成: 未发现需要合并的别名实体")
+
+            # 5. 添加实体到图谱（支持分层结构）
             await report_progress("adding_entities", 55, f"正在添加{len(entities)}个实体到图谱...")
             entity_map = {}
             for i, entity in enumerate(entities):
@@ -1361,3 +1400,840 @@ class ProjectKnowledgeBase:
                 "status": "error",
                 "error": str(e)
             }
+
+    async def extract_and_store_character_states(
+        self,
+        project_id: int,
+        unit_number: int,
+        chapter_content: str,
+        llm_provider=None,
+        known_characters: List[str] = None
+    ) -> Dict[str, Any]:
+        """
+        提取并存储章节中的人物状态实体
+
+        在章节生成后调用，提取人物状态变化实体并存储到单元图谱中。
+
+        Args:
+            project_id: 项目ID
+            unit_number: 单元号（章节号）
+            chapter_content: 章节内容
+            llm_provider: LLM提供者
+            known_characters: 已知人物列表
+
+        Returns:
+            提取结果
+        """
+        result = {
+            "success": False,
+            "entity_count": 0,
+            "relation_count": 0,
+            "error": None
+        }
+
+        try:
+            if not llm_provider:
+                result["error"] = "缺少LLM提供者"
+                return result
+
+            # 加载单元图谱
+            graph_path = self.get_graph_path(project_id, unit_number)
+            knowledge_graph = NovelKnowledgeGraph(persist_path=graph_path)
+            knowledge_graph.load()
+
+            # 提取人物状态实体
+            extractor = NovelEntityExtractor(llm_provider=llm_provider)
+            state_result = await extractor.extract_character_states(
+                chapter_content=chapter_content,
+                chapter_num=unit_number,
+                known_characters=known_characters
+            )
+
+            entities = state_result.get("entities", [])
+            relations = state_result.get("relations", [])
+
+            # 添加实体到图谱
+            for entity in entities:
+                knowledge_graph.add_entity({
+                    "text": entity.get("text", ""),
+                    "type": entity.get("type", "未知"),
+                    "level": "micro",
+                    "description": entity.get("description", ""),
+                    "character": entity.get("character", ""),
+                    "chapter": entity.get("chapter", unit_number)
+                }, doc_id=f"unit_{unit_number}_state")
+
+            # 添加关系到图谱
+            for relation in relations:
+                knowledge_graph.add_relation({
+                    "source": relation.get("source", ""),
+                    "target": relation.get("target", ""),
+                    "relation": relation.get("relation", "关联"),
+                    "context": relation.get("context", "")
+                }, doc_id=f"unit_{unit_number}_state")
+
+            # 保存图谱
+            knowledge_graph.save()
+
+            result["success"] = True
+            result["entity_count"] = len(entities)
+            result["relation_count"] = len(relations)
+
+            self.logger.info(
+                f"人物状态实体提取完成: project_id={project_id}, unit={unit_number}, "
+                f"entities={len(entities)}, relations={len(relations)}")
+
+            return result
+
+        except Exception as e:
+            self.logger.error(
+                f"提取人物状态实体失败: project_id={project_id}, unit={unit_number}, error={str(e)}")
+            result["error"] = str(e)
+            return result
+
+    def get_character_states_for_writing(
+        self,
+        project_id: int,
+        character_name: str,
+        current_unit: int = None
+    ) -> str:
+        """
+        获取人物状态信息用于写作提示词
+
+        整合全局图谱和当前章节之前所有单元图谱中的人物状态信息。
+
+        Args:
+            project_id: 项目ID
+            character_name: 人物名称
+            current_unit: 当前章节号（只获取此章节之前的状态）
+
+        Returns:
+            格式化的人物状态文本
+        """
+        try:
+            context_parts = [f"## {character_name} 人物状态追踪", ""]
+
+            # 1. 从全局图谱获取人物基础信息
+            global_graph_path = self.get_graph_path(
+                project_id, unit_number=None)
+            if os.path.exists(global_graph_path):
+                global_graph = NovelKnowledgeGraph(
+                    persist_path=global_graph_path)
+                if global_graph.load():
+                    # 获取人物基础信息
+                    character = global_graph.get_entity_by_text(character_name)
+                    if character:
+                        context_parts.append("### 基础设定")
+                        context_parts.append(
+                            f"- 类型: {character.get('type', '人物')}")
+                        if character.get("description"):
+                            context_parts.append(
+                                f"- 描述: {character.get('description')}")
+                        attrs = character.get("attributes", {})
+                        if attrs:
+                            for key, value in attrs.items():
+                                if value:
+                                    context_parts.append(f"- {key}: {value}")
+                        context_parts.append("")
+
+            # 2. 遍历所有已完成的单元图谱，收集人物状态
+            all_state_entities = {
+                "identity_changes": [],
+                "location_changes": [],
+                "relationship_changes": [],
+                "character_development": [],
+                "ability_growth": [],
+                "mental_states": [],
+                "behavior_patterns": []
+            }
+
+            # 确定要遍历的单元范围
+            max_unit = current_unit - 1 if current_unit else 1000
+
+            for unit in range(1, max_unit + 1):
+                unit_graph_path = self.get_graph_path(project_id, unit)
+                if not os.path.exists(unit_graph_path):
+                    continue
+
+                unit_graph = NovelKnowledgeGraph(persist_path=unit_graph_path)
+                if not unit_graph.load():
+                    continue
+
+                # 获取该单元的人物状态实体
+                unit_states = unit_graph.get_character_state_entities(
+                    character_name=character_name,
+                    chapter_num=unit
+                )
+
+                # 合并到总状态中
+                for key in all_state_entities:
+                    all_state_entities[key].extend(unit_states.get(key, []))
+
+            # 3. 格式化输出
+            if all_state_entities["identity_changes"]:
+                context_parts.append("### 身份变化轨迹")
+                for entity in all_state_entities["identity_changes"]:
+                    chapter = entity.get("chapter", "")
+                    context_parts.append(
+                        f"- 第{chapter}章: {entity.get('text')}")
+                    if entity.get("description"):
+                        context_parts.append(f"  {entity.get('description')}")
+                context_parts.append("")
+
+            if all_state_entities["location_changes"]:
+                context_parts.append("### 位置变化轨迹")
+                locations = []
+                for entity in all_state_entities["location_changes"]:
+                    locations.append(entity.get("text", ""))
+                context_parts.append(" → ".join(locations))
+                context_parts.append("")
+
+            if all_state_entities["relationship_changes"]:
+                context_parts.append("### 关系变化")
+                for entity in all_state_entities["relationship_changes"]:
+                    chapter = entity.get("chapter", "")
+                    context_parts.append(
+                        f"- 第{chapter}章: {entity.get('text')}")
+                context_parts.append("")
+
+            if all_state_entities["ability_growth"]:
+                context_parts.append("### 能力成长")
+                for entity in all_state_entities["ability_growth"]:
+                    chapter = entity.get("chapter", "")
+                    context_parts.append(
+                        f"- 第{chapter}章: {entity.get('text')}")
+                context_parts.append("")
+
+            if all_state_entities["mental_states"]:
+                context_parts.append("### 心理状态演变")
+                for entity in all_state_entities["mental_states"][-5:]:  # 只显示最近5条
+                    chapter = entity.get("chapter", "")
+                    context_parts.append(
+                        f"- 第{chapter}章: {entity.get('text')}")
+                context_parts.append("")
+
+            return "\n".join(context_parts)
+
+        except Exception as e:
+            self.logger.error(
+                f"获取人物状态失败: character={character_name}, error={str(e)}")
+            return f"人物 {character_name} 暂无状态追踪信息"
+
+    def get_all_character_states_for_chapter(
+        self,
+        project_id: int,
+        current_unit: int
+    ) -> str:
+        """
+        获取所有人物的状态摘要，用于章节写作提示词
+
+        Args:
+            project_id: 项目ID
+            current_unit: 当前章节号
+
+        Returns:
+            所有人物的状态摘要文本
+        """
+        try:
+            # 1. 从全局图谱获取所有人物
+            global_graph_path = self.get_graph_path(
+                project_id, unit_number=None)
+            if not os.path.exists(global_graph_path):
+                return ""
+
+            global_graph = NovelKnowledgeGraph(persist_path=global_graph_path)
+            if not global_graph.load():
+                return ""
+
+            characters = global_graph.get_entities_by_type("人物")
+            if not characters:
+                return ""
+
+            # 2. 获取每个人物的状态摘要
+            context_parts = ["# 人物状态追踪摘要", ""]
+            context_parts.append("以下是各主要人物到目前为止的状态变化，请在写作时保持一致性：")
+            context_parts.append("")
+
+            for char in characters[:10]:  # 最多10个人物
+                char_name = char.get("name", "")
+                if not char_name:
+                    continue
+
+                state_text = self.get_character_states_for_writing(
+                    project_id, char_name, current_unit
+                )
+                if state_text and len(state_text) > 50:  # 有实质内容
+                    context_parts.append(state_text)
+                    context_parts.append("---")
+                    context_parts.append("")
+
+            return "\n".join(context_parts)
+
+        except Exception as e:
+            self.logger.error(
+                f"获取所有人物状态失败: project_id={project_id}, error={str(e)}")
+            return ""
+
+    def _resolve_entity_coreference(
+        self,
+        entities: List[Dict[str, Any]],
+        relations: List[Dict[str, Any]],
+        context_content: str = None
+    ) -> Dict[str, Any]:
+        """
+        实体消歧和指代关系解析（后处理步骤）
+
+        解决LLM提取时未能正确处理的指代关系问题：
+        - "现代医生" 和 "孙昭龙" 应该是同一个实体
+        - 职业称谓 + 人名 格式应该合并为单一实体
+        - 同一人物的不同称谓应该统一
+
+        Args:
+            entities: LLM提取的实体列表
+            relations: LLM提取的关系列表
+            context_content: 原始文本内容（可选，用于辅助判断）
+
+        Returns:
+            {
+                "entities": 消歧后的实体列表,
+                "relations": 更新后的关系列表（source/target已更新）,
+                "merge_log": 合并日志
+            }
+        """
+        import re
+
+        merge_log = []
+        entity_map = {}  # 原始text -> 规范化后的text
+        canonical_names = {}  # 规范化text -> 实体数据
+
+        # 第一步：识别人物实体并建立候选合并组
+        person_entities = []
+        non_person_entities = []
+
+        for entity in entities:
+            entity_text = entity.get("text", "")
+            entity_type = entity.get("type", "")
+
+            if entity_type == "人物":
+                person_entities.append(entity)
+            else:
+                non_person_entities.append(entity)
+
+        self.logger.info(
+            f"实体消歧开始: 人物实体={len(person_entities)}, 非人物实体={len(non_person_entities)}")
+
+        # 第二步：识别需要合并的称谓实体
+        alias_patterns = [
+            r'^现代医生$',
+            r'^古代医生$',
+            r'^穿越者$',
+            r'^现代人$',
+            r'^(?:将军|皇帝|王爷|太子|公主|尚书|丞相|大夫|郎中|秀才|举人|进士|状元)$',
+            r'^(?:医生|护士|老师|学生|商人|农民|工匠|武士|侠客|刺客|间谍)$',
+            r'^(?:少爷|小姐|夫人|老爷|太太|公子|千金|掌柜|店小二)$',
+            r'^[A-Za-z\s]+$'
+        ]
+
+        to_merge = []  # (alias_entity, target_entity) 对
+        aliases_to_remove = set()
+
+        for i, person_a in enumerate(person_entities):
+            text_a = person_a.get("text", "").strip()
+
+            if not text_a or text_a in aliases_to_remove:
+                continue
+
+            # 检查是否为称谓/别名模式
+            is_alias = False
+            for pattern in alias_patterns:
+                if re.match(pattern, text_a):
+                    is_alias = True
+                    break
+
+            if not is_alias:
+                continue
+
+            # 查找可能的目标实体（正式名称）
+            best_match = None
+            best_score = 0
+
+            for j, person_b in enumerate(person_entities):
+                if i == j:
+                    continue
+
+                text_b = person_b.get("text", "").strip()
+
+                if not text_b or text_b in aliases_to_remove:
+                    continue
+
+                # 排除其他别名
+                is_b_alias = False
+                for pattern in alias_patterns:
+                    if re.match(pattern, text_b):
+                        is_b_alias = True
+                        break
+
+                if is_b_alias:
+                    continue
+
+                # 计算匹配分数
+                score = self._calculate_alias_match_score(
+                    text_a, text_b, context_content)
+
+                if score > best_score and score > 0.3:  # 阈值
+                    best_score = score
+                    best_match = person_b
+
+            if best_match:
+                to_merge.append((person_a, best_match))
+                aliases_to_remove.add(text_a)
+                merge_log.append(
+                    f"合并别名 '{text_a}' → '{best_match.get('text', '')}' (置信度={best_score:.2f})"
+                )
+
+        # 第三步：执行合并
+        merged_entities = list(non_person_entities)  # 先加入非人物实体
+
+        # 加入未被合并的人物实体
+        merged_target_ids = set()
+        for _, target in to_merge:
+            merged_target_ids.add(id(target))
+
+        for entity in person_entities:
+            if entity.get("text", "").strip() not in aliases_to_remove:
+                merged_entities.append(entity)
+
+        # 第四步：更新关系的 source/target
+        updated_relations = []
+        alias_to_canonical = {}
+
+        for alias, target in to_merge:
+            alias_text = alias.get("text", "").strip()
+            target_text = target.get("text", "").strip()
+            alias_to_canonical[alias_text] = target_text
+
+        for relation in relations:
+            source = relation.get("source", relation.get("head", ""))
+            target = relation.get("target", relation.get("tail", ""))
+
+            # 更新 source
+            if source in alias_to_canonical:
+                old_source = source
+                source = alias_to_canonical[source]
+                merge_log.append(f"更新关系源: {old_source} → {source}")
+
+            # 更新 target
+            if target in alias_to_canonical:
+                old_target = target
+                target = alias_to_canonical[target]
+                merge_log.append(f"更新关系目标: {old_target} → {target}")
+
+            # 更新关系字典
+            if "source" in relation:
+                relation["source"] = source
+            elif "head" in relation:
+                relation["head"] = source
+
+            if "target" in relation:
+                relation["target"] = target
+            elif "tail" in relation:
+                relation["tail"] = target
+
+            updated_relations.append(relation)
+
+        # 第五步：记录结果
+        if merge_log:
+            self.logger.info(f"实体消歧完成: 合并了{len(to_merge)}个别名实体")
+            for log_entry in merge_log[:10]:  # 只记录前10条
+                self.logger.debug(f"  - {log_entry}")
+        else:
+            self.logger.info("实体消歧完成: 未发现需要合并的别名实体")
+
+        return {
+            "entities": merged_entities,
+            "relations": updated_relations,
+            "merge_count": len(to_merge),
+            "merge_log": merge_log
+        }
+
+    def _calculate_alias_match_score(
+        self,
+        alias_text: str,
+        candidate_text: str,
+        context_content: str = None
+    ) -> float:
+        """
+        计算别名与候选实体的匹配分数
+
+        基于以下特征计算：
+        1. 文本共现（是否在原文中相邻出现）
+        2. 语义相似度（基于关键词）
+        3. 实体类型一致性
+
+        Args:
+            alias_text: 别名文本（如"现代医生"）
+            candidate_text: 候选正式名称（如"孙昭龙"）
+            context_content: 原始文本内容
+
+        Returns:
+            匹配分数 (0.0 - 1.0)
+        """
+        score = 0.0
+
+        # 特征1：文本共现检查
+        if context_content:
+            cooccurrence_patterns = [
+                f"{alias_text}{candidate_text}",
+                f"{candidate_text}{alias_text}",
+                f"{alias_text}，{candidate_text}",
+                f"{candidate_text}，{alias_text}",
+                f"{alias_text}（{candidate_text}",
+                f"{candidate_text}（{alias_text}",
+                f"{alias_text}的{candidate_text}",
+                f"{alias_text}名为{candidate_text}"
+            ]
+
+            for pattern in cooccurrence_patterns:
+                if pattern in context_content:
+                    score += 0.4
+                    break
+
+            # 同一句子中出现
+            sentences = re.split(r'[。！？；\n]', context_content)
+            for sentence in sentences:
+                if alias_text in sentence and candidate_text in sentence:
+                    score += 0.3
+                    break
+
+        # 特征2：长度合理性（正式名称通常比别长）
+        if len(candidate_text) >= len(alias_text):
+            score += 0.1
+
+        # 特征3：候选名称不是通用词
+        common_words = {"人", "物", "事", "地", "时"}
+        if candidate_text not in common_words:
+            score += 0.1
+
+        return min(score, 1.0)
+
+    # ==================== 全局知识图谱增量更新方法 ====================
+
+    async def sync_unit_entities_to_global(
+        self,
+        project_id: int,
+        unit_number: int,
+        character_tracker=None
+    ) -> Dict[str, Any]:
+        """
+        将单元图谱的实体增量同步到全局知识图谱
+
+        在章节生成后自动调用，确保新出现的实体和关系及时同步到全局图谱。
+        实现"正文优先"原则：以正文内容为准更新全局知识。
+
+        Args:
+            project_id: 项目ID
+            unit_number: 单元号（章节号）
+            character_tracker: 人物状态追踪器（可选，用于更智能的同步）
+
+        Returns:
+            同步结果摘要
+        """
+        result = {
+            "success": False,
+            "project_id": project_id,
+            "unit_number": unit_number,
+            "entities_synced": 0,
+            "relations_synced": 0,
+            "new_entities": [],
+            "extended_entities": {
+                "facilities": 0,
+                "events": 0,
+                "groups": 0,
+                "items": 0,
+                "foreshadows": 0,
+                "world_rules": 0,
+                "time_nodes": 0
+            },
+            "error": None
+        }
+
+        try:
+            # 1. 加载全局图谱
+            global_graph_path = self.get_graph_path(
+                project_id, unit_number=None)
+            if not os.path.exists(global_graph_path):
+                self.logger.warning(f"全局图谱不存在: {global_graph_path}")
+                result["error"] = "全局图谱不存在"
+                return result
+
+            global_graph = NovelKnowledgeGraph(persist_path=global_graph_path)
+            if not global_graph.load():
+                result["error"] = "加载全局图谱失败"
+                return result
+
+            # 2. 加载单元图谱
+            unit_graph_path = self.get_graph_path(project_id, unit_number)
+            if not os.path.exists(unit_graph_path):
+                self.logger.info(f"单元图谱不存在，跳过同步: {unit_graph_path}")
+                result["error"] = "单元图谱不存在"
+                return result
+
+            unit_graph = NovelKnowledgeGraph(persist_path=unit_graph_path)
+            if not unit_graph.load():
+                result["error"] = "加载单元图谱失败"
+                return result
+
+            # 3. 使用CharacterStateTracker进行智能同步
+            if character_tracker:
+                sync_result = character_tracker.sync_unit_to_global_graph(
+                    global_graph=global_graph,
+                    unit_graph=unit_graph,
+                    chapter_num=unit_number,
+                    sync_extended_entities=True
+                )
+                result["entities_synced"] = sync_result.get(
+                    "entities_synced", 0)
+                result["relations_synced"] = sync_result.get(
+                    "relations_synced", 0)
+                result["new_entities"] = sync_result.get("new_entities", [])
+                result["extended_entities"] = sync_result.get(
+                    "extended_entities_synced", {})
+            else:
+                # 简单同步逻辑（无追踪器时）
+                result = self._simple_sync_entities(
+                    global_graph, unit_graph, unit_number, result)
+
+            result["success"] = True
+
+            self.logger.info(
+                f"单元图谱增量同步完成: project={project_id}, unit={unit_number}, "
+                f"实体={result['entities_synced']}, 关系={result['relations_synced']}, "
+                f"新实体={len(result['new_entities'])}")
+
+        except Exception as e:
+            self.logger.error(
+                f"增量同步失败: project={project_id}, unit={unit_number}, error={str(e)}")
+            result["error"] = str(e)
+
+        return result
+
+    def _simple_sync_entities(
+        self,
+        global_graph,
+        unit_graph,
+        unit_number: int,
+        result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        简单实体同步逻辑（无追踪器时使用）
+
+        Args:
+            global_graph: 全局知识图谱
+            unit_graph: 单元知识图谱
+            unit_number: 单元号
+            result: 结果字典
+
+        Returns:
+            更新后的结果字典
+        """
+        try:
+            # 遍历单元图谱中的所有实体
+            for node_id, node_data in unit_graph.graph.nodes(data=True):
+                entity_text = node_data.get("text", "")
+                entity_type = node_data.get("type", "")
+
+                # 检查是否为新实体
+                is_new = entity_text not in global_graph.entity_index
+
+                # 同步到全局图谱
+                entity_data = {
+                    "text": entity_text,
+                    "type": entity_type,
+                    "level": node_data.get("level", "micro"),
+                    "description": node_data.get("description", ""),
+                    "attributes": node_data.get("attributes", {}),
+                    "chapter": node_data.get("chapter", unit_number)
+                }
+                global_graph.add_entity(
+                    entity_data, doc_id=f"chapter_{unit_number}")
+                result["entities_synced"] += 1
+
+                if is_new:
+                    result["new_entities"].append({
+                        "text": entity_text,
+                        "type": entity_type,
+                        "chapter": unit_number
+                    })
+
+                # 统计扩展实体
+                self._count_extended_entity_type(result, entity_type)
+
+            # 遍历单元图谱中的所有关系
+            for source, target, edge_data in unit_graph.graph.edges(data=True):
+                source_data = unit_graph.graph.nodes.get(source, {})
+                target_data = unit_graph.graph.nodes.get(target, {})
+
+                relation_data = {
+                    "source": source_data.get("text", source),
+                    "target": target_data.get("text", target),
+                    "relation": edge_data.get("relation", "关联"),
+                    "context": edge_data.get("context", "")
+                }
+                global_graph.add_relation(
+                    relation_data, doc_id=f"chapter_{unit_number}")
+                result["relations_synced"] += 1
+
+            # 保存全局图谱
+            global_graph.save()
+
+        except Exception as e:
+            self.logger.error(f"简单同步失败: {e}")
+
+        return result
+
+    def _count_extended_entity_type(self, result: Dict[str, Any], entity_type: str) -> None:
+        """统计扩展实体类型"""
+        extended = result["extended_entities"]
+
+        type_mapping = {
+            # 设施
+            ("设施", "设施状态变化", "设施归属变更", "设施物理状态"): "facilities",
+            # 事件
+            ("事件", "事件状态变化", "事件影响", "事件因果链", "详细事件"): "events",
+            # 群体
+            ("群体组织", "群体状态变化", "群体成员变动", "群体关系变化"): "groups",
+            # 道具
+            ("道具物品", "道具状态变化", "道具归属变更", "道具功能使用"): "items",
+            # 伏笔
+            ("伏笔", "伏笔回收"): "foreshadows",
+            # 世界规则
+            ("世界规则", "规则引用", "规则例外", "世界观规则"): "world_rules",
+            # 时间节点
+            ("时间节点", "时间流逝"): "time_nodes"
+        }
+
+        for types, key in type_mapping.items():
+            if entity_type in types:
+                extended[key] += 1
+                break
+
+    async def detect_and_merge_new_entities(
+        self,
+        project_id: int,
+        chapter_content: str,
+        chapter_num: int,
+        llm_provider=None
+    ) -> Dict[str, Any]:
+        """
+        检测章节内容中的新实体并合并到全局知识图谱
+
+        这是一个主动式的实体检测方法，在章节生成后调用。
+        使用LLM提取新出现的实体（人物、地点、组织、物品等）。
+
+        Args:
+            project_id: 项目ID
+            chapter_content: 章节内容
+            chapter_num: 章节号
+            llm_provider: LLM提供者
+
+        Returns:
+            检测和合并结果
+        """
+        result = {
+            "success": False,
+            "new_characters": [],
+            "new_locations": [],
+            "new_organizations": [],
+            "new_items": [],
+            "new_concepts": [],
+            "entities_added": 0,
+            "relations_added": 0,
+            "error": None
+        }
+
+        try:
+            # 1. 加载全局图谱，获取已知实体
+            global_graph_path = self.get_graph_path(
+                project_id, unit_number=None)
+            global_graph = NovelKnowledgeGraph(persist_path=global_graph_path)
+            global_graph.load()
+
+            # 获取已知实体列表
+            known_entities = set(global_graph.entity_index.keys())
+
+            # 2. 使用LLM提取实体
+            if llm_provider:
+                extractor = NovelEntityExtractor(llm_provider=llm_provider)
+                extraction_result = await extractor.extract_with_llm(chapter_content)
+
+                entities = extraction_result.get("entities", [])
+                relations = extraction_result.get("relations", [])
+
+                # 3. 筛选新实体并分类
+                for entity in entities:
+                    entity_text = entity.get("text", "")
+                    entity_type = entity.get("type", "")
+
+                    if entity_text in known_entities:
+                        continue
+
+                    # 添加到全局图谱
+                    global_graph.add_entity(
+                        {
+                            "text": entity_text,
+                            "type": entity_type,
+                            "level": "micro",
+                            "description": entity.get("description", ""),
+                            "attributes": entity.get("attributes", {}),
+                            "first_appearance_chapter": chapter_num
+                        },
+                        doc_id=f"chapter_{chapter_num}"
+                    )
+                    result["entities_added"] += 1
+
+                    # 分类记录
+                    if entity_type == "人物":
+                        result["new_characters"].append(entity_text)
+                    elif entity_type in ["地点", "位置"]:
+                        result["new_locations"].append(entity_text)
+                    elif entity_type in ["组织", "群体组织"]:
+                        result["new_organizations"].append(entity_text)
+                    elif entity_type in ["道具", "物品", "道具物品"]:
+                        result["new_items"].append(entity_text)
+                    else:
+                        result["new_concepts"].append(entity_text)
+
+                # 4. 添加新关系
+                for relation in relations:
+                    source = relation.get("source", relation.get("head", ""))
+                    target = relation.get("target", relation.get("tail", ""))
+
+                    # 只添加涉及新实体的关系
+                    if source in known_entities and target in known_entities:
+                        continue
+
+                    global_graph.add_relation(
+                        {
+                            "source": source,
+                            "target": target,
+                            "relation": relation.get("relation", "关联"),
+                            "context": relation.get("context", "")
+                        },
+                        doc_id=f"chapter_{chapter_num}"
+                    )
+                    result["relations_added"] += 1
+
+                # 5. 保存全局图谱
+                global_graph.save()
+                result["success"] = True
+
+                self.logger.info(
+                    f"新实体检测完成: project={project_id}, chapter={chapter_num}, "
+                    f"新实体={result['entities_added']}, 新关系={result['relations_added']}")
+
+        except Exception as e:
+            self.logger.error(
+                f"检测新实体失败: project={project_id}, chapter={chapter_num}, error={str(e)}")
+            result["error"] = str(e)
+
+        return result

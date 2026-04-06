@@ -1,5 +1,10 @@
 """
 知识库 API 端点
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from app.tools.graph_rag import DualTrackGraphRAG
 import os
@@ -15,6 +20,12 @@ from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.logger import get_logger
 from app.core.redis_client import redis_manager
+from app.core.exceptions import (
+    ResourceNotFoundException,
+    ValidationException,
+    AuthorizationException,
+    KnowledgeBaseException,
+)
 from app.api.deps import get_current_user
 from app.models import User, KnowledgeBase, KnowledgeBaseType, KnowledgeBaseStatus, KnowledgeBaseCategory
 from app.models.base import get_local_now
@@ -235,26 +246,24 @@ async def upload_knowledge_base(
     # 检查当前处理中的任务数
     active_tasks = len([t for t in kb_processing_tasks.values() if t.get("future") and not t["future"].done()])
     if active_tasks >= KB_MAX_CONCURRENT:
-        raise HTTPException(
-            status_code=429,
-            detail=f"当前有{active_tasks}个知识库正在处理中，请稍后再试（最大并发{KB_MAX_CONCURRENT}）"
+        raise ValidationException(
+            message=f"当前有{active_tasks}个知识库正在处理中，请稍后再试（最大并发{KB_MAX_CONCURRENT}）",
+            status_code=429
         )
 
     # 检查文件类型
     file_ext = os.path.splitext(file.filename)[1].lower()
     if file_ext not in settings.ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"不支持的文件类型: {file_ext}"
+        raise ValidationException(
+            message=f"不支持的文件类型: {file_ext}"
         )
 
     # 检查文件大小（使用 file.size 属性，避免读取整个文件到内存）
     # 注意：file.size 可能在某些情况下不可用，此时使用 content-length
     file_size = file.size if hasattr(file, 'size') and file.size else 0
     if file_size > settings.MAX_UPLOAD_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"文件大小超过限制 ({settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB)"
+        raise ValidationException(
+            message=f"文件大小超过限制 ({settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB)"
         )
 
     # 保存文件
@@ -273,9 +282,8 @@ async def upload_knowledge_base(
     file_size = os.path.getsize(file_path)
     if file_size > settings.MAX_UPLOAD_SIZE:
         os.remove(file_path)
-        raise HTTPException(
-            status_code=400,
-            detail=f"文件大小超过限制 ({settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB)"
+        raise ValidationException(
+            message=f"文件大小超过限制 ({settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB)"
         )
 
     # 解析category
@@ -649,7 +657,7 @@ async def get_knowledge_base(
     kb = result.scalar_one_or_none()
 
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise ResourceNotFoundException("知识库不存在")
 
     return ResponseModel(data=KnowledgeBaseResponse(
         id=kb.id,
@@ -682,7 +690,7 @@ async def delete_knowledge_base(
     kb = result.scalar_one_or_none()
 
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise ResourceNotFoundException("知识库不存在")
 
     # 删除向量集合
     from app.core.vector_store import vector_store
@@ -719,7 +727,7 @@ async def update_knowledge_base(
     kb = result.scalar_one_or_none()
 
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise ResourceNotFoundException("知识库不存在")
 
     # 更新字段
     if update_data.name is not None:
@@ -764,10 +772,10 @@ async def search_knowledge_base(
     kb = result.scalar_one_or_none()
 
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise ResourceNotFoundException("知识库不存在")
 
     if kb.status != KnowledgeBaseStatus.READY:
-        raise HTTPException(status_code=400, detail="知识库未就绪")
+        raise ValidationException("知识库未就绪")
 
     retrieval_tool = get_knowledge_retrieval_tool()
     results = await retrieval_tool.retrieve(
@@ -841,15 +849,15 @@ async def stop_knowledge_processing(
     kb = result.scalar_one_or_none()
 
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise ResourceNotFoundException("知识库不存在")
 
     # 只有管理员或知识库所有者可以终止
     if current_user.role != UserRole.ADMIN and kb.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权终止此知识库的处理")
+        raise AuthorizationException("无权终止此知识库的处理")
 
     # 检查是否正在处理
     if kb.status != KnowledgeBaseStatus.PROCESSING:
-        raise HTTPException(status_code=400, detail="知识库未在处理中")
+        raise ValidationException("知识库未在处理中")
 
     # 终止处理
     success = stop_kb_processing(kb_id)
@@ -907,7 +915,7 @@ async def get_all_general_knowledge_bases(
         ])
     except Exception as e:
         logger.error(f"获取通用知识库失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取失败: {str(e)}")
+        raise KnowledgeBaseException(f"获取失败: {str(e)}")
 
 
 @router.post("/retrieve/dual-track", response_model=ResponseModel[DualTrackRetrieveResponse])
@@ -1066,7 +1074,7 @@ async def dual_track_retrieve(
         )
     except Exception as e:
         logger.error(f"知识库检索失败: {e}")
-        raise HTTPException(status_code=500, detail=f"检索失败: {str(e)}")
+        raise KnowledgeBaseException(f"检索失败: {str(e)}")
 
 
 @router.get("/{kb_id}/graph", response_model=ResponseModel[KnowledgeGraphData])
@@ -1084,11 +1092,11 @@ async def get_knowledge_graph(
     kb = result.scalar_one_or_none()
 
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise ResourceNotFoundException("知识库不存在")
 
     # 检查权限
     if kb.user_id and kb.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问此知识库")
+        raise AuthorizationException("无权访问此知识库")
 
     try:
         # 获取图谱数据
@@ -1100,7 +1108,7 @@ async def get_knowledge_graph(
         return ResponseModel(data=graph_data)
     except Exception as e:
         logger.error(f"获取知识图谱失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取图谱失败: {str(e)}")
+        raise KnowledgeBaseException(f"获取图谱失败: {str(e)}")
 
 
 @router.post("/{kb_id}/extract-entities", response_model=ResponseModel[Dict[str, Any]])
@@ -1124,15 +1132,15 @@ async def extract_entities_from_kb(
     kb = result.scalar_one_or_none()
 
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+        raise ResourceNotFoundException("知识库不存在")
 
     # 检查权限
     if kb.user_id and kb.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="无权访问此知识库")
+        raise AuthorizationException("无权访问此知识库")
 
     # 检查状态
     if kb.status != KnowledgeBaseStatus.READY:
-        raise HTTPException(status_code=400, detail="知识库尚未就绪")
+        raise ValidationException("知识库尚未就绪")
 
     # 异步执行实体提取
     background_tasks.add_task(

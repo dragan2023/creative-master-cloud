@@ -1,6 +1,11 @@
 """
 导出服务
 支持多种格式的项目导出
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 import os
 import json
@@ -114,7 +119,8 @@ class NovelExporter:
                 # 单个章节
                 chapter_num = int(chapter_range)
                 return [c for c in chapters if c.chapter_number == chapter_num and c.final_content]
-        except:
+        except ValueError as e:
+            self.logger.warning(f"解析章节范围失败: {e}")
             return [c for c in chapters if c.final_content]
 
     async def _export_txt(

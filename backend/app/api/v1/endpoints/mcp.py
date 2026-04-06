@@ -1,6 +1,11 @@
 """
 MCP 多内容提供商 API 端点
 提供服务状态查询、配置管理、热点数据获取等功能
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status

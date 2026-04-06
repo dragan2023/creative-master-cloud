@@ -1,6 +1,11 @@
 """
 数据库连接配置
 使用 SQLAlchemy 异步引擎连接 PostgreSQL
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -8,6 +13,9 @@ from sqlalchemy import MetaData
 from typing import AsyncGenerator
 
 from app.core.config import get_settings
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 settings = get_settings()
 
@@ -82,16 +90,54 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """
-    初始化数据库（创建所有表）
+    初始化数据库
+
+    策略：只创建基础表结构，依赖 run_migrations() 完成列扩展
+    这样避免与 Alembic 迁移冲突
     """
     # 导入所有模型以确保它们被注册到 Base.metadata
     from app.models import (
         User, UserAPIKey, Generation, KnowledgeBase,
-        PromptTemplate, SystemLog, SystemVersion, UserAction, SystemConfig
+        PromptTemplate, SystemLog, SystemVersion, UserAction, SystemConfig,
+        WritingModelConfig
     )
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # 数据库连接重试机制（生产环境必需）
+    import asyncio
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    max_retries = 30
+    retry_delay = 2
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            async with engine.begin() as conn:
+                if is_sqlite:
+                    result = await conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'"))
+                else:
+                    result = await conn.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name = 'users'"))
+
+                if result.fetchone() is None:
+                    # 数据库未初始化，创建基础表
+                    await conn.run_sync(Base.metadata.create_all)
+                    logger.info("[DB] 数据库表首次创建完成")
+                else:
+                    logger.info("[DB] 数据库表已存在，跳过 create_all")
+
+            # 连接成功，跳出重试循环
+            break
+
+        except (OperationalError, ConnectionRefusedError, OSError) as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                logger.warning(
+                    f"[DB] 数据库连接失败 (尝试 {attempt + 1}/{max_retries})，{retry_delay}秒后重试: {e}")
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.error(f"[DB] 数据库连接失败，已达到最大重试次数: {e}")
+                raise
 
     # 运行数据库迁移（添加缺失的列）
     await run_migrations()
@@ -99,14 +145,23 @@ async def init_db() -> None:
 
 async def run_migrations() -> None:
     """
-    数据库迁移：添加缺失的列
+    数据库迁移：添加缺失的列和表
+
+    所有迁移都检查列/表是否存在，确保幂等性
     """
     from sqlalchemy import text
+    from app.models.writing_model_config import WritingModelConfig
 
     async with engine.begin() as conn:
         if is_sqlite:
             # SQLite 迁移
             try:
+                # === writing_model_configs 表迁移 ===
+                result = await conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='writing_model_configs'"))
+                if result.fetchone() is None:
+                    await conn.run_sync(Base.metadata.create_all, tables=[WritingModelConfig.__table__])
+                    logger.info("Migration: 创建 writing_model_configs 表")
+
                 # === system_versions 表迁移 ===
                 result = await conn.execute(text("PRAGMA table_info(system_versions)"))
                 columns = [row[1] for row in result.fetchall()]
@@ -157,13 +212,22 @@ async def run_migrations() -> None:
                 if 'generation_task_updated_at' not in np_columns:
                     await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_updated_at VARCHAR(50)"))
 
-                print(
-                    f"Migration completed: system_versions columns={columns}, knowledge_bases columns={kb_columns}, user_api_keys columns={uak_columns}, novel_projects columns={np_columns}")
+                logger.info("[Migration] SQLite 迁移检查完成")
             except Exception as e:
-                print(f"Migration error: {e}")
+                logger.warning(f"[Migration] SQLite 迁移警告: {e}")
         else:
             # PostgreSQL 迁移
             try:
+                # === writing_model_configs 表迁移 ===
+                result = await conn.execute(text("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_name = 'writing_model_configs'
+                """))
+                if result.fetchone() is None:
+                    await conn.run_sync(Base.metadata.create_all, tables=[WritingModelConfig.__table__])
+                    logger.info("Migration: 创建 writing_model_configs 表")
+
+                # === system_versions 表迁移 ===
                 result = await conn.execute(text("""
                     SELECT column_name FROM information_schema.columns 
                     WHERE table_name = 'system_versions'
@@ -177,7 +241,7 @@ async def run_migrations() -> None:
                 if 'backup_created_at' not in columns:
                     await conn.execute(text("ALTER TABLE system_versions ADD COLUMN backup_created_at VARCHAR(30)"))
 
-                # knowledge_bases 表迁移
+                # === knowledge_bases 表迁移 ===
                 result = await conn.execute(text("""
                     SELECT column_name FROM information_schema.columns 
                     WHERE table_name = 'knowledge_bases'
@@ -189,7 +253,7 @@ async def run_migrations() -> None:
                 if 'api_config' not in kb_columns:
                     await conn.execute(text("ALTER TABLE knowledge_bases ADD COLUMN api_config TEXT"))
 
-                # user_api_keys 表迁移
+                # === user_api_keys 表迁移 ===
                 result = await conn.execute(text("""
                     SELECT column_name FROM information_schema.columns 
                     WHERE table_name = 'user_api_keys'
@@ -199,8 +263,16 @@ async def run_migrations() -> None:
                 if 'channel' not in uak_columns:
                     await conn.execute(text("ALTER TABLE user_api_keys ADD COLUMN channel VARCHAR(50) DEFAULT 'default'"))
 
+                logger.info("[Migration] PostgreSQL 迁移检查完成")
             except Exception as e:
-                print(f"Migration error: {e}")
+                logger.warning(f"[Migration] PostgreSQL 迁移警告: {e}")
+
+
+async def close_db() -> None:
+    """
+    关闭数据库连接
+    """
+    await engine.dispose()
 
 
 async def close_db() -> None:

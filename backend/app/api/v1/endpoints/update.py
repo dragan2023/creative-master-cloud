@@ -1,7 +1,16 @@
 """
 软件更新 API 端点
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+from app.core.exceptions import (
+    AppException,
+    ErrorCode,
+)
 from pydantic import BaseModel, Field
 from typing import Optional
 import httpx
@@ -169,9 +178,10 @@ async def check_update(request: UpdateCheckRequest):
                     if response.status_code == 200:
                         version_info = response.json()
                         break
-            except:
+            except Exception as e:
+                logger.warning(f"请求版本信息失败 ({url}): {e}")
                 continue
-        
+
         if not version_info:
             # 使用本地版本信息
             version_info = {
@@ -217,10 +227,14 @@ async def check_update(request: UpdateCheckRequest):
             logger.info(f"检测到新版本: {latest_version} (当前: {request.current_version})")
         
         return ResponseModel(data=result)
-        
+
     except Exception as e:
         logger.error(f"检查更新失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"检查更新失败: {str(e)}")
+        raise AppException(
+            ErrorCode.INTERNAL_ERROR,
+            f"检查更新失败: {str(e)}",
+            status_code=500
+        )
 
 
 @router.get("/download", response_model=ResponseModel[dict])
@@ -245,12 +259,17 @@ async def get_download_info():
                     if response.status_code == 200:
                         version_info = response.json()
                         break
-            except:
+            except Exception as e:
+                logger.warning(f"请求下载信息失败 ({url}): {e}")
                 continue
-        
+
         if not version_info:
-            raise HTTPException(status_code=503, detail="无法获取下载信息")
-        
+            raise AppException(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                "无法获取下载信息",
+                status_code=503
+            )
+
         return ResponseModel(data={
             "version": version_info.get("current_version"),
             "download_url": version_info.get("download_url_mirror") or version_info.get("download_url"),
@@ -259,11 +278,15 @@ async def get_download_info():
             "release_date": version_info.get("release_date")
         })
         
-    except HTTPException:
+    except AppException:
         raise
     except Exception as e:
         logger.error(f"获取下载信息失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取下载信息失败: {str(e)}")
+        raise AppException(
+            ErrorCode.INTERNAL_ERROR,
+            f"获取下载信息失败: {str(e)}",
+            status_code=500
+        )
 
 
 @router.get("/changelog")
@@ -286,9 +309,10 @@ async def get_changelog():
                     response = await client.get(url)
                     if response.status_code == 200:
                         return {"content": response.text}
-            except:
+            except Exception as e:
+                logger.warning(f"请求更新日志失败 ({url}): {e}")
                 continue
-        
+
         return {"content": "无法获取更新日志"}
         
     except Exception as e:

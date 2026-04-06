@@ -7,6 +7,11 @@
 - 历史事件：重大历史事件（约50条）
 
 注意：此数据集仅供本地检测使用，不涉及外部API调用
+
+@date: 2026-04-02
+@version: v3.0.0
+@author: 周金磊
+@contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Dict, List, Any
 

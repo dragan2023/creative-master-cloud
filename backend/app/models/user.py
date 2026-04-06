@@ -61,6 +61,8 @@ class User(BaseModel):
         "UserAction", back_populates="user", cascade="all, delete-orphan")
     novel_projects = relationship(
         "NovelProject", back_populates="user", cascade="all, delete-orphan")
+    writing_model_configs = relationship(
+        "WritingModelConfig", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', role={self.role}, tenant_id={self.tenant_id})>"
