@@ -1,10 +1,10 @@
 {
-    "current_version": "3.1.0",
+    "current_version": "3.1.1",
     "minimum_version": "0.9.0",
     "download_url": "https://github.com/dragan2023/creative-master/releases/download/v2.2.3/creative-master-v2.2.3.zip",
     "download_url_mirror": "https://ghproxy.com/https://github.com/dragan2023/creative-master/releases/download/v2.2.3/creative-master-v2.2.3.zip",
-    "update_notes": "## v2.2.3 Docker容器化部署与稳定性优化\n\n### 新增功能\n- 新增本地开发环境完整Docker配置（docker-compose.dev.yml）\n- 新增Nginx反向代理配置，支持SSE流式响应\n- 新增Dev Container开发容器配置\n- 新增本地SSL证书生成脚本\n\n### 功能优化\n- 优化小说生成模块提示词模板参数一致性\n- 优化剧集上下文构建，修复KeyError问题\n- 优化向量库命名规则，支持项目隔离\n- 优化登录页面UI和错误提示\n\n### 问题修复\n- 修复小说生成current_unit_outline参数缺失问题\n- 修复向量库embedding函数覆盖配置问题\n- 修复Docker容器时区配置，同步为北京时间\n- 修复前端登录401错误提示\n- 修复数据库迁移脚本兼容性问题\n\n### 稳定性改进\n- 增强容器健康检查机制\n- 优化数据库连接池配置\n- 完善异常处理和日志记录",
-    "release_date": "2026-03-27",
+    "update_notes": "## v3.1.1\n\n## v3.1.0\n\n常规更新和维护",
+    "release_date": "2026-04-07",
     "file_size_mb": 165,
     "file_hash_md5": "placeholder-update-on-release",
     "force_update": false,
