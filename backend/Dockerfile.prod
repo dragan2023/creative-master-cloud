@@ -40,10 +40,13 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
     sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true
 
-# 安装系统依赖（仅保留运行时必需的）
+# 安装系统依赖（运行时必需 + 编译依赖）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    build-essential \
+    libpq-dev \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -54,8 +57,23 @@ ENV PATH="/opt/venv/bin:$PATH"
 # 复制依赖文件（从 backend 目录）
 COPY backend/requirements.txt .
 
-# 安装Python依赖（使用清华源加速）
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# 安装Python依赖（多镜像源重试机制）
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
+    --trusted-host pypi.tuna.tsinghua.edu.cn \
+    --trusted-host mirrors.aliyun.com \
+    --trusted-host pypi.org \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r requirements.txt || \
+    pip install --no-cache-dir \
+    --trusted-host mirrors.aliyun.com \
+    --trusted-host pypi.org \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    -r requirements.txt || \
+    pip install --no-cache-dir \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org \
+    -r requirements.txt
 
 # 复制后端应用代码
 COPY backend/ .
