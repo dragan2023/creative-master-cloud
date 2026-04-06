@@ -41,19 +41,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_PROGRESS_BAR=off \
     PIP_QUIET=1
 
-# 使用阿里云镜像源
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true
+# 使用华为云镜像源（更稳定）
+RUN echo "[APT] 配置镜像源..." && \
+    sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list 2>/dev/null || true
 
-# 安装系统依赖（静默模式）
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+# 安装系统依赖（显示进度）
+RUN echo "[APT] 更新软件源..." && \
+    apt-get update && \
+    echo "[APT] 安装系统依赖（约100MB，需要1-2分钟）..." && \
+    apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     build-essential \
     libpq-dev \
     python3-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && apt-get clean && \
+    echo "[APT] 系统依赖安装完成"
 
 # 创建虚拟环境
 RUN python -m venv /opt/venv
