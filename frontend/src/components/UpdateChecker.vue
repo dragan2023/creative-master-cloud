@@ -117,7 +117,7 @@ const props = defineProps({
   // 当前版本号（从环境变量或配置获取）
   currentVersion: {
     type: String,
-    default: '1.0.0'
+    default: '3.1.0'
   }
 })
 

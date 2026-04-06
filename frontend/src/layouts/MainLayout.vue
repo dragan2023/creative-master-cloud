@@ -60,7 +60,7 @@
       
       <!-- 版本信息 -->
       <div v-show="!collapsed" class="sidebar-footer">
-        <span class="version-text">v{{ currentVersion || '1.1.0' }}</span>
+        <span class="version-text">v{{ currentVersion || '3.1.0' }}</span>
       </div>
     </el-aside>
     
