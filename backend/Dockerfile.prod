@@ -31,7 +31,8 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_PROGRESS_BAR=off
 
 # 使用阿里云镜像源
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
@@ -61,8 +62,8 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
 # 升级pip
 RUN pip install --upgrade pip setuptools wheel
 
-# 安装Python依赖
-RUN pip install -r requirements.txt
+# 安装Python依赖（静默模式，减少日志输出）
+RUN pip install --progress-bar=off -r requirements.txt
 
 # 复制后端应用代码
 COPY backend/ ./

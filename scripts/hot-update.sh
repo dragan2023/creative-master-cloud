@@ -407,9 +407,9 @@ cleanup_old_images() {
 build_image() {
     log_step "构建 Docker 镜像..."
     
-    local build_args=""
+    local build_args="--progress=plain"
     if $FORCE_REBUILD; then
-        build_args="--no-cache"
+        build_args="--no-cache --progress=plain"
         log_info "强制重建模式（不使用缓存）"
     fi
     
@@ -421,7 +421,10 @@ build_image() {
     if $DRY_RUN; then
         log_info "[模拟] 构建命令: docker-compose -f $COMPOSE_FILE build $build_args backend"
     else
-        if ! docker-compose -f "$COMPOSE_FILE" build $build_args backend 2>&1 | tee -a "$LOG_FILE"; then
+        # 构建并过滤过多的下载进度日志，只显示关键信息
+        if ! docker-compose -f "$COMPOSE_FILE" build $build_args backend 2>&1 | \
+            grep -v --line-buffered "Downloading\|Extracting\|^[[:space:]]*$" | \
+            tee -a "$LOG_FILE"; then
             error_exit "镜像构建失败"
         fi
     fi
