@@ -1,7 +1,8 @@
 #!/bin/bash
 # ========================================
-# 全能创意大师 - 云端智能热更新脚本 v1.0
+# 全能创意大师 - 云端智能热更新脚本 v1.1
 # 功能：代码同步、镜像构建、服务更新、自动回滚
+# 优化：简洁进度条显示，避免日志刷屏
 # ========================================
 
 set -o pipefail
@@ -23,7 +24,14 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
+
+# 进度条状态
+PROGRESS_TOTAL=0
+PROGRESS_CURRENT=0
+PROGRESS_START_TIME=0
+LAST_PROGRESS_LINE=""
 
 # ==================== 初始化 ====================
 init() {
@@ -52,6 +60,8 @@ parse_args() {
     FORCE_REBUILD=false
     SKIP_PULL=false
     ROLLBACK_MODE=false
+    QUIET_MODE=false
+    VERBOSE_MODE=false
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -69,6 +79,14 @@ parse_args() {
                 ;;
             -s|--skip-pull)
                 SKIP_PULL=true
+                shift
+                ;;
+            -q|--quiet)
+                QUIET_MODE=true
+                shift
+                ;;
+            -v|--verbose)
+                VERBOSE_MODE=true
                 shift
                 ;;
             --rollback)
@@ -90,7 +108,7 @@ parse_args() {
 
 # ==================== 帮助信息 ====================
 show_help() {
-    echo "全能创意大师 - 云端智能热更新脚本"
+    echo "全能创意大师 - 云端智能热更新脚本 v1.1"
     echo ""
     echo "用法: $0 [选项]"
     echo ""
@@ -99,6 +117,8 @@ show_help() {
     echo "  -n, --dry-run     模拟运行，不执行实际操作"
     echo "  -r, --rebuild     强制重新构建镜像（不使用缓存）"
     echo "  -s, --skip-pull   跳过代码拉取，使用本地代码"
+    echo "  -q, --quiet       静默模式，只显示进度条和错误"
+    echo "  -v, --verbose     详细模式，显示所有构建日志"
     echo "  --rollback        执行回滚操作"
     echo "  -h, --help        显示帮助信息"
     echo ""
@@ -106,6 +126,8 @@ show_help() {
     echo "  $0                  # 交互式更新"
     echo "  $0 -y               # 自动确认更新"
     echo "  $0 -y -r            # 自动确认并强制重建镜像"
+    echo "  $0 -y -q            # 静默模式更新（简洁输出）"
+    echo "  $0 -y -v            # 详细模式更新（完整日志）"
     echo "  $0 --rollback       # 回滚到上一版本"
 }
 
@@ -131,6 +153,160 @@ log_success() { log "SUCCESS" "$1"; }
 log_warning() { log "WARNING" "$1"; }
 log_error() { log "ERROR" "$1"; }
 log_step() { log "STEP" "$1"; }
+
+# ==================== 进度条函数 ====================
+# 显示简洁进度条
+draw_progress_bar() {
+    local current=$1
+    local total=$2
+    local label="$3"
+    local speed="$4"
+    
+    if [[ $total -eq 0 ]]; then
+        return
+    fi
+    
+    local percent=$((current * 100 / total))
+    local bar_width=30
+    local filled=$((percent * bar_width / 100))
+    local empty=$((bar_width - filled))
+    
+    # 构建进度条
+    local bar="${GREEN}"
+    for ((i=0; i<filled; i++)); do bar+="#"; done
+    bar+="${NC}${CYAN}"
+    for ((i=0; i<empty; i++)); do bar+="-"; done
+    bar+="${NC}"
+    
+    # 格式化大小
+    local current_mb=$((current / 1024 / 1024))
+    local total_mb=$((total / 1024 / 1024))
+    
+    # 构建进度行
+    local progress_line="  ${label} [${bar}] ${percent}% (${current_mb}MB/${total_mb}MB) ${speed}"
+    
+    # 只在终端显示时更新
+    if [[ -t 1 ]]; then
+        # 清除上一行并显示新行
+        echo -en "\r\033[K${progress_line}"
+        LAST_PROGRESS_LINE="$progress_line"
+    fi
+}
+
+# 解析 Docker 构建输出并显示进度
+parse_build_output() {
+    local line
+    local downloading_count=0
+    local extracting_count=0
+    local current_layer=""
+    local layer_progress=0
+    local layer_total=0
+    local last_update_time=0
+    local downloaded_bytes=0
+    local total_bytes=0
+    local build_stage=""
+    local stage_count=0
+    local current_stage=0
+    
+    PROGRESS_START_TIME=$(date +%s)
+    
+    while IFS= read -r line; do
+        # 所有输出写入日志文件
+        echo "$line" >> "$LOG_FILE"
+        
+        # 详细模式：显示所有输出
+        if $VERBOSE_MODE; then
+            echo "$line"
+            continue
+        fi
+        
+        # 解析不同类型的输出
+        
+        # 检测构建阶段
+        if echo "$line" | grep -qE "^#\d+\s+(DONE|ERROR|CANCELED)"; then
+            local stage_status=$(echo "$line" | grep -oE "^#\d+\s+(DONE|ERROR|CANCELED)" | awk '{print $2}')
+            local stage_num=$(echo "$line" | grep -oE "^#\d+" | tr -d '#')
+            if [[ "$stage_status" == "DONE" ]]; then
+                current_stage=$stage_num
+                echo -e "\r\033[K${GREEN}✓${NC} 阶段 #${stage_num} 完成"
+            elif [[ "$stage_status" == "ERROR" ]]; then
+                echo -e "\r\033[K${RED}✗${NC} 阶段 #${stage_num} 失败"
+            fi
+            continue
+        fi
+        
+        # 检测正在执行的阶段
+        if echo "$line" | grep -qE "^#\d+\s+"; then
+            local stage_info=$(echo "$line" | sed 's/^#[0-9]*\s*//')
+            local stage_num=$(echo "$line" | grep -oE "^#\d+" | tr -d '#')
+            
+            # 过滤进度详情，只显示阶段描述
+            if [[ -n "$stage_info" ]] && ! echo "$stage_info" | grep -qE "Downloading|Extracting|sha256|COPY|WORKDIR|ENV|RUN|EXPOSE|CMD|HEALTHCHECK"; then
+                echo -e "\r\033[K${BLUE}▸${NC} 阶段 #${stage_num}: $stage_info"
+            fi
+            continue
+        fi
+        
+        # 解析下载进度
+        if echo "$line" | grep -qE "Downloading|extracting"; then
+            # 提取进度信息
+            local progress_info=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+[KMGT]?B/[0-9]+\.[0-9]+[KMGT]?B" | head -1)
+            local speed_info=$(echo "$line" | grep -oE "[0-9]+\.[0-9]+[KMGT]?B/s" | head -1)
+            
+            if [[ -n "$progress_info" ]]; then
+                # 解析进度
+                local current=$(echo "$progress_info" | cut -d'/' -f1)
+                local total=$(echo "$progress_info" | cut -d'/' -f2)
+                
+                # 转换为字节
+                local current_bytes=$(parse_size "$current")
+                local total_bytes=$(parse_size "$total")
+                
+                # 限制更新频率（每秒最多2次）
+                local now=$(date +%s)
+                if [[ $((now - last_update_time)) -ge 1 ]]; then
+                    draw_progress_bar "$current_bytes" "$total_bytes" "下载中" "$speed_info"
+                    last_update_time=$now
+                fi
+            fi
+            continue
+        fi
+        
+        # 显示错误和警告
+        if echo "$line" | grep -qiE "error|failed|fatal"; then
+            echo -e "\r\033[K${RED}$line${NC}"
+            continue
+        fi
+        
+        # 静默模式：跳过其他输出
+        if $QUIET_MODE; then
+            continue
+        fi
+        
+        # 默认模式：显示关键信息
+        if echo "$line" | grep -qE "Step \d+/\d+|Successfully|built|Sending build context"; then
+            echo -e "\r\033[K$line"
+        fi
+    done
+    
+    # 完成后换行
+    echo ""
+}
+
+# 解析大小字符串为字节
+parse_size() {
+    local size="$1"
+    local value=$(echo "$size" | grep -oE "[0-9]+(\.[0-9]+)?")
+    local unit=$(echo "$size" | grep -oE "[KMGT]?B" | head -1)
+    
+    case "$unit" in
+        KB|K) echo "$(echo "$value * 1024" | bc | cut -d'.' -f1)" ;;
+        MB|M) echo "$(echo "$value * 1024 * 1024" | bc | cut -d'.' -f1)" ;;
+        GB|G) echo "$(echo "$value * 1024 * 1024 * 1024" | bc | cut -d'.' -f1)" ;;
+        TB|T) echo "$(echo "$value * 1024 * 1024 * 1024 * 1024" | bc | cut -d'.' -f1)" ;;
+        *) echo "$value" ;;
+    esac
+}
 
 # ==================== 错误处理 ====================
 error_exit() {
@@ -420,19 +596,33 @@ build_image() {
     
     if $DRY_RUN; then
         log_info "[模拟] 构建命令: docker-compose -f $COMPOSE_FILE build $build_args backend"
-    else
-        # 构建并过滤过多的下载进度日志，只显示关键信息
-        if ! docker-compose -f "$COMPOSE_FILE" build $build_args backend 2>&1 | \
-            grep -v --line-buffered "Downloading\|Extracting\|^[[:space:]]*$" | \
-            tee -a "$LOG_FILE"; then
-            error_exit "镜像构建失败"
-        fi
+        return 0
+    fi
+    
+    # 使用进度条解析器处理构建输出
+    echo ""
+    echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  Docker 镜像构建中...${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    
+    local build_exit_code=0
+    docker-compose -f "$COMPOSE_FILE" build $build_args backend 2>&1 | parse_build_output || build_exit_code=${PIPESTATUS[0]}
+    
+    if [[ $build_exit_code -ne 0 ]]; then
+        echo ""
+        echo -e "${RED}构建失败！查看详细日志: $LOG_FILE${NC}"
+        error_exit "镜像构建失败"
     fi
     
     local build_end=$(date +%s)
     local build_duration=$((build_end - build_start))
     
+    echo ""
+    echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
     log_success "镜像构建完成 (耗时: ${build_duration}秒)"
+    echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+    echo ""
     
     # 显示镜像信息
     local image_size=$(docker images --format '{{.Size}}' "$BACKEND_IMAGE:latest")
