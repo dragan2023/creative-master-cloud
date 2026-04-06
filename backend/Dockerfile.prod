@@ -13,9 +13,13 @@ WORKDIR /app/frontend
 # 复制前端依赖文件
 COPY frontend/package*.json ./
 
-# 安装依赖（使用阿里云npm镜像加速，静默模式）
-RUN npm config set registry https://registry.npmmirror.com && \
-    npm ci --loglevel=error
+# 安装依赖（使用华为云npm镜像加速，静默模式，带重试）
+# 备用源：npmmirror.com / huaweicloud.com / tencentyun.com
+RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/ && \
+    npm config set fetch-timeout 60000 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    (npm ci --loglevel=error || npm ci --loglevel=error --registry=https://registry.npmmirror.com/)
 
 # 复制前端源码
 COPY frontend/ ./
