@@ -1,6 +1,7 @@
 # ========================================
 # 全能创意大师 - 生产环境Dockerfile
 # 多阶段构建：前端构建 + 后端运行
+# 优化：分层安装依赖，提高缓存利用率
 # ========================================
 
 # ==================== 阶段1：前端构建 ====================
@@ -27,7 +28,7 @@ FROM python:3.10-slim
 # 设置工作目录
 WORKDIR /app
 
-# 设置环境变量
+# 设置环境变量（禁用进度条加速构建）
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -52,18 +53,42 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 复制依赖文件
-COPY backend/requirements.txt ./
-
-# 配置pip使用阿里云镜像源（最稳定）
+# 配置pip使用阿里云镜像源
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     pip config set global.trusted-host "mirrors.aliyun.com pypi.org files.pythonhosted.org"
 
 # 升级pip
 RUN pip install --upgrade pip setuptools wheel
 
-# 安装Python依赖（静默模式，减少日志输出）
-RUN pip install --progress-bar=off -r requirements.txt
+# ===== 分层安装Python依赖（提高缓存利用率）=====
+
+# 第1层：核心框架（变化少，缓存命中率高）
+COPY backend/requirements.txt ./
+RUN pip install --progress-bar=off \
+    fastapi uvicorn[standard] python-multipart pydantic pydantic-settings email-validator \
+    sqlalchemy[asyncio] aiosqlite asyncpg psycopg2-binary alembic redis
+
+# 第2层：HTTP客户端和工具（中等变化频率）
+RUN pip install --progress-bar=off \
+    requests urllib3 httpx aiohttp aiofiles \
+    python-dotenv beautifulsoup4 lxml readability-lxml \
+    numpy pyyaml loguru pypdf python-docx json-repair
+
+# 第3层：认证和安全（稳定）
+RUN pip install --progress-bar=off \
+    python-jose[cryptography] PyJWT passlib[bcrypt] bcrypt==4.0.1
+
+# 第4层：LLM API客户端（经常更新）
+RUN pip install --progress-bar=off \
+    openai dashscope google-genai \
+    langchain langchain-community langchain-openai langchain-google-genai
+
+# 第5层：重型依赖（向量数据库，安装最慢，放最后）
+RUN pip install --progress-bar=off \
+    networkx pysqlite3-binary chromadb sentence-transformers
+
+# 第6层：测试依赖（可选）
+RUN pip install --progress-bar=off pytest pytest-asyncio
 
 # 复制后端应用代码
 COPY backend/ ./
