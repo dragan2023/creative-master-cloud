@@ -573,28 +573,41 @@ async def process_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
 
         # 步骤6：更新状态完成
         update_kb_progress(kb_id, "处理完成", 100, 6)
-        kb.status = KnowledgeBaseStatus.READY
-        session.commit()
+        
+        # 重新查询确保状态同步（解决并发竞争条件）
+        session.expire_all()
+        kb = session.query(KnowledgeBase).filter(
+            KnowledgeBase.id == kb_id).first()
+        if kb:
+            kb.status = KnowledgeBaseStatus.READY
+            kb.document_count = len(chunks)
+            session.commit()
 
-        logger.info(f"知识库处理完成: {kb.name}, 文档数: {len(chunks)}")
+        logger.info(f"知识库处理完成: {kb.name if kb else kb_id}, 文档数: {len(chunks)}")
 
     except InterruptedError as e:
         # 用户手动终止
         logger.warning(f"知识库处理被终止: {kb_id}, 原因: {str(e)}")
-        kb = session.query(KnowledgeBase).filter(
-            KnowledgeBase.id == kb_id).first()
-        if kb:
-            kb.status = KnowledgeBaseStatus.FAILED
-            session.commit()
+        try:
+            kb = session.query(KnowledgeBase).filter(
+                KnowledgeBase.id == kb_id).first()
+            if kb:
+                kb.status = KnowledgeBaseStatus.FAILED
+                session.commit()
+        except Exception as commit_err:
+            logger.warning(f"更新知识库状态失败（终止）: {commit_err}")
         update_kb_progress(kb_id, "处理已终止", 0, 0, error="用户手动终止")
     except Exception as e:
         logger.error(f"知识库处理失败: {str(e)}", exc_info=True)
         update_kb_progress(kb_id, f"处理失败: {str(e)}", 0, 0, error=str(e))
-        kb = session.query(KnowledgeBase).filter(
-            KnowledgeBase.id == kb_id).first()
-        if kb:
-            kb.status = KnowledgeBaseStatus.FAILED
-            session.commit()
+        try:
+            kb = session.query(KnowledgeBase).filter(
+                KnowledgeBase.id == kb_id).first()
+            if kb:
+                kb.status = KnowledgeBaseStatus.FAILED
+                session.commit()
+        except Exception as commit_err:
+            logger.warning(f"更新知识库状态失败（异常）: {commit_err}")
     finally:
         session.close()
 
