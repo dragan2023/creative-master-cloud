@@ -1,7 +1,6 @@
 # ========================================
 # 全能创意大师 - 生产环境Dockerfile
 # 多阶段构建：前端构建 + 后端运行
-# 优化：分层安装依赖，提高缓存利用率
 # ========================================
 
 # ==================== 阶段1：前端构建 ====================
@@ -9,29 +8,19 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-# 复制前端依赖文件
 COPY frontend/package*.json ./
 
-# 安装依赖（使用华为云npm镜像加速，带重试）
 RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/ && \
-    npm config set fetch-timeout 60000 && \
-    npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 120000 && \
-    (npm ci --loglevel=error || npm ci --loglevel=error --registry=https://registry.npmmirror.com/)
+    npm ci --loglevel=error || npm ci --loglevel=error --registry=https://registry.npmmirror.com/
 
-# 复制前端源码
 COPY frontend/ ./
-
-# 构建前端
 RUN npm run build
 
 # ==================== 阶段2：后端运行 ====================
 FROM python:3.10-slim
 
-# 设置工作目录
 WORKDIR /app
 
-# 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -39,33 +28,40 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_PROGRESS_BAR=off \
     DEBIAN_FRONTEND=noninteractive
 
-# 配置所有apt镜像源（包括security源）
-RUN echo "[APT] 配置镜像源..." && \
-    cp /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/debian.sources.bak 2>/dev/null || true && \
+# 配置apt镜像源
+RUN echo "==> 配置APT镜像源..." && \
     sed -i 's|deb.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null && \
     sed -i 's|security.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null && \
     sed -i 's|deb.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list 2>/dev/null && \
     sed -i 's|security.debian.org|mirrors.huaweicloud.com|g' /etc/apt/sources.list 2>/dev/null || true
 
-# 安装系统依赖
-RUN echo "[APT] 更新软件源..." && \
+# 更新软件源
+RUN echo "==> 更新软件源..." && \
     apt-get update && \
-    echo "[APT] 安装系统依赖..." && \
-    apt-get install -y --no-install-recommends \
-    libpq5 \
-    curl \
-    build-essential \
-    libpq-dev \
-    python3-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean && \
-    echo "[APT] 系统依赖安装完成"
+    echo "==> 软件源更新完成"
+
+# 分步安装系统依赖（每步显示进度）
+RUN echo "==> 安装 curl 和基础工具..." && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    echo "==> curl 安装完成"
+
+RUN echo "==> 安装 PostgreSQL 客户端库..." && \
+    apt-get install -y --no-install-recommends libpq5 libpq-dev && \
+    echo "==> PostgreSQL 库安装完成"
+
+RUN echo "==> 安装编译工具链（约2分钟）..." && \
+    apt-get install -y --no-install-recommends build-essential python3-dev && \
+    echo "==> 编译工具链安装完成"
+
+# 清理apt缓存
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    echo "==> 系统依赖全部安装完成"
 
 # 创建虚拟环境
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 配置pip使用阿里云镜像源
+# 配置pip镜像源
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     pip config set global.trusted-host "mirrors.aliyun.com pypi.org files.pythonhosted.org"
 
@@ -74,45 +70,40 @@ RUN pip install --upgrade pip setuptools wheel
 
 # ===== 分层安装Python依赖 =====
 
-# 第1层：核心框架
 COPY backend/requirements.txt ./
-RUN echo "[PIP] 安装核心框架..." && \
+
+RUN echo "==> 安装核心框架..." && \
     pip install --progress-bar=off \
     fastapi uvicorn[standard] python-multipart pydantic pydantic-settings email-validator \
     sqlalchemy[asyncio] aiosqlite asyncpg psycopg2-binary alembic redis && \
-    echo "[PIP] 核心框架安装完成"
+    echo "==> 核心框架安装完成"
 
-# 第2层：HTTP客户端和工具
-RUN echo "[PIP] 安装HTTP客户端和工具..." && \
+RUN echo "==> 安装HTTP客户端和工具..." && \
     pip install --progress-bar=off \
     requests urllib3 httpx aiohttp aiofiles \
     python-dotenv beautifulsoup4 lxml readability-lxml \
     numpy pyyaml loguru pypdf python-docx json-repair && \
-    echo "[PIP] HTTP客户端和工具安装完成"
+    echo "==> HTTP客户端和工具安装完成"
 
-# 第3层：认证和安全
-RUN echo "[PIP] 安装认证和安全模块..." && \
+RUN echo "==> 安装认证和安全模块..." && \
     pip install --progress-bar=off \
     python-jose[cryptography] PyJWT passlib[bcrypt] bcrypt==4.0.1 && \
-    echo "[PIP] 认证和安全模块安装完成"
+    echo "==> 认证和安全模块安装完成"
 
-# 第4层：LLM API客户端
-RUN echo "[PIP] 安装LLM API客户端..." && \
+RUN echo "==> 安装LLM API客户端..." && \
     pip install --progress-bar=off \
     openai dashscope google-genai \
     langchain langchain-community langchain-openai langchain-google-genai && \
-    echo "[PIP] LLM API客户端安装完成"
+    echo "==> LLM API客户端安装完成"
 
-# 第5层：重型依赖（最慢，放最后）
-RUN echo "[PIP] 安装向量数据库和模型（需要几分钟）..." && \
+RUN echo "==> 安装向量数据库和模型（约5-10分钟）..." && \
     pip install --progress-bar=off \
     networkx pysqlite3-binary chromadb sentence-transformers && \
-    echo "[PIP] 向量数据库和模型安装完成"
+    echo "==> 向量数据库和模型安装完成"
 
-# 第6层：测试依赖
-RUN echo "[PIP] 安装测试依赖..." && \
+RUN echo "==> 安装测试依赖..." && \
     pip install --progress-bar=off pytest pytest-asyncio && \
-    echo "[PIP] 测试依赖安装完成"
+    echo "==> 测试依赖安装完成"
 
 # 复制后端应用代码
 COPY backend/ ./
@@ -131,12 +122,9 @@ RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-# 暴露端口
 EXPOSE 8000
 
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# 启动命令
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
