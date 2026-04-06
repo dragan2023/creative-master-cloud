@@ -367,7 +367,7 @@ class VersionBump:
                     "README.md",
                     "frontend/src/config/version.js",
                     "frontend/package.json"
-                ],
+                 ],
                 cwd=self.project_root,
                 check=True
             )
