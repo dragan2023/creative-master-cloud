@@ -489,7 +489,7 @@ health_check() {
     local retry=0
     while [[ $retry -lt $HEALTH_CHECK_RETRIES ]]; do
         # 检查容器状态
-        local unhealthy=$(docker-compose -f "$COMPOSE_FILE" ps --format '{{.Status}}' 2>/dev/null | grep -c "unhealthy\|exited\" || echo "0")
+        local unhealthy=$(docker-compose -f "$COMPOSE_FILE" ps --format '{{.Status}}' 2>/dev/null | grep -c "unhealthy\|exited" || echo "0")
         
         if [[ "$unhealthy" -gt 0 ]]; then
             log_error "检测到不健康容器"
