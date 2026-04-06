@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# Git pre-push hook: 自动版本管理
+# 
+# 在推送到 main/master 分支时自动执行版本更新
+#
+# 安装方法:
+#   复制此文件到 .git/hooks/pre-push
+#   或运行: scripts/install-version-hook.sh
+#
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# 获取项目根目录
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+# 获取当前分支
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# 检查是否推送到主分支
+# $1 是远程名称, $2 是远程 URL
+# 从 stdin 读取: local_ref local_sha remote_ref remote_sha
+while read local_ref local_sha remote_ref remote_sha; do
+    # 检查远程分支是否是 main 或 master
+    REMOTE_BRANCH=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    
+    if [[ "$REMOTE_BRANCH" != "main" && "$REMOTE_BRANCH" != "master" ]]; then
+        # 不是主分支，跳过版本检查
+        exit 0
+    fi
+    
+    # 检查是否有提交信息包含 [skip version]
+    COMMITS=$(git log $remote_sha..$local_sha --pretty=format:"%s" 2>/dev/null)
+    
+    if echo "$COMMITS" | grep -q "\[skip version\]"; then
+        echo -e "${YELLOW}[版本管理]${NC} 检测到 [skip version] 标记，跳过版本更新"
+        exit 0
+    fi
+    
+    # 检查是否有未推送的提交
+    if [[ -z "$COMMITS" ]]; then
+        exit 0
+    fi
+    
+    echo -e "${BLUE}[版本管理]${NC} 正在分析变更..."
+    
+    # 执行版本更新脚本
+    cd "$PROJECT_ROOT"
+    
+    if [[ -f "scripts/version-bump.py" ]]; then
+        # 使用 Python 脚本
+        python scripts/version-bump.py
+        
+        # 检查是否有版本更新
+        if git diff --quiet version.json CHANGELOG.md README.md 2>/dev/null; then
+            # 没有变更，继续 push
+            exit 0
+        fi
+        
+        echo -e "${YELLOW}[版本管理]${NC} 检测到版本更新，正在提交..."
+        
+        # 提交版本更新
+        git add version.json CHANGELOG.md README.md 2>/dev/null
+        git commit -m "chore: bump version [skip ci]" --no-verify 2>/dev/null
+        
+        echo -e "${GREEN}[版本管理]${NC} 版本更新已提交"
+    else
+        echo -e "${YELLOW}[版本管理]${NC} 未找到 version-bump.py 脚本，跳过版本检查"
+    fi
+    
+done
+
+exit 0

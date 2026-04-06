@@ -7,7 +7,7 @@
           <h1>欢迎回来，{{ userStore.userInfo?.username || '用户' }}</h1>
           <p>选择一个创意模块开始您的创作之旅</p>
           <div class="version-info">
-            <span class="version-badge">v{{ currentVersion || '1.1.0' }}</span>
+            <span class="version-badge">v{{ currentVersion || '3.1.0' }}</span>
           </div>
         </div>
         <div class="welcome-illustration">

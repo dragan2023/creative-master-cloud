@@ -354,7 +354,7 @@ class BaseLLMProvider(ABC):
     async def close(self) -> None:
         """
         关闭提供者，释放资源
-        
+
         子类应该重写此方法以清理异步资源（如 httpx 客户端）
         """
         pass

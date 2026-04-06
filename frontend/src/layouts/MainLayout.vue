@@ -135,7 +135,7 @@ const userStore = useUserStore()
 const appStore = useAppStore()
 
 // 当前版本号（从后端API获取）
-const currentVersion = ref('1.0.0')
+const currentVersion = ref('3.1.0')
 
 const collapsed = computed(() => appStore.sidebarCollapsed)
 const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
@@ -150,7 +150,7 @@ function toggleSidebar() {
 async function fetchCurrentVersion() {
   try {
     const response = await updateApi.getCurrentVersion()
-    currentVersion.value = response?.version || '1.0.0'
+    currentVersion.value = response?.version || '3.1.0'
   } catch (error) {
     console.error('获取版本信息失败:', error)
     // 保持默认值

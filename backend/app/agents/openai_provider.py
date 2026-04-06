@@ -92,7 +92,7 @@ class OpenAIProvider(BaseLLMProvider):
                 except UnicodeEncodeError:
                     # 中文名称进行 URL 编码
                     app_name = urllib.parse.quote(app_name)
-                
+
                 client_kwargs["default_headers"] = {
                     "HTTP-Referer": settings.APP_BASE_URL,
                     "X-Title": app_name
@@ -340,7 +340,7 @@ class OpenAIProvider(BaseLLMProvider):
     async def close(self) -> None:
         """
         关闭 OpenAI 客户端，释放资源
-        
+
         正确清理 AsyncOpenAI 内部的 httpx 客户端，避免事件循环关闭后的资源泄漏
         """
         if self._client is not None:

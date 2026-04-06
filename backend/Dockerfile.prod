@@ -117,6 +117,9 @@ RUN echo "==> 安装测试依赖..." && \
 # 复制后端应用代码
 COPY backend/ ./
 
+# 复制版本文件（用于版本号动态获取）
+COPY version.json /app/version.json
+
 # 从前端构建阶段复制构建产物
 COPY --from=frontend-builder /app/backend/app/static ./app/static
 

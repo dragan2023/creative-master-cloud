@@ -19,22 +19,40 @@ def get_version_from_file() -> str:
     """
     从项目根目录的 version.json 文件读取版本号
     如果文件不存在或解析失败，返回默认版本号
+
+    查找顺序:
+    1. /app/version.json (Docker 容器路径)
+    2. 项目根目录/version.json (本地开发路径)
     """
-    default_version = "1.1.0"
+    default_version = "3.1.0"
+
+    # 可能的 version.json 文件路径
+    possible_paths = []
+
+    # Docker 容器中的路径
+    possible_paths.append("/app/version.json")
+
+    # 本地开发环境：项目根目录/version.json
     try:
-        # 获取项目根目录（backend 的上级目录）
         backend_dir = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
         project_root = os.path.dirname(backend_dir)
-        version_file = os.path.join(project_root, "version.json")
-
-        if os.path.exists(version_file):
-            with open(version_file, "r", encoding="utf-8") as f:
-                version_data = json.load(f)
-                return version_data.get("current_version", default_version)
-    except Exception as e:
-        # 读取失败时静默回退到默认值
+        possible_paths.append(os.path.join(project_root, "version.json"))
+    except Exception:
         pass
+
+    # 按顺序尝试读取
+    for version_file in possible_paths:
+        try:
+            if os.path.exists(version_file):
+                with open(version_file, "r", encoding="utf-8") as f:
+                    version_data = json.load(f)
+                    version = version_data.get("current_version")
+                    if version:
+                        return version
+        except Exception:
+            continue
+
     return default_version
 
 
