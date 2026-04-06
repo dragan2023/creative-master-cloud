@@ -350,3 +350,28 @@ class BaseLLMProvider(ABC):
             "supports_vision": self.supports_vision,
             "max_output_tokens": self.get_max_output_tokens()
         }
+
+    async def close(self) -> None:
+        """
+        关闭提供者，释放资源
+        
+        子类应该重写此方法以清理异步资源（如 httpx 客户端）
+        """
+        pass
+
+    def __del__(self):
+        """析构时尝试安全清理资源"""
+        try:
+            # 尝试同步清理，如果事件循环已关闭则忽略
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                if loop and not loop.is_closed():
+                    # 创建清理任务
+                    loop.create_task(self.close())
+            except RuntimeError:
+                # 没有运行中的事件循环，忽略
+                pass
+        except Exception:
+            # 析构函数中不应抛出异常
+            pass

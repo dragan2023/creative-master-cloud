@@ -61,7 +61,7 @@ KB_PROGRESS_EXPIRE = 3600  # 1小时过期
 def _sync_update_kb_progress(kb_id: int, progress_data: Dict[str, Any]):
     """
     同步更新知识库进度到 Redis（用于后台线程）
-    
+
     由于 RedisManager 方法是异步的，在后台线程中需要通过事件循环调用
     """
     key = f"{KB_PROGRESS_PREFIX}{kb_id}"
@@ -79,10 +79,12 @@ def _sync_update_kb_progress(kb_id: int, progress_data: Dict[str, Any]):
                 future.result(timeout=5)  # 等待最多5秒
             else:
                 # 事件循环存在但未运行
-                loop.run_until_complete(redis_manager.set(key, data, expire=KB_PROGRESS_EXPIRE))
+                loop.run_until_complete(redis_manager.set(
+                    key, data, expire=KB_PROGRESS_EXPIRE))
         except RuntimeError:
             # 没有事件循环，创建一个新的
-            asyncio.run(redis_manager.set(key, data, expire=KB_PROGRESS_EXPIRE))
+            asyncio.run(redis_manager.set(
+                key, data, expire=KB_PROGRESS_EXPIRE))
     except Exception as e:
         logger.debug(f"Redis 进度更新失败，降级到内存: {e}")
 
@@ -135,7 +137,8 @@ kb_processing_tasks: Dict[int, Dict[str, Any]] = {}
 
 # 知识库处理线程池，限制最大并发数
 KB_MAX_CONCURRENT = 5
-kb_thread_pool = ThreadPoolExecutor(max_workers=KB_MAX_CONCURRENT, thread_name_prefix="kb_process")
+kb_thread_pool = ThreadPoolExecutor(
+    max_workers=KB_MAX_CONCURRENT, thread_name_prefix="kb_process")
 
 
 def update_kb_progress(kb_id: int, step: str, progress: int, step_index: int, error: str = None, total_steps: int = 6):
@@ -244,7 +247,8 @@ async def upload_knowledge_base(
     logger = get_logger(str(current_user.id))
 
     # 检查当前处理中的任务数
-    active_tasks = len([t for t in kb_processing_tasks.values() if t.get("future") and not t["future"].done()])
+    active_tasks = len([t for t in kb_processing_tasks.values()
+                       if t.get("future") and not t["future"].done()])
     if active_tasks >= KB_MAX_CONCURRENT:
         raise ValidationException(
             message=f"当前有{active_tasks}个知识库正在处理中，请稍后再试（最大并发{KB_MAX_CONCURRENT}）",
@@ -573,7 +577,7 @@ async def process_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
 
         # 步骤6：更新状态完成
         update_kb_progress(kb_id, "处理完成", 100, 6)
-        
+
         # 重新查询确保状态同步（解决并发竞争条件）
         session.expire_all()
         kb = session.query(KnowledgeBase).filter(

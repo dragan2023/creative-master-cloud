@@ -328,3 +328,17 @@ class DoubaoProvider(BaseLLMProvider):
         except Exception as e:
             logger.exception(f"Doubao chat_stream 未知异常: {e}")
             raise
+
+    async def close(self) -> None:
+        """
+        关闭豆包客户端，释放资源
+        
+        正确清理 AsyncOpenAI 内部的 httpx 客户端，避免事件循环关闭后的资源泄漏
+        """
+        if self._client is not None:
+            try:
+                await self._client.close()
+            except Exception as e:
+                logger.debug(f"关闭豆包客户端时出错: {e}")
+            finally:
+                self._client = None
