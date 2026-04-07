@@ -45,8 +45,9 @@ RUN echo "==> 更新软件源..." && \
     echo "==> 软件源更新完成"
 
 # 分步安装系统依赖（阿里云镜像站，速度很快）
+# 安装 gosu（用于权限切换）和 netcat-openbsd（用于数据库等待）
 RUN echo "==> 安装curl和基础工具..." && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
+    apt-get install -y --no-install-recommends curl ca-certificates gosu netcat-openbsd && \
     echo "==> curl安装完成"
 
 RUN echo "==> 安装PostgreSQL客户端库..." && \
@@ -129,14 +130,19 @@ RUN mkdir -p /app/logs /app/data/chroma /app/data/uploads /app/data/knowledge_gr
 # 移除敏感文件
 RUN rm -rf /app/.git /app/.env /app/.env.local 2>/dev/null || true
 
-# 创建非root用户
+# 创建非root用户（但不立即切换，由 entrypoint 脚本处理权限后切换）
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
-USER appuser
+
+# 复制 entrypoint 脚本
+COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
+# 使用 entrypoint 脚本启动（会自动处理权限问题）
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

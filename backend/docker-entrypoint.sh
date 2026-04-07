@@ -3,6 +3,46 @@ set -e
 
 echo "=== 全能创意大师启动脚本 ==="
 
+# ==================== 权限修复 ====================
+# 修复数据目录权限（解决 bind mount 权限问题）
+# 当使用 docker-compose 挂载宿主机目录时，容器内的权限设置会被覆盖
+# 需要在启动时动态修复
+fix_data_permissions() {
+    local DATA_DIRS=(
+        "/app/data"
+        "/app/data/character_states"
+        "/app/data/chroma"
+        "/app/data/uploads"
+        "/app/data/knowledge_graphs"
+        "/app/data/novel_projects"
+        "/app/data/exports"
+        "/app/data/backups"
+        "/app/logs"
+    )
+    
+    echo "[启动前] 检查并修复数据目录权限..."
+    for dir in "${DATA_DIRS[@]}"; do
+        if [ -d "$dir" ]; then
+            # 确保目录存在并设置正确权限
+            mkdir -p "$dir" 2>/dev/null || true
+            chown -R appuser:appuser "$dir" 2>/dev/null || true
+            chmod -R 755 "$dir" 2>/dev/null || true
+        else
+            mkdir -p "$dir" 2>/dev/null || true
+            chown -R appuser:appuser "$dir" 2>/dev/null || true
+            chmod -R 755 "$dir" 2>/dev/null || true
+        fi
+    done
+    echo "      [OK] 数据目录权限已修复"
+}
+
+# 如果以 root 运行，修复权限后切换到 appuser
+if [ "$(id -u)" = "0" ]; then
+    fix_data_permissions
+    echo "      切换到 appuser 用户..."
+    exec gosu appuser "$0" "$@"
+fi
+
 # 设置模型缓存目录环境变量（确保与 Dockerfile 一致）
 export SENTENCE_TRANSFORMERS_HOME=/app/data/chroma/models
 export CHROMA_MODEL_CACHE_DIR=/app/data/chroma/models
