@@ -52,49 +52,68 @@ _embedding_function = None
 
 def get_embedding_function():
     """
-    获取嵌入函数（使用sentence-transformers，支持自定义模型缓存目录）
+    获取嵌入函数(使用sentence-transformers,支持自定义模型缓存目录)
 
-    相比ChromaDB默认的ONNX嵌入函数：
-    - 支持自定义模型缓存目录（通过环境变量SENTENCE_TRANSFORMERS_HOME）
+    相比ChromaDB默认的ONNX嵌入函数:
+    - 支持自定义模型缓存目录(通过环境变量SENTENCE_TRANSFORMERS_HOME)
     - 更灵活的模型管理
     - 避免ONNX模型下载问题
+    - 自动检测并重建已关闭的客户端
     """
     global _embedding_function
-    if _embedding_function is None:
-        settings = get_settings()
 
-        # 设置sentence-transformers模型缓存目录（必须在导入前设置）
-        model_cache_dir = settings.get_chroma_model_cache_dir()
-        os.environ["SENTENCE_TRANSFORMERS_HOME"] = model_cache_dir
-
-        # 设置HuggingFace镜像（国内加速）
-        if settings.HF_ENDPOINT:
-            os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
-
-        logger.info(f"[向量库] 嵌入模型缓存目录: {model_cache_dir}")
-
+    # 检查现有实例是否仍然有效
+    if _embedding_function is not None:
         try:
-            # 创建sentence-transformers嵌入函数
-            # ChromaDB 1.5.0+ 不再支持 cache_folder 参数，改用环境变量
-            _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="BAAI/bge-small-zh-v1.5",
-                device="cpu",  # 使用CPU，确保兼容性
-                normalize_embeddings=True  # 归一化向量，提高检索效果
-            )
-
-            logger.info("[向量库] 嵌入函数初始化完成: BAAI/bge-small-zh-v1.5")
+            # 尝试进行一次简单的向量生成来检测客户端是否可用
+            _embedding_function(["测试"])
+            return _embedding_function
         except Exception as e:
-            logger.error(f"[向量库] 嵌入函数初始化失败: {e}")
-            # 尝试使用默认模型作为回退
-            try:
-                _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name="all-MiniLM-L6-v2",
-                    device="cpu"
-                )
-                logger.warning("[向量库] 使用回退模型: all-MiniLM-L6-v2")
-            except Exception as fallback_error:
-                logger.error(f"[向量库] 回退模型初始化也失败: {fallback_error}")
-                raise
+            error_msg = str(e).lower()
+            # 检测客户端已关闭的错误
+            if "closed" in error_msg or "client" in error_msg:
+                logger.warning(f"[向量库] 检测到嵌入函数客户端已关闭,正在重建: {e}")
+                _embedding_function = None  # 重置全局变量
+            else:
+                # 其他错误,直接返回现有实例
+                logger.debug(f"[向量库] 嵌入函数健康检查异常: {e}")
+                return _embedding_function
+
+    # 初始化新的嵌入函数
+    settings = get_settings()
+
+    # 设置sentence-transformers模型缓存目录(必须在导入前设置)
+    model_cache_dir = settings.get_chroma_model_cache_dir()
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = model_cache_dir
+
+    # 设置HuggingFace镜像(国内加速)
+    if settings.HF_ENDPOINT:
+        os.environ["HF_ENDPOINT"] = settings.HF_ENDPOINT
+
+    logger.info(f"[向量库] 嵌入模型缓存目录: {model_cache_dir}")
+
+    try:
+        # 创建sentence-transformers嵌入函数
+        # ChromaDB 1.5.0+ 不再支持 cache_folder 参数,改用环境变量
+        _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="BAAI/bge-small-zh-v1.5",
+            device="cpu",  # 使用CPU,确保兼容性
+            normalize_embeddings=True  # 归一化向量,提高检索效果
+        )
+
+        logger.info("[向量库] 嵌入函数初始化完成: BAAI/bge-small-zh-v1.5")
+    except Exception as e:
+        logger.error(f"[向量库] 嵌入函数初始化失败: {e}")
+        # 尝试使用默认模型作为回退
+        try:
+            _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2",
+                device="cpu"
+            )
+            logger.warning("[向量库] 使用回退模型: all-MiniLM-L6-v2")
+        except Exception as fallback_error:
+            logger.error(f"[向量库] 回退模型初始化也失败: {fallback_error}")
+            raise
 
     return _embedding_function
 

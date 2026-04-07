@@ -85,15 +85,15 @@ def compare_versions(v1: str, v2: str) -> int:
     """
     def parse_version(v):
         return [int(x) for x in v.split('.')]
-    
+
     parts1 = parse_version(v1)
     parts2 = parse_version(v2)
-    
+
     # 补齐版本号长度
     max_len = max(len(parts1), len(parts2))
     parts1.extend([0] * (max_len - len(parts1)))
     parts2.extend([0] * (max_len - len(parts2)))
-    
+
     for p1, p2 in zip(parts1, parts2):
         if p1 > p2:
             return 1
@@ -116,7 +116,7 @@ async def get_version_info():
             "VERSION_CHECK_URL",
             "https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
         )
-        
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(version_url)
             if response.status_code == 200:
@@ -154,7 +154,7 @@ async def get_version_info():
 async def check_update(request: UpdateCheckRequest):
     """
     检查软件更新
-    
+
     - 比较当前版本与最新版本
     - 返回更新信息和下载地址
     """
@@ -164,13 +164,13 @@ async def check_update(request: UpdateCheckRequest):
             "VERSION_CHECK_URL",
             "https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
         )
-        
+
         # 尝试从 GitHub 获取版本信息
         version_info = None
-        
+
         # 首先尝试镜像地址（国内加速）
         mirror_url = "https://ghproxy.com/" + version_url
-        
+
         for url in [mirror_url, version_url]:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
@@ -195,20 +195,23 @@ async def check_update(request: UpdateCheckRequest):
                 "file_hash_md5": "",
                 "force_update": False
             }
-        
-        latest_version = version_info.get("current_version", settings.APP_VERSION)
-        
+
+        latest_version = version_info.get(
+            "current_version", settings.APP_VERSION)
+
         # 比较版本
         comparison = compare_versions(latest_version, request.current_version)
         has_update = comparison > 0
-        
+
         # 检查是否为关键更新（当前版本低于最低支持版本）
         minimum_version = version_info.get("minimum_version", "0.0.0")
-        is_critical = compare_versions(minimum_version, request.current_version) > 0
-        
+        is_critical = compare_versions(
+            minimum_version, request.current_version) > 0
+
         # 选择下载地址（优先使用镜像）
-        download_url = version_info.get("download_url_mirror") or version_info.get("download_url", "")
-        
+        download_url = version_info.get(
+            "download_url_mirror") or version_info.get("download_url", "")
+
         result = UpdateCheckResponse(
             has_update=has_update,
             is_critical=is_critical,
@@ -222,10 +225,11 @@ async def check_update(request: UpdateCheckRequest):
             release_date=version_info.get("release_date", ""),
             force_update=version_info.get("force_update", False) or is_critical
         )
-        
+
         if has_update:
-            logger.info(f"检测到新版本: {latest_version} (当前: {request.current_version})")
-        
+            logger.info(
+                f"检测到新版本: {latest_version} (当前: {request.current_version})")
+
         return ResponseModel(data=result)
 
     except Exception as e:
@@ -247,10 +251,10 @@ async def get_download_info():
             "VERSION_CHECK_URL",
             "https://raw.githubusercontent.com/dragan2023/creative-master/main/version.json"
         )
-        
+
         # 尝试镜像地址
         mirror_url = "https://ghproxy.com/" + version_url
-        
+
         version_info = None
         for url in [mirror_url, version_url]:
             try:
@@ -277,7 +281,7 @@ async def get_download_info():
             "file_hash_md5": version_info.get("file_hash_md5"),
             "release_date": version_info.get("release_date")
         })
-        
+
     except AppException:
         raise
     except Exception as e:
@@ -299,10 +303,10 @@ async def get_changelog():
             "CHANGELOG_URL",
             "https://raw.githubusercontent.com/dragan2023/creative-master/main/CHANGELOG.md"
         )
-        
+
         # 尝试镜像地址
         mirror_url = "https://ghproxy.com/" + changelog_url
-        
+
         for url in [mirror_url, changelog_url]:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
@@ -314,7 +318,7 @@ async def get_changelog():
                 continue
 
         return {"content": "无法获取更新日志"}
-        
+
     except Exception as e:
         logger.error(f"获取更新日志失败: {str(e)}")
         return {"content": f"获取失败: {str(e)}"}
@@ -328,19 +332,20 @@ async def get_current_version():
     """
     import json
     import os
-    
+
     # 尝试读取 version.json 文件
     version_file = "/app/version.json"
     try:
         if os.path.exists(version_file):
             with open(version_file, "r", encoding="utf-8") as f:
                 version_data = json.load(f)
-                version = version_data.get("current_version", settings.APP_VERSION)
+                version = version_data.get(
+                    "current_version", settings.APP_VERSION)
         else:
             version = settings.APP_VERSION
     except Exception:
         version = settings.APP_VERSION
-    
+
     return {
         "version": version,
         "app_name": settings.APP_NAME,
