@@ -461,6 +461,178 @@ backup_config() {
     log_success "配置备份完成: $backup_path"
 }
 
+# ==================== 备份数据库 ====================
+backup_database() {
+    log_step "备份数据库..."
+    
+    local backup_time=$(date +%Y%m%d_%H%M%S)
+    local db_backup_path="$BACKUP_DIR/db_$backup_time"
+    
+    mkdir -p "$db_backup_path"
+    
+    # 检查数据库容器是否运行
+    local db_container=$(docker ps --filter "name=creative-master-db" --format "{{.Names}}" | head -1)
+    
+    if [[ -z "$db_container" ]]; then
+        log_warning "数据库容器未运行，跳过数据库备份"
+        return 0
+    fi
+    
+    log_info "数据库容器: $db_container"
+    
+    # 从环境变量或默认值获取数据库信息
+    local db_user="${DB_USER:-creative_user}"
+    local db_name="${DB_NAME:-creative_master}"
+    local db_password="${DB_PASSWORD:-creative_password}"
+    
+    # 执行数据库备份
+    local backup_file="$db_backup_path/database.sql.gz"
+    
+    log_info "正在备份数据库: $db_name"
+    
+    if docker exec -e PGPASSWORD="$db_password" "$db_container" \
+        pg_dump -U "$db_user" -d "$db_name" --format=plain --no-owner --no-acl 2>/dev/null | \
+        gzip > "$backup_file"; then
+        
+        local backup_size=$(du -h "$backup_file" | cut -f1)
+        log_success "数据库备份完成: $backup_file ($backup_size)"
+        
+        # 记录备份信息
+        cat > "$db_backup_path/.backup_info" << EOF
+timestamp: $backup_time
+database: $db_name
+user: $db_user
+container: $db_container
+size: $backup_size
+EOF
+        
+        # 清理旧数据库备份（保留最近 10 个）
+        local db_backup_count=$(ls -d "$BACKUP_DIR"/db_* 2>/dev/null | wc -l)
+        local max_db_backups=10
+        if [[ $db_backup_count -gt $max_db_backups ]]; then
+            local old_db_backups=$(ls -dt "$BACKUP_DIR"/db_* | tail -n +$((max_db_backups + 1)))
+            for old in $old_db_backups; do
+                rm -rf "$old"
+                log_info "已清理旧数据库备份: $(basename $old)"
+            done
+        fi
+    else
+        log_warning "数据库备份失败，但将继续更新流程"
+        rm -rf "$db_backup_path"
+    fi
+}
+
+# ==================== 备份用户数据 ====================
+backup_user_data() {
+    log_step "备份用户数据..."
+    
+    local backup_time=$(date +%Y%m%d_%H%M%S)
+    local data_backup_path="$BACKUP_DIR/data_$backup_time"
+    local data_dir="$PROJECT_ROOT/backend/data"
+    
+    # 检查数据目录是否存在
+    if [[ ! -d "$data_dir" ]]; then
+        log_info "数据目录不存在，跳过用户数据备份"
+        return 0
+    fi
+    
+    mkdir -p "$data_backup_path"
+    
+    # 需要备份的用户数据目录
+    local data_dirs=(
+        "uploads"
+        "chroma"
+        "knowledge_graphs"
+        "character_states"
+        "novel_projects"
+    )
+    
+    local backed_up=0
+    
+    for dir in "${data_dirs[@]}"; do
+        if [[ -d "$data_dir/$dir" ]]; then
+            local dir_size=$(du -sh "$data_dir/$dir" 2>/dev/null | cut -f1)
+            log_info "备份 $dir ($dir_size)..."
+            
+            if tar -czf "$data_backup_path/${dir}.tar.gz" -C "$data_dir" "$dir" 2>/dev/null; then
+                ((backed_up++))
+            else
+                log_warning "备份 $dir 失败"
+            fi
+        fi
+    done
+    
+    if [[ $backed_up -gt 0 ]]; then
+        local total_size=$(du -sh "$data_backup_path" 2>/dev/null | cut -f1)
+        log_success "用户数据备份完成: $backed_up 个目录 ($total_size)"
+        
+        # 记录备份信息
+        echo "$backup_time" > "$data_backup_path/.backup_info"
+        
+        # 清理旧数据备份（保留最近 5 个）
+        local data_backup_count=$(ls -d "$BACKUP_DIR"/data_* 2>/dev/null | wc -l)
+        local max_data_backups=5
+        if [[ $data_backup_count -gt $max_data_backups ]]; then
+            local old_data_backups=$(ls -dt "$BACKUP_DIR"/data_* | tail -n +$((max_data_backups + 1)))
+            for old in $old_data_backups; do
+                rm -rf "$old"
+                log_info "已清理旧数据备份: $(basename $old)"
+            done
+        fi
+    else
+        log_info "没有需要备份的用户数据"
+        rm -rf "$data_backup_path"
+    fi
+}
+
+# ==================== 验证数据完整性 ====================
+verify_data_integrity() {
+    log_step "验证数据完整性..."
+    
+    local errors=0
+    
+    # 检查数据库连接
+    local db_container=$(docker ps --filter "name=creative-master-db" --format "{{.Names}}" | head -1)
+    if [[ -n "$db_container" ]]; then
+        if docker exec "$db_container" pg_isready -U "${DB_USER:-creative_user}" -d "${DB_NAME:-creative_master}" >/dev/null 2>&1; then
+            log_success "数据库连接正常"
+        else
+            log_error "数据库连接失败"
+            ((errors++))
+        fi
+    fi
+    
+    # 检查 Redis 连接
+    local redis_container=$(docker ps --filter "name=creative-master-redis" --format "{{.Names}}" | head -1)
+    if [[ -n "$redis_container" ]]; then
+        if docker exec "$redis_container" redis-cli ping 2>/dev/null | grep -q "PONG"; then
+            log_success "Redis 连接正常"
+        else
+            log_error "Redis 连接失败"
+            ((errors++))
+        fi
+    fi
+    
+    # 检查数据目录权限
+    local data_dir="$PROJECT_ROOT/backend/data"
+    if [[ -d "$data_dir" ]]; then
+        if [[ -w "$data_dir" ]]; then
+            log_success "数据目录权限正常"
+        else
+            log_error "数据目录权限异常: $data_dir"
+            ((errors++))
+        fi
+    fi
+    
+    if [[ $errors -eq 0 ]]; then
+        log_success "数据完整性验证通过"
+        return 0
+    else
+        log_error "发现 $errors 个数据完整性问题"
+        return 1
+    fi
+}
+
 # ==================== 代码同步 ====================
 sync_code() {
     log_step "同步代码仓库..."
@@ -803,6 +975,11 @@ main() {
     if ! $SKIP_CONFIRM; then
         echo ""
         log_warning "即将执行热更新，服务将短暂中断"
+        log_info "数据保护措施:"
+        echo "  - 数据库将自动备份到 $BACKUP_DIR/db_*/"
+        echo "  - 用户数据将自动备份到 $BACKUP_DIR/data_*/"
+        echo "  - 配置文件将自动备份到 $BACKUP_DIR/config_*/"
+        echo ""
         if ! confirm "是否继续？"; then
             exit 0
         fi
@@ -811,18 +988,43 @@ main() {
     # 记录开始时间
     local start_time=$(date +%s)
     
-    # 执行更新流程
+    # ==================== 数据保护流程 ====================
+    # 1. 保存当前状态
     save_state
+    
+    # 2. 备份数据库（新增）
+    backup_database
+    
+    # 3. 备份用户数据（新增）
+    backup_user_data
+    
+    # 4. 备份配置文件
     backup_config
+    
+    # ==================== 更新流程 ====================
+    # 5. 同步代码
     sync_code
+    
+    # 6. 清理旧镜像
     cleanup_old_images
+    
+    # 7. 构建镜像
     build_image
+    
+    # 8. 停止服务（不含 -v，数据安全）
     stop_services
+    
+    # 9. 启动服务
     start_services
     
-    # 健康检查
+    # 10. 健康检查
     if ! health_check; then
         error_exit "健康检查失败"
+    fi
+    
+    # 11. 验证数据完整性（新增）
+    if ! verify_data_integrity; then
+        log_warning "数据完整性验证发现问题，请检查日志"
     fi
     
     # 记录结束时间
@@ -833,6 +1035,8 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}  更新完成！总耗时: ${duration}秒${NC}"
     echo -e "${GREEN}========================================${NC}"
+    echo ""
+    log_info "备份位置: $BACKUP_DIR"
     echo ""
     
     show_status

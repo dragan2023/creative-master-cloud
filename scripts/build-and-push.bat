@@ -85,8 +85,9 @@ echo [3/4] 构建 Docker 镜像...
 cd /d %PROJECT_ROOT%
 
 :: 构建后端镜像（包含前端静态文件）
+:: 注意：构建上下文必须是项目根目录，因为 Dockerfile.prod 需要 COPY frontend/ 和 version.json
 echo [信息] 构建镜像: %IMAGE_NAME%:%VERSION%
-docker build -f backend/Dockerfile.prod -t %IMAGE_NAME%:%VERSION% -t %IMAGE_NAME%:latest ./backend
+docker build -f backend/Dockerfile.prod -t %IMAGE_NAME%:%VERSION% -t %IMAGE_NAME%:latest .
 if errorlevel 1 (
     echo [错误] Docker 镜像构建失败
     exit /b 1
