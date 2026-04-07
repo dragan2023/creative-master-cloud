@@ -2,11 +2,12 @@
  * 版本号配置
  * 
  * 此文件由 version-bump.py 脚本自动更新
- * 请勿手动修改此文件中的版本号
+ * 构建时通过 Vite 的 define 注入 __APP_VERSION__ 全局常量
  */
 
-// 当前应用版本号（与 version.json 保持同步）
-export const APP_VERSION = '3.1.5'
+// 当前应用版本号（构建时从 version.json 动态注入）
+// __APP_VERSION__ 由 vite.config.js 在构建时定义
+export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '3.1.5'
 
 // 获取版本号的 API 端点
 export const VERSION_API = '/api/v1/update/current-version'

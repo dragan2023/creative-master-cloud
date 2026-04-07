@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
+import fs from 'fs'
 
 // 动态加载混淆插件（如果已安装）
 // 云端部署时启用强混淆，本地开发可禁用以加快构建速度
@@ -20,11 +21,41 @@ try {
   // 压缩插件未安装
 }
 
+// 读取 version.json 获取版本号（支持 Docker 构建环境）
+function getAppVersion() {
+  const possiblePaths = [
+    // 项目根目录/version.json（本地开发）
+    path.resolve(__dirname, '../version.json'),
+    // Docker 构建环境：从上下文根目录
+    '/version.json',
+  ]
+  
+  for (const versionFile of possiblePaths) {
+    try {
+      if (fs.existsSync(versionFile)) {
+        const versionData = JSON.parse(fs.readFileSync(versionFile, 'utf-8'))
+        if (versionData.current_version) {
+          return versionData.current_version
+        }
+      }
+    } catch (e) {
+      // 继续尝试下一个路径
+    }
+  }
+  
+  // 默认版本号
+  return '3.1.5'
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // 加载环境变量
   const env = loadEnv(mode, process.cwd(), '')
   const isProduction = mode === 'production'
+  
+  // 获取版本号（优先从 version.json 读取）
+  const appVersion = getAppVersion()
+  console.log(`[Vite] 应用版本号: ${appVersion}`)
 
   // 基础配置
   const config = {
@@ -33,6 +64,10 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, 'src')
       }
+    },
+    // 定义全局常量，注入版本号到前端代码
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
     },
     server: {
       host: '0.0.0.0',  // 监听所有网络接口
