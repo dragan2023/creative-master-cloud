@@ -24,9 +24,11 @@ try {
 // 读取 version.json 获取版本号（支持 Docker 构建环境）
 function getAppVersion() {
   const possiblePaths = [
-    // 项目根目录/version.json（本地开发）
+    // 本地开发：项目根目录/version.json
     path.resolve(__dirname, '../version.json'),
-    // Docker 构建环境：从上下文根目录
+    // Docker 构建环境：/app/version.json（前端工作目录是 /app/frontend）
+    '/app/version.json',
+    // 备选：构建上下文根目录
     '/version.json',
   ]
   
@@ -35,6 +37,7 @@ function getAppVersion() {
       if (fs.existsSync(versionFile)) {
         const versionData = JSON.parse(fs.readFileSync(versionFile, 'utf-8'))
         if (versionData.current_version) {
+          console.log(`[Vite] 从 ${versionFile} 读取版本号`)
           return versionData.current_version
         }
       }
@@ -44,7 +47,8 @@ function getAppVersion() {
   }
   
   // 默认版本号
-  return '3.1.5'
+  console.warn('[Vite] 警告: 未找到 version.json，使用默认版本号')
+  return '3.1.7'
 }
 
 // https://vite.dev/config/

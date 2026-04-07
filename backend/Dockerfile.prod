@@ -6,6 +6,11 @@
 # ==================== 阶段1：前端构建 ====================
 FROM node:20-alpine AS frontend-builder
 
+WORKDIR /app
+
+# 复制 version.json 到构建上下文根目录（Vite 构建时需要读取）
+COPY version.json ./version.json
+
 WORKDIR /app/frontend
 
 # 使用阿里云npm镜像（阿里云服务器最优选择）
