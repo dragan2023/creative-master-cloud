@@ -95,6 +95,11 @@ services:
       # 多租户配置
       - MULTI_TENANT_ENABLED=${MULTI_TENANT_ENABLED:-True}
       
+      # === 超级管理员账号（首次启动时自动创建）===
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@local.test}
+      
     depends_on:
       db:
         condition: service_healthy
