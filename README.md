@@ -116,7 +116,7 @@ SECRET_KEY=your-secret-key
 
 ## 更新日志
 
-### v3.1.4
+### v3.1.5
 
 - 首次发布
 - AI 智能对话功能
