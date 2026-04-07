@@ -645,9 +645,15 @@ sync_code() {
     # 检查是否有未提交的更改
     if ! git diff-index --quiet HEAD -- 2>/dev/null; then
         log_warning "检测到未提交的本地更改"
-        if confirm "是否暂存本地更改后继续？"; then
-            git stash push -m "auto-stash-$(date +%Y%m%d_%H%M%S)"
+        if confirm "是否丢弃本地更改，使用远程最新代码？"; then
+            # 先暂存（保护数据）
+            git stash push -m "auto-stash-$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
             log_info "本地更改已暂存"
+            # 强制重置到远程版本（关键：确保所有文件都是最新的）
+            git fetch "$GIT_REMOTE" "$GIT_BRANCH" 2>&1 | tee -a "$LOG_FILE"
+            git reset --hard "$GIT_REMOTE/$GIT_BRANCH" 2>&1 | tee -a "$LOG_FILE"
+            log_success "已强制同步到远程最新版本"
+            return 0
         fi
     fi
     
