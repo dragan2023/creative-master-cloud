@@ -6,7 +6,7 @@
  */
 
 // 当前应用版本号（与 version.json 保持同步）
-export const APP_VERSION = '3.1.3'
+export const APP_VERSION = '3.1.4'
 
 // 获取版本号的 API 端点
 export const VERSION_API = '/api/v1/update/current-version'
