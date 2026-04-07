@@ -61,7 +61,10 @@ class Settings(BaseSettings):
 
     # 应用基础配置
     APP_NAME: str = "全能创意大师"
-    APP_VERSION: str = get_version_from_file()
+    APP_VERSION: str = Field(
+        default_factory=get_version_from_file,
+        description="应用版本号，从 version.json 动态读取"
+    )
     APP_BASE_URL: str = Field(
         default="http://localhost:5173",
         description="应用基础URL，用于OpenRouter等服务的HTTP-Referer头"

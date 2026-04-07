@@ -324,9 +324,25 @@ async def get_changelog():
 async def get_current_version():
     """
     获取当前运行的版本
+    直接从 version.json 文件读取，确保返回最新版本
     """
+    import json
+    import os
+    
+    # 尝试读取 version.json 文件
+    version_file = "/app/version.json"
+    try:
+        if os.path.exists(version_file):
+            with open(version_file, "r", encoding="utf-8") as f:
+                version_data = json.load(f)
+                version = version_data.get("current_version", settings.APP_VERSION)
+        else:
+            version = settings.APP_VERSION
+    except Exception:
+        version = settings.APP_VERSION
+    
     return {
-        "version": settings.APP_VERSION,
+        "version": version,
         "app_name": settings.APP_NAME,
         "build_date": datetime.now().strftime("%Y-%m-%d")
     }
