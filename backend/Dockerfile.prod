@@ -126,6 +126,9 @@ COPY backend/ ./
 # 复制版本文件（用于版本号动态获取）
 COPY version.json /app/version.json
 
+# 清理旧的静态文件（避免残留旧版本文件）
+RUN rm -rf /app/app/static/* 2>/dev/null || true
+
 # 从前端构建阶段复制构建产物
 COPY --from=frontend-builder /app/backend/app/static ./app/static
 
