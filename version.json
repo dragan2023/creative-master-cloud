@@ -1,10 +1,10 @@
 {
-    "current_version": "3.1.10",
+    "current_version": "3.1.11",
     "minimum_version": "0.9.0",
     "download_url": "https://github.com/dragan2023/creative-master/releases/download/v2.2.3/creative-master-v2.2.3.zip",
     "download_url_mirror": "https://ghproxy.com/https://github.com/dragan2023/creative-master/releases/download/v2.2.3/creative-master-v2.2.3.zip",
-    "update_notes": "## v3.1.10\n\n## v3.1.9\n\n常规更新和维护",
-    "release_date": "2026-04-20",
+    "update_notes": "## v3.1.11\n\n## v3.1.10\n\n常规更新和维护",
+    "release_date": "2026-04-21",
     "file_size_mb": 165,
     "file_hash_md5": "placeholder-update-on-release",
     "force_update": false,
