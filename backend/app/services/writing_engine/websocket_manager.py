@@ -30,44 +30,45 @@ logger = get_logger("writing_engine.websocket_manager")
 
 class WebSocketManager:
     """WebSocket连接管理器
-    
+
     管理多个写作任务的WebSocket连接，支持：
     - 连接注册和注销
     - 按任务分组广播消息
     - 进度推送和状态变更通知
-    
+
     线程安全：使用asyncio.Lock保护共享资源。
     """
-    
+
     def __init__(self):
         """初始化WebSocket管理器"""
         # 按task_id分组的连接集合
         self._connections: Dict[int, Set[WebSocket]] = {}
-        
+
         # 连接锁，保护共享资源
         self._lock = Lock()
-    
+
     async def connect(self, task_id: int, websocket: WebSocket) -> None:
         """接受并注册WebSocket连接
-        
+
         Args:
             task_id: 任务ID
             websocket: WebSocket连接对象
         """
         # 接受连接
         await websocket.accept()
-        
+
         # 注册连接
         async with self._lock:
             if task_id not in self._connections:
                 self._connections[task_id] = set()
             self._connections[task_id].add(websocket)
-        
-        logger.info(f"WebSocket连接已注册: task_id={task_id}, 当前连接数={len(self._connections.get(task_id, set()))}")
-    
+
+        logger.info(
+            f"WebSocket连接已注册: task_id={task_id}, 当前连接数={len(self._connections.get(task_id, set()))}")
+
     async def disconnect(self, task_id: int, websocket: WebSocket) -> None:
         """移除WebSocket连接
-        
+
         Args:
             task_id: 任务ID
             websocket: WebSocket连接对象
@@ -75,50 +76,54 @@ class WebSocketManager:
         async with self._lock:
             if task_id in self._connections:
                 self._connections[task_id].discard(websocket)
-                
+
                 # 如果没有连接了，移除task_id键
                 if not self._connections[task_id]:
                     del self._connections[task_id]
-        
+
         logger.info(f"WebSocket连接已移除: task_id={task_id}")
-    
+
     async def broadcast(self, task_id: int, message: Dict[str, Any]) -> int:
         """向指定任务的所有连接广播消息
-        
+
         Args:
             task_id: 任务ID
             message: 消息字典，将被JSON序列化
-            
+
         Returns:
             int: 成功发送的连接数
         """
         connections = self._connections.get(task_id, set())
         if not connections:
-            logger.debug(f"没有活跃的WebSocket连接: task_id={task_id}")
+            msg_type = message.get('type', 'unknown')
+            logger.info(
+                f"没有活跃的WebSocket连接: task_id={task_id}, msg_type={msg_type}, "
+                f"活跃任务列表={list(self._connections.keys())}")
             return 0
-        
+
         message_json = json.dumps(message, ensure_ascii=False)
         success_count = 0
-        
+
         # 收集需要移除的断开连接
         disconnected = set()
-        
+
         for websocket in connections:
             try:
                 await websocket.send_text(message_json)
                 success_count += 1
             except Exception as e:
-                logger.warning(f"发送消息失败，连接将被移除: task_id={task_id}, error={str(e)}")
+                logger.warning(
+                    f"发送消息失败，连接将被移除: task_id={task_id}, error={str(e)}")
                 disconnected.add(websocket)
-        
+
         # 移除断开的连接
         if disconnected:
             async with self._lock:
                 for ws in disconnected:
                     self._connections.get(task_id, set()).discard(ws)
-        
+
         return success_count
-    
+
     async def send_progress(
         self,
         task_id: int,
@@ -127,13 +132,13 @@ class WebSocketManager:
         data: Optional[Dict[str, Any]] = None
     ) -> int:
         """发送进度推送消息
-        
+
         Args:
             task_id: 任务ID
             agent_name: Agent名称
             status: Agent状态（如 "started", "processing", "completed", "failed"）
             data: 附加数据（可选）
-            
+
         Returns:
             int: 成功发送的连接数
         """
@@ -145,9 +150,9 @@ class WebSocketManager:
             "data": data or {},
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_status_change(
         self,
         task_id: int,
@@ -155,12 +160,12 @@ class WebSocketManager:
         new_status: str
     ) -> int:
         """发送状态变更通知
-        
+
         Args:
             task_id: 任务ID
             old_status: 旧状态
             new_status: 新状态
-            
+
         Returns:
             int: 成功发送的连接数
         """
@@ -171,9 +176,9 @@ class WebSocketManager:
             "new_status": new_status if isinstance(new_status, str) else new_status.value,
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_unit_progress(
         self,
         task_id: int,
@@ -183,14 +188,14 @@ class WebSocketManager:
         progress: float = 0.0
     ) -> int:
         """发送单元进度推送
-        
+
         Args:
             task_id: 任务ID
             unit_index: 单元序号
             unit_title: 单元标题
             status: 单元状态
             progress: 进度百分比（0-100）
-            
+
         Returns:
             int: 成功发送的连接数
         """
@@ -203,9 +208,9 @@ class WebSocketManager:
             "progress": progress,
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_scene_progress(
         self,
         task_id: int,
@@ -215,14 +220,14 @@ class WebSocketManager:
         status: str
     ) -> int:
         """发送场景进度推送
-        
+
         Args:
             task_id: 任务ID
             unit_index: 单元序号
             scene_index: 场景序号
             scene_title: 场景标题
             status: 场景状态
-            
+
         Returns:
             int: 成功发送的连接数
         """
@@ -235,9 +240,9 @@ class WebSocketManager:
             "status": status,
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_error(
         self,
         task_id: int,
@@ -246,13 +251,13 @@ class WebSocketManager:
         details: Optional[Dict[str, Any]] = None
     ) -> int:
         """发送错误通知
-        
+
         Args:
             task_id: 任务ID
             error_message: 错误消息
             agent_name: 相关Agent名称（可选）
             details: 错误详情（可选）
-            
+
         Returns:
             int: 成功发送的连接数
         """
@@ -264,9 +269,9 @@ class WebSocketManager:
             "details": details or {},
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_task_progress(
         self,
         task_id: int,
@@ -276,7 +281,7 @@ class WebSocketManager:
         current_scene: Optional[int] = None
     ) -> int:
         """发送整体任务进度推送
-            
+
         前端期望格式：
         {
             "type": "task_progress",
@@ -289,14 +294,14 @@ class WebSocketManager:
             },
             "timestamp": str
         }
-            
+
         Args:
             task_id: 任务ID
             completed_units: 已完成单元数
             total_units: 总单元数
             current_unit: 当前处理的单元序号（可选）
             current_scene: 当前处理的场景序号（可选）
-                
+
         Returns:
             int: 成功发送的连接数
         """
@@ -311,16 +316,16 @@ class WebSocketManager:
             },
             "timestamp": self._get_timestamp()
         }
-            
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_statistics(
         self,
         task_id: int,
         stats: Dict[str, Any]
     ) -> int:
         """发送统计信息
-            
+
         前端期望格式：
         {
             "type": "statistics",
@@ -328,11 +333,11 @@ class WebSocketManager:
             "stats": {...},
             "timestamp": str
         }
-            
+
         Args:
             task_id: 任务ID
             stats: 统计数据
-                
+
         Returns:
             int: 成功发送的连接数
         """
@@ -342,9 +347,9 @@ class WebSocketManager:
             "stats": stats,
             "timestamp": self._get_timestamp()
         }
-            
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_task_complete(
         self,
         task_id: int,
@@ -355,7 +360,7 @@ class WebSocketManager:
         duration_sec: float
     ) -> int:
         """发送任务完成通知
-        
+
         Args:
             task_id: 任务ID
             total_units: 完成的单元数
@@ -363,7 +368,7 @@ class WebSocketManager:
             total_tokens: 总Token消耗
             total_cost: 总费用
             duration_sec: 总耗时(秒)
-            
+
         Returns:
             int: 成功发送的连接数
         """
@@ -379,9 +384,9 @@ class WebSocketManager:
             },
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_task_failed(
         self,
         task_id: int,
@@ -389,12 +394,12 @@ class WebSocketManager:
         error_details: Optional[Dict[str, Any]] = None
     ) -> int:
         """发送任务失败通知
-        
+
         Args:
             task_id: 任务ID
             error_message: 错误消息
             error_details: 错误详情（可选）
-            
+
         Returns:
             int: 成功发送的连接数
         """
@@ -407,9 +412,9 @@ class WebSocketManager:
             },
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, message)
-    
+
     async def send_workflow_step(
         self,
         task_id: int,
@@ -423,7 +428,7 @@ class WebSocketManager:
         data: Optional[Dict[str, Any]] = None
     ) -> int:
         """发送工作流步骤消息
-        
+
         前端期望格式：
         {
             "type": "workflow_step",
@@ -439,7 +444,7 @@ class WebSocketManager:
             },
             "timestamp": str
         }
-        
+
         Args:
             task_id: 任务ID
             step: 步骤标识（如 structuring, writing, reviewing, assembling）
@@ -450,7 +455,7 @@ class WebSocketManager:
             scene_index: 场景索引（可选）
             icon: 图标名称（可选）
             data: 附加数据（可选）
-                
+
         Returns:
             int: 成功发送的连接数
         """
@@ -459,7 +464,7 @@ class WebSocketManager:
             "status": status,
             "message": message
         }
-        
+
         if agent_name:
             msg_data["agent_name"] = agent_name
         if unit_index is not None:
@@ -470,43 +475,70 @@ class WebSocketManager:
             msg_data["icon"] = icon
         if data:
             msg_data.update(data)
-            
+
         msg = {
             "type": "workflow_step",
             "task_id": task_id,
             "data": msg_data,
             "timestamp": self._get_timestamp()
         }
-        
+
         return await self.broadcast(task_id, msg)
-    
-    def get_connection_count(self, task_id: int) -> int:
-        """获取指定任务的连接数
-        
+
+    async def send_custom_message(
+        self,
+        task_id: int,
+        msg_type: str,
+        data: Dict[str, Any]
+    ) -> int:
+        """发送自定义消息
+
+        用于发送未在WebSocketManager中预定义的消息类型。
+
         Args:
             task_id: 任务ID
-            
+            msg_type: 消息类型(如 unit_quality_control)
+            data: 消息数据
+
+        Returns:
+            int: 成功发送的连接数
+        """
+        msg = {
+            "type": msg_type,
+            "task_id": task_id,
+            "data": data,
+            "timestamp": self._get_timestamp()
+        }
+
+        return await self.broadcast(task_id, msg)
+
+    def get_connection_count(self, task_id: int) -> int:
+        """获取指定任务的连接数
+
+        Args:
+            task_id: 任务ID
+
         Returns:
             int: 连接数
         """
         return len(self._connections.get(task_id, set()))
-    
+
     def get_total_connections(self) -> int:
         """获取所有任务的总连接数
-        
+
         Returns:
             int: 总连接数
         """
         return sum(len(conns) for conns in self._connections.values())
-    
+
     def get_active_tasks(self) -> list:
         """获取有活跃连接的任务ID列表
-        
+
         Returns:
             list: 任务ID列表
         """
         return list(self._connections.keys())
-    
+
     async def close_all(self) -> None:
         """关闭所有WebSocket连接"""
         async with self._lock:
@@ -515,15 +547,16 @@ class WebSocketManager:
                     try:
                         await websocket.close()
                     except Exception as e:
-                        logger.warning(f"关闭WebSocket连接失败: task_id={task_id}, error={str(e)}")
-            
+                        logger.warning(
+                            f"关闭WebSocket连接失败: task_id={task_id}, error={str(e)}")
+
             self._connections.clear()
             logger.info("所有WebSocket连接已关闭")
-    
+
     @staticmethod
     def _get_timestamp() -> str:
         """获取当前时间戳（ISO格式）
-        
+
         Returns:
             str: ISO格式时间戳
         """

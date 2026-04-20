@@ -122,6 +122,9 @@ class StyleEditorAgent(BaseWritingAgent):
             style_document_features = context.extra.get(
                 "style_document_features", "")
 
+            # 新增：获取文风知识库风格指南
+            style_library_guide = style_guide.get("style_library_guide", {})
+
             current_content = draft_content
             ai_detection_result = None
             humanization_result = None
@@ -158,15 +161,25 @@ class StyleEditorAgent(BaseWritingAgent):
                                 f"AI Score: {ai_score} -> {humanization_result.get('ai_score_after', ai_score)}"
                             )
 
-            system_prompt = STYLE_PROMPTS["system"]
-            user_prompt = STYLE_PROMPTS["polish_content"].format(
-                draft_content=current_content,
-                style_guide=self._format_style_guide(
-                    style_guide, style_document_features),
-                logic_issues=self._format_logic_issues(logic_issues),
-                character_profiles=self._format_character_profiles(
-                    character_profiles)
-            )
+            # 优先使用文风知识库进行风格润色（新增）
+            if style_library_guide:
+                system_prompt, user_prompt = self._build_style_library_polish_prompt(
+                    content=current_content,
+                    style_library_guide=style_library_guide,
+                    logic_issues=logic_issues,
+                    character_profiles=character_profiles
+                )
+            else:
+                # 使用原有风格润色逻辑
+                system_prompt = STYLE_PROMPTS["system"]
+                user_prompt = STYLE_PROMPTS["polish_content"].format(
+                    draft_content=current_content,
+                    style_guide=self._format_style_guide(
+                        style_guide, style_document_features),
+                    logic_issues=self._format_logic_issues(logic_issues),
+                    character_profiles=self._format_character_profiles(
+                        character_profiles)
+                )
 
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -455,6 +468,114 @@ class StyleEditorAgent(BaseWritingAgent):
             )
 
         return "\n\n".join(formatted)
+
+    def _build_style_library_polish_prompt(
+        self,
+        content: str,
+        style_library_guide: Dict,
+        logic_issues: List[Dict],
+        character_profiles: List[Dict]
+    ) -> tuple:
+        """构建基于文风知识库的风格润色提示词
+
+        Args:
+            content: 待润色内容
+            style_library_guide: 文风知识库风格指南
+            logic_issues: 逻辑问题列表
+            character_profiles: 人物档案列表
+
+        Returns:
+            (system_prompt, user_prompt) 元组
+        """
+        from app.tools.style_library import format_style_for_prompt
+
+        system_prompt = """你是一位资深的文学编辑和文风专家，擅长根据指定的文学风格进行精准润色。
+
+## 核心职责
+
+1. **风格对齐**：确保文本严格符合指定的文风特征
+2. **语言润色**：提升文字表现力，保持风格一致性
+3. **逻辑修正**：修复逻辑问题，保持情节连贯
+4. **对话优化**：使对话符合角色身份和文风要求
+5. **描写增强**：增强场景描写的画面感和风格特征
+
+## 润色原则
+
+- **风格优先**：所有修改必须服务于目标文风
+- **保留原意**：不改变核心情节和人物关系
+- **精准调整**：针对性调整词汇、句式、叙事节奏
+- **自然流畅**：润色后的文本必须自然，不生硬"""
+
+        # 格式化文风特征
+        style_section = format_style_for_prompt(style_library_guide)
+
+        user_prompt = f"""请根据以下文风要求对内容进行精准润色。
+
+## 目标文风（**必须严格遵循**）
+
+{style_section}
+
+## 待润色内容
+
+{content}
+
+## 逻辑问题修正（如有）
+
+{self._format_logic_issues(logic_issues)}
+
+## 角色设定（用于优化对话）
+
+{self._format_character_profiles(character_profiles)}
+
+## 润色要求
+
+1. **词汇层面**
+   - 根据文风特征调整用词偏好
+   - 使用标志性词汇和特色表达
+   - 避免文风要求中明确禁止的词汇
+
+2. **句式层面**
+   - 调整句子长度比例（如极简主义用短句，浪漫主义用长句）
+   - 使用偏好句式结构
+   - 控制标点使用风格
+
+3. **叙事层面**
+   - 确保叙事视角符合文风要求
+   - 调整叙事节奏（快速/缓慢/跳跃/平稳）
+   - 优化时空处理方式
+
+4. **描写层面**
+   - 强化文风指定的描写重点
+   - 调整感官描写的比例和方式
+   - 运用文风偏好的修辞手法
+
+5. **对话层面**
+   - 使对话符合文风的整体特征
+   - 调整对话密度和功能性
+   - 增强角色语言的个性化
+
+## 输出格式
+
+```json
+{{
+    "polished_content": "润色后的完整内容",
+    "changes_summary": "修改摘要，重点说明风格对齐的改动",
+    "word_count": 1200,
+    "style_alignment_score": 90,
+    "style_adjustments": [
+        {{
+            "dimension": "词汇|句式|叙事|描写|对话",
+            "original": "原文特征",
+            "adjusted": "调整后特征",
+            "reason": "调整原因"
+        }}
+    ]
+}}
+```
+
+请直接输出JSON格式的润色结果。"""
+
+        return system_prompt, user_prompt
 
     def _format_style_guide(self, style_guide: Dict, style_document_features: str = "") -> str:
         """格式化风格指南

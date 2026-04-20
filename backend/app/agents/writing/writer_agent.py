@@ -255,6 +255,7 @@ class WriterAgent(BaseWritingAgent):
         """构建整章生成模式的系统提示词
 
         增强版：根据内容类型（小说/剧本）选择不同的提示词，添加人物状态一致性提示。
+        v2: 集成文风知识库，支持精细化风格注入。
 
         Args:
             context: 执行上下文
@@ -269,8 +270,20 @@ class WriterAgent(BaseWritingAgent):
         from app.agents.writing.prompts.character_state_prompts import get_writer_system_prompt
         base_prompt = get_writer_system_prompt(content_type)
 
-        style_guide = context.style_guide
-        if style_guide:
+        # 优先使用文风知识库风格指南（新增）
+        style_library_guide = context.style_guide.get(
+            "style_library_guide", {}) if context.style_guide else {}
+        if style_library_guide:
+            from app.tools.style_library import format_style_for_prompt
+            style_section = format_style_for_prompt(style_library_guide)
+            if style_section:
+                base_prompt += "\n\n## 文风要求（**必须严格遵循**）\n\n"
+                base_prompt += style_section
+                base_prompt += "\n\n请在整个创作过程中始终保持上述文风特征，让读者能清晰感受到风格的独特性。\n"
+
+        # 兼容旧版风格指南（简单文字描述）
+        elif context.style_guide:
+            style_guide = context.style_guide
             writing_style = style_guide.get("writing_style", "")
             tone = style_guide.get("tone", "")
             forbidden_words = style_guide.get("forbidden_words", [])
@@ -462,8 +475,20 @@ class WriterAgent(BaseWritingAgent):
         from app.agents.writing.prompts.character_state_prompts import get_writer_system_prompt
         base_prompt = get_writer_system_prompt(content_type)
 
-        style_guide = context.style_guide
-        if style_guide:
+        # 优先使用文风知识库风格指南（新增）
+        style_library_guide = context.style_guide.get(
+            "style_library_guide", {}) if context.style_guide else {}
+        if style_library_guide:
+            from app.tools.style_library import format_style_for_prompt
+            style_section = format_style_for_prompt(style_library_guide)
+            if style_section:
+                base_prompt += "\n\n## 文风要求（**必须严格遵循**）\n\n"
+                base_prompt += style_section
+                base_prompt += "\n\n请在整个创作过程中始终保持上述文风特征，让读者能清晰感受到风格的独特性。\n"
+
+        # 兼容旧版风格指南（简单文字描述）
+        elif context.style_guide:
+            style_guide = context.style_guide
             writing_style = style_guide.get("writing_style", "")
             tone = style_guide.get("tone", "")
             forbidden_words = style_guide.get("forbidden_words", [])

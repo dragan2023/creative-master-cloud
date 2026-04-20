@@ -2,7 +2,7 @@
 生成记录模型
 记录用户的创意生成历史
 """
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, Enum, JSON
+from sqlalchemy import Column, String, Integer, ForeignKey, Text, Enum, JSON, DateTime, Boolean
 from sqlalchemy.orm import relationship
 import enum
 
@@ -25,6 +25,7 @@ class GenerationStatus(str, enum.Enum):
     PROCESSING = "processing"  # 处理中
     COMPLETED = "completed"    # 已完成
     FAILED = "failed"         # 失败
+    CANCELLED = "cancelled"   # 已取消
 
 
 class Generation(BaseModel):
@@ -65,8 +66,20 @@ class Generation(BaseModel):
     # 错误信息
     error_message = Column(Text, nullable=True, comment="错误信息")
 
+    # 修订相关字段
+    is_finalized = Column(Boolean, default=False, comment="是否已最终确认")
+    revision_count = Column(Integer, default=0, comment="修订轮次总数")
+
+    # 通用状态持久化字段(适用于所有模块)
+    current_stage = Column(String(50), nullable=True,
+                           comment="当前生成阶段标识(由各模块自定义)")
+    stage_data = Column(JSON, nullable=True, comment="各阶段的完整状态数据(JSON格式)")
+    session_context = Column(JSON, nullable=True, comment="会话上下文(修订历史、对话记录等)")
+
     # 关联关系
     user = relationship("User", back_populates="generations")
+    revision_history = relationship(
+        "GenerationRevisionHistory", back_populates="generation", cascade="all, delete-orphan")
 
     # ==================== 业务方法 ====================
 
@@ -113,3 +126,24 @@ class Generation(BaseModel):
 
     def __repr__(self):
         return f"<Generation(id={self.id}, module={self.module}, status={self.status})>"
+
+
+class GenerationRevisionHistory(BaseModel):
+    """创意生成修订历史表"""
+    __tablename__ = "generation_revision_history"
+
+    generation_id = Column(Integer, ForeignKey(
+        "generations.id", ondelete="CASCADE"), nullable=False, index=True, comment="生成记录ID")
+    round_number = Column(Integer, nullable=False, comment="修订轮次(从1开始)")
+    user_feedback = Column(Text, nullable=False, comment="用户修改意见")
+    diff_instructions = Column(
+        Text, nullable=True, comment="LLM输出的差异指令(JSON格式)")
+    content_before = Column(Text, nullable=True, comment="修订前完整内容")
+    content_after = Column(Text, nullable=True, comment="修订后完整内容")
+    token_usage = Column(Integer, default=0, comment="该轮token消耗")
+
+    # 关联关系
+    generation = relationship("Generation", back_populates="revision_history")
+
+    def __repr__(self):
+        return f"<GenerationRevisionHistory(id={self.id}, generation_id={self.generation_id}, round={self.round_number})>"

@@ -88,11 +88,25 @@ class DocumentPreprocessor:
     两层流水线架构：
     1. Cleaner 层: 将 PDF/DOCX/TXT/MD 转换为纯文本
     2. Filter 层 (Regex): 剔除无意义内容
+    3. Refiner 层: 语义切片（可选）
     """
 
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, config=None):
+        """
+        初始化预处理器
+
+        Args:
+            settings: 应用配置
+            config: 用户预处理配置字典，包含:
+                - semantic_chunk_enabled: 是否启用语义切片
+                - semantic_chunk_size: 切片大小
+                - semantic_threshold: 语义阈值
+                - marker_enabled: 是否启用Marker
+                - summarization_enabled: 是否启用摘要
+        """
         self.settings = settings or get_settings()
         self.logger = get_logger("doc_preprocessor")
+        self.config = config or {}
 
         # 设置代理（如果配置了）
         http_proxy = self.settings.HTTP_PROXY
@@ -113,6 +127,15 @@ class DocumentPreprocessor:
         """动态刷新配置（每次处理时调用）"""
         self.settings = get_settings()
         self.enable_filter = True  # 默认启用过滤
+
+        # 从用户配置中读取设置
+        self.semantic_chunk_enabled = self.config.get(
+            'semantic_chunk_enabled', True)
+        self.semantic_chunk_size = self.config.get('semantic_chunk_size', 1024)
+        self.semantic_threshold = self.config.get('semantic_threshold', 0.7)
+        self.marker_enabled = self.config.get('marker_enabled', True)
+        self.summarization_enabled = self.config.get(
+            'summarization_enabled', False)
 
     def is_supported(self, file_path: str) -> bool:
         """检查文件是否支持"""
@@ -177,14 +200,21 @@ class DocumentPreprocessor:
             stats["filtered_size"] = len(text)
             stats["steps_completed"].append("filter")
 
-            # Step 3: 切片
+            # Step 3: Refiner - 切片
             if progress_callback:
                 progress_callback("正在切分文档...", 25, 3)
 
-            chunks = self._fallback_chunk(text)
+            # 根据配置选择切片策略
+            if self.semantic_chunk_enabled:
+                # 使用语义切片
+                chunks = self._semantic_chunk(text)
+                stats["steps_completed"].append("semantic_chunk")
+            else:
+                # 使用固定大小切片
+                chunks = self._fallback_chunk(text)
+                stats["steps_completed"].append("fixed_chunk")
 
             stats["chunk_count"] = len(chunks)
-            stats["steps_completed"].append("chunk")
 
             return {
                 "chunks": chunks,
@@ -192,6 +222,9 @@ class DocumentPreprocessor:
                     "file_path": file_path,
                     "file_type": ext.lstrip("."),
                     "preprocessor_enabled": True,
+                    "semantic_chunk_used": self.semantic_chunk_enabled,
+                    "marker_used": self.marker_enabled,
+                    "summarization_used": self.summarization_enabled,
                 },
                 "stats": stats
             }
@@ -283,6 +316,32 @@ class DocumentPreprocessor:
 
         return chunks
 
+    def _semantic_chunk(self, text: str) -> List[str]:
+        """
+        语义切片
+
+        使用SemanticChunker根据语义相似度智能切分文本
+        """
+        try:
+            from app.tools.semantic_chunker import SemanticChunker
+
+            chunker = SemanticChunker(
+                chunk_size=self.semantic_chunk_size,
+                threshold=self.semantic_threshold
+            )
+
+            chunks = chunker.chunk_text(text)
+
+            if not chunks:
+                self.logger.warning("语义切片返回空结果，回退到固定大小切片")
+                return self._fallback_chunk(text)
+
+            return chunks
+
+        except Exception as e:
+            self.logger.error(f"语义切片失败: {str(e)}，回退到固定大小切片")
+            return self._fallback_chunk(text)
+
     async def _fallback_process(self, file_path: str, error: str) -> Dict[str, Any]:
         """完全回退处理"""
         self.logger.warning(f"使用完全回退处理: {error}")
@@ -310,11 +369,19 @@ class DocumentPreprocessor:
 _doc_preprocessor = None
 
 
-def get_doc_preprocessor() -> DocumentPreprocessor:
-    """获取文档预处理器单例"""
+def get_doc_preprocessor(config: Dict[str, Any] = None) -> DocumentPreprocessor:
+    """
+    获取文档预处理器单例
+
+    Args:
+        config: 用户预处理配置字典
+    """
     global _doc_preprocessor
     if _doc_preprocessor is None:
-        _doc_preprocessor = DocumentPreprocessor()
+        _doc_preprocessor = DocumentPreprocessor(config=config)
+    elif config:
+        # 如果提供了新配置，更新现有实例
+        _doc_preprocessor.config = config
     return _doc_preprocessor
 
 

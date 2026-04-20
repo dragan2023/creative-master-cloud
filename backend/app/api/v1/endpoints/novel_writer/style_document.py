@@ -25,6 +25,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models import User, NovelProject
 from app.schemas.common import ResponseModel
+from app.schemas.novel_writer import StyleDocumentUpdate
 
 from .utils import router, settings, logger, get_project_data_dir
 
@@ -41,7 +42,7 @@ async def upload_style_document(
 ):
     """
     上传风格文档
-    
+
     支持格式：.txt, .docx, .pdf
     上传后自动触发风格分析
     """
@@ -83,7 +84,8 @@ async def upload_style_document(
             try:
                 import docx
                 doc = docx.Document(style_path)
-                style_content = '\n'.join([para.text for para in doc.paragraphs])
+                style_content = '\n'.join(
+                    [para.text for para in doc.paragraphs])
             except ImportError:
                 raise GenerationException("服务器未安装python-docx库，无法解析docx文件")
         elif file_ext == '.pdf':
@@ -143,28 +145,28 @@ async def analyze_style_document_task(project_id: int, style_content: str):
     from app.core.database import async_session_maker
     from app.models.writing_model_config import WritingModelConfig
     from app.core.security import api_key_encryption
-    
+
     try:
         async with async_session_maker() as db:
             query = select(NovelProject).where(NovelProject.id == project_id)
             result = await db.execute(query)
             project = result.scalar_one_or_none()
-            
+
             if not project:
                 logger.error(f"项目不存在: project_id={project_id}")
                 return
-            
+
             project.style_analysis_status = "analyzing"
             await db.commit()
-            
+
             user_id = project.user_id
-        
+
         from app.agents.writing.style_editor_agent import StyleEditorAgent
         from app.agents.writing.base_agent import AgentContext, AgentRole
         from app.agents.writing.agent_config import AgentConfig, AgentModelConfig
-        
+
         agent_config = AgentConfig()
-        
+
         async with async_session_maker() as db:
             model_query = select(WritingModelConfig).where(
                 WritingModelConfig.user_id == user_id,
@@ -172,15 +174,16 @@ async def analyze_style_document_task(project_id: int, style_content: str):
             ).order_by(WritingModelConfig.is_valid.desc(), WritingModelConfig.updated_at.desc())
             model_result = await db.execute(model_query)
             model_configs = model_result.scalars().all()
-            
+
             if model_configs:
                 model_config = model_configs[0]
                 try:
-                    decrypted_key = api_key_encryption.decrypt(model_config.encrypted_key)
+                    decrypted_key = api_key_encryption.decrypt(
+                        model_config.encrypted_key)
                 except Exception as e:
                     logger.error(f"解密API密钥失败: {e}")
                     decrypted_key = None
-                
+
                 agent_model_config = AgentModelConfig(
                     model_id=model_config.model_id,
                     provider=model_config.provider,
@@ -190,8 +193,10 @@ async def analyze_style_document_task(project_id: int, style_content: str):
                     api_key=decrypted_key,
                     config_id=model_config.id
                 )
-                agent_config.update_config(AgentRole.STYLE_EDITOR, agent_model_config)
-                logger.info(f"风格文档分析 - 使用预配置模型: {model_config.name} (provider={model_config.provider}, model={model_config.model_id})")
+                agent_config.update_config(
+                    AgentRole.STYLE_EDITOR, agent_model_config)
+                logger.info(
+                    f"风格文档分析 - 使用预配置模型: {model_config.name} (provider={model_config.provider}, model={model_config.model_id})")
             else:
                 logger.warning(f"风格文档分析 - 用户 {user_id} 没有预配置模型，尝试使用全局配置")
                 from app.agents.writing.agent_config import get_default_agent_config
@@ -201,7 +206,8 @@ async def analyze_style_document_task(project_id: int, style_content: str):
                 else:
                     logger.error(f"风格文档分析 - 用户 {user_id} 没有配置任何可用模型")
                     async with async_session_maker() as db:
-                        query = select(NovelProject).where(NovelProject.id == project_id)
+                        query = select(NovelProject).where(
+                            NovelProject.id == project_id)
                         result = await db.execute(query)
                         project = result.scalar_one_or_none()
                         if project:
@@ -209,25 +215,25 @@ async def analyze_style_document_task(project_id: int, style_content: str):
                             project.style_analysis_error = "请先在写作工作台中配置模型"
                             await db.commit()
                     return
-        
+
         agent = StyleEditorAgent(config=agent_config)
         context = AgentContext(
             task_id=f"style_analysis_{project_id}",
             unit_index=0,
             scene_index=0
         )
-        
+
         style_result = await agent.analyze_style_document(style_content, context)
-        
+
         async with async_session_maker() as db:
             query = select(NovelProject).where(NovelProject.id == project_id)
             result = await db.execute(query)
             project = result.scalar_one_or_none()
-            
+
             if not project:
                 logger.error(f"项目不存在: project_id={project_id}")
                 return
-            
+
             if style_result:
                 project.style_config = style_result
                 project.style_analysis_status = "completed"
@@ -238,18 +244,19 @@ async def analyze_style_document_task(project_id: int, style_content: str):
                 project.style_analysis_status = "failed"
                 project.style_analysis_error = "风格分析返回空结果"
                 logger.error(f"风格文档分析失败: project_id={project_id}, 返回空结果")
-            
+
             await db.commit()
-            
+
     except Exception as e:
         logger.error(f"风格文档分析任务失败: {str(e)}\n{traceback.format_exc()}")
-        
+
         try:
             async with async_session_maker() as db:
-                query = select(NovelProject).where(NovelProject.id == project_id)
+                query = select(NovelProject).where(
+                    NovelProject.id == project_id)
                 result = await db.execute(query)
                 project = result.scalar_one_or_none()
-                
+
                 if project:
                     project.style_analysis_status = "failed"
                     project.style_analysis_error = str(e)
@@ -266,7 +273,7 @@ async def get_style_document(
 ):
     """
     获取风格文档信息
-    
+
     返回风格文档状态、风格特征分析结果等
     """
     try:
@@ -282,18 +289,21 @@ async def get_style_document(
 
         style_config = project.style_config or {}
         style_profile = style_config.get("style_profile")
-        
+
         # 调试日志：记录原始数据
-        logger.info(f"获取风格文档 - style_config keys: {list(style_config.keys()) if style_config else 'empty'}")
-        logger.info(f"获取风格文档 - style_profile type: {type(style_profile).__name__ if style_profile else 'None'}")
-        
+        logger.info(
+            f"获取风格文档 - style_config keys: {list(style_config.keys()) if style_config else 'empty'}")
+        logger.info(
+            f"获取风格文档 - style_profile type: {type(style_profile).__name__ if style_profile else 'None'}")
+
         from app.schemas.novel_writer import StyleProfile
         if style_profile and isinstance(style_profile, dict):
             try:
                 # 使用 model_validate 确保嵌套模型也被正确转换
                 validated_profile = StyleProfile.model_validate(style_profile)
                 # 将 Pydantic 模型转换为字典，确保序列化正确
-                style_profile = validated_profile.model_dump(mode='json', exclude_none=True)
+                style_profile = validated_profile.model_dump(
+                    mode='json', exclude_none=True)
                 logger.info(f"风格画像转换成功 - name: {validated_profile.name}")
             except Exception as e:
                 logger.warning(f"风格画像解析失败，尝试直接构造: {e}")
@@ -305,9 +315,11 @@ async def get_style_document(
             style_document_uploaded=bool(project.style_document_path),
             style_document_name=project.style_document_name,
             style_profile=style_profile,
-            style_guide_for_writing=style_config.get("style_guide_for_writing"),
+            style_guide_for_writing=style_config.get(
+                "style_guide_for_writing"),
             key_imitation_points=style_config.get("key_imitation_points"),
-            example_transformations=style_config.get("example_transformations"),
+            example_transformations=style_config.get(
+                "example_transformations"),
             avoid_patterns=style_config.get("avoid_patterns"),
             ai_elimination_enabled=project.ai_elimination_enabled if project.ai_elimination_enabled is not None else True,
             ai_elimination_threshold=project.ai_elimination_threshold or 50,
@@ -335,7 +347,7 @@ async def delete_style_document(
 ):
     """
     删除风格文档
-    
+
     删除上传的风格文档及其分析结果
     """
     try:
@@ -377,13 +389,13 @@ async def delete_style_document(
 @router.put("/projects/{project_id}/style-document", response_model=ResponseModel)
 async def update_style_document_settings(
     project_id: int,
-    request: "StyleDocumentUpdate",
+    request: StyleDocumentUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     更新风格文档设置
-    
+
     更新AI文风消除开关和阈值
     """
     try:
@@ -399,7 +411,7 @@ async def update_style_document_settings(
 
         if request.ai_elimination_enabled is not None:
             project.ai_elimination_enabled = request.ai_elimination_enabled
-        
+
         if request.ai_elimination_threshold is not None:
             project.ai_elimination_threshold = request.ai_elimination_threshold
 
@@ -434,7 +446,7 @@ async def get_real_time_style_guide(
 ):
     """
     获取实时风格指导
-    
+
     为写手Agent提供写作过程中的实时风格指导
     """
     try:
@@ -450,8 +462,9 @@ async def get_real_time_style_guide(
 
         content_type = project.content_type or "novel"
         style_config = project.style_config or {}
-        style_document_features = style_config.get("style_guide_for_writing", "")
-        
+        style_document_features = style_config.get(
+            "style_guide_for_writing", "")
+
         project_style_params = {}
         if project.novel_config:
             project_style_params = project.novel_config
@@ -485,24 +498,25 @@ async def get_real_time_style_guide(
         from app.agents.writing.agent_config import AgentConfig, AgentModelConfig
         from app.models.writing_model_config import WritingModelConfig
         from app.core.security import api_key_encryption
-        
+
         agent_config = AgentConfig()
-        
+
         model_query = select(WritingModelConfig).where(
             WritingModelConfig.user_id == current_user.id,
             WritingModelConfig.is_active == True
         ).order_by(WritingModelConfig.is_valid.desc(), WritingModelConfig.updated_at.desc())
         model_result = await db.execute(model_query)
         model_configs = model_result.scalars().all()
-        
+
         if model_configs:
             model_config = model_configs[0]
             try:
-                decrypted_key = api_key_encryption.decrypt(model_config.encrypted_key)
+                decrypted_key = api_key_encryption.decrypt(
+                    model_config.encrypted_key)
             except Exception as e:
                 logger.error(f"解密API密钥失败: {e}")
                 decrypted_key = None
-            
+
             agent_model_config = AgentModelConfig(
                 model_id=model_config.model_id,
                 provider=model_config.provider,
@@ -512,7 +526,8 @@ async def get_real_time_style_guide(
                 api_key=decrypted_key,
                 config_id=model_config.id
             )
-            agent_config.update_config(AgentRole.STYLE_EDITOR, agent_model_config)
+            agent_config.update_config(
+                AgentRole.STYLE_EDITOR, agent_model_config)
         else:
             from app.agents.writing.agent_config import get_default_agent_config
             global_config = get_default_agent_config()
@@ -520,13 +535,13 @@ async def get_real_time_style_guide(
                 agent_config = global_config
             else:
                 raise ValidationException("请先在写作工作台中配置模型")
-        
+
         agent = StyleEditorAgent(config=agent_config)
         context = AgentContext(
             task_id=f"style_guide_{project_id}",
             scene_index=0
         )
-        
+
         style_guide = await agent.get_real_time_style_guide(
             content_type=content_type,
             scene_title=scene_title,
@@ -549,4 +564,112 @@ async def get_real_time_style_guide(
         raise
     except Exception as e:
         logger.error(f"获取实时风格指导失败: {str(e)}")
+        raise AppException(ErrorCode.INTERNAL_ERROR, str(e))
+
+
+# ==================== 文风知识库 API ====================
+
+@router.get("/style-library", response_model=ResponseModel)
+async def get_style_library(
+    category: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取文风知识库
+
+    返回所有分类下的文风列表，或指定分类的文风列表。
+    category 可选值: traditional, personal, web_novel, narrative
+    """
+    try:
+        from app.tools.style_library import get_style_list_for_api, get_all_categories
+
+        styles = get_style_list_for_api(category)
+        categories = get_all_categories()
+
+        return ResponseModel(
+            code=0,
+            message="获取成功",
+            data={
+                "categories": categories,
+                "styles": styles,
+                "total": len(styles)
+            }
+        )
+    except Exception as e:
+        logger.error(f"获取文风知识库失败: {str(e)}")
+        raise AppException(ErrorCode.INTERNAL_ERROR, str(e))
+
+
+@router.get("/style-library/{style_id}", response_model=ResponseModel)
+async def get_style_detail(
+    style_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取单个文风详情
+
+    返回文风的完整信息，包括特征、写作指南、示例等。
+    """
+    try:
+        from app.tools.style_library import get_style_by_id
+
+        style = get_style_by_id(style_id)
+        if not style:
+            raise ResourceNotFoundException(f"文风 '{style_id}' 不存在")
+
+        return ResponseModel(
+            code=0,
+            message="获取成功",
+            data=style
+        )
+    except AppException:
+        raise
+    except Exception as e:
+        logger.error(f"获取文风详情失败: {str(e)}")
+        raise AppException(ErrorCode.INTERNAL_ERROR, str(e))
+
+
+@router.post("/style-library/blend", response_model=ResponseModel)
+async def blend_styles(
+    request: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    融合多个文风，返回融合后的风格指南
+
+    请求体:
+    - style_ids: 文风ID列表 (最多3个)
+    - intensity: 风格强度 (0.0-1.0, 默认0.7)
+    """
+    try:
+        from app.tools.style_library import build_style_guide, format_style_for_prompt
+
+        style_ids = request.get("style_ids", [])
+        intensity = float(request.get("intensity", 0.7))
+
+        if not style_ids:
+            raise ValidationException("style_ids 不能为空")
+        if len(style_ids) > 3:
+            raise ValidationException("最多支持3种文风融合")
+        if not (0.0 <= intensity <= 1.0):
+            raise ValidationException("intensity 必须在 0.0 到 1.0 之间")
+
+        style_guide = build_style_guide(style_ids, intensity)
+        if not style_guide:
+            raise ValidationException("未找到指定的文风，请检查 style_ids")
+
+        formatted = format_style_for_prompt(style_guide)
+
+        return ResponseModel(
+            code=0,
+            message="融合成功",
+            data={
+                "style_guide": style_guide,
+                "formatted_prompt": formatted
+            }
+        )
+    except AppException:
+        raise
+    except Exception as e:
+        logger.error(f"融合文风失败: {str(e)}")
         raise AppException(ErrorCode.INTERNAL_ERROR, str(e))

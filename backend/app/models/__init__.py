@@ -22,6 +22,9 @@ from app.models.writing_checkpoint import WritingCheckpoint
 from app.models.writing_stat import WritingStat
 from app.models.writing_model_config import WritingModelConfig
 
+# 质量管控模块模型
+from app.models.quality_report import QualityReport, AnalysisScope, AnalysisStatus
+
 __all__ = [
     "BaseModel",
     "TimestampMixin",
@@ -64,4 +67,8 @@ __all__ = [
     "WritingCheckpoint",
     "WritingStat",
     "WritingModelConfig",
+    # 质量管控模块模型
+    "QualityReport",
+    "AnalysisScope",
+    "AnalysisStatus",
 ]

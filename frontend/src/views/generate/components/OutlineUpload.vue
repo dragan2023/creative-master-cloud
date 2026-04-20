@@ -30,7 +30,7 @@
     <!-- Token 消耗提示 -->
     <div class="token-tip">
       <el-icon><InfoFilled /></el-icon>
-      <span>支持 .txt, .md, .doc, .docx, .pdf 格式，文件大小不超过50MB</span>
+      <span>支持 .txt, .md, .doc, .docx, .pdf 格式，文件大小不超过100MB</span>
     </div>
   </div>
 </template>
@@ -71,8 +71,8 @@ const handleBeforeUpload = (file) => {
     ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf 格式的文件！')
     return false
   }
-  if (file.size / 1024 / 1024 > 50) {
-    ElMessage.error('文件大小不能超过50MB！')
+  if (file.size / 1024 / 1024 > 100) {
+    ElMessage.error('文件大小不能超过100MB！')
     return false
   }
   

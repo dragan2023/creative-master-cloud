@@ -77,6 +77,18 @@ class CharacterState:
     first_appearance: Optional[int] = None      # 首次出场章节
     last_appearance: Optional[int] = None       # 最近出场章节
 
+    # 台词风格特征（新增：用于维护人物语言一致性）
+    speech_style: Dict[str, Any] = field(default_factory=dict)
+    # speech_style结构:
+    # {
+    #     "vocabulary_level": "文雅/通俗/专业/市井",  # 词汇层次
+    #     "sentence_pattern": "短句/长句/混合/断句",  # 句式偏好
+    #     "tone": "严肃/幽默/讽刺/温婉/冷峻",  # 语气基调
+    #     "catchphrase": ["口头禅1", "口头禅2"],  # 口头禅/习惯用语
+    #     "style_influences": ["古龙式冷艳", "老舍式京味"],  # 受哪些文风影响
+    #     "special_habits": ["思考时摸下巴", "紧张时结巴"]  # 特殊语言习惯
+    # }
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
         result = asdict(self)
@@ -225,8 +237,14 @@ class CharacterStateTracker:
                     "gender": profile.get("gender", "")
                 },
                 first_appearance=0,  # 初始设定，视为第0章
-                last_appearance=0
+                last_appearance=0,
+                speech_style=profile.get("speech_style", {})  # 新增：台词风格
             )
+
+            # 如果没有预设speech_style,根据性格和背景自动生成
+            if not state.speech_style:
+                state.speech_style = self._infer_speech_style_from_profile(
+                    profile)
 
             self._character_states[name] = state
             self._character_names.add(name)
@@ -821,6 +839,9 @@ class CharacterStateTracker:
             state.relationships.update(updates["relationships"])
         if "attributes" in updates:
             state.attributes.update(updates["attributes"])
+        if "speech_style" in updates:
+            # 更新台词风格
+            state.speech_style.update(updates["speech_style"])
 
         # 更新出场章节
         if chapter_num is not None:
@@ -3086,3 +3107,64 @@ class CharacterStateTracker:
 
         # 验证失败时，返回原始列表
         return character_names
+
+    def _infer_speech_style_from_profile(self, profile: Dict[str, Any]) -> Dict[str, Any]:
+        """根据人物档案推断台词风格
+
+        Args:
+            profile: 人物档案字典
+
+        Returns:
+            speech_style字典
+        """
+        personality = profile.get("personality", "").lower()
+        background = profile.get("background", "").lower()
+        traits = profile.get("traits", [])
+        identity = profile.get("identity", "").lower()
+
+        speech_style = {
+            "vocabulary_level": "通俗",  # 默认
+            "sentence_pattern": "混合",
+            "tone": "平静",
+            "catchphrase": [],
+            "style_influences": [],
+            "special_habits": []
+        }
+
+        # 根据身份推断词汇层次
+        if any(word in identity for word in [" scholar", "老师", "教授", "博士", "文人"]):
+            speech_style["vocabulary_level"] = "文雅"
+        elif any(word in identity for word in ["农民", "工人", "市民", "小贩"]):
+            speech_style["vocabulary_level"] = "市井"
+        elif any(word in identity for word in ["医生", "律师", "工程师", "专家"]):
+            speech_style["vocabulary_level"] = "专业"
+
+        # 根据性格推断语气基调
+        if "幽默" in personality or "开朗" in personality:
+            speech_style["tone"] = "幽默"
+        elif "严肃" in personality or "冷静" in personality:
+            speech_style["tone"] = "严肃"
+        elif "温柔" in personality or "温和" in personality:
+            speech_style["tone"] = "温婉"
+        elif "尖锐" in personality or "刻薄" in personality:
+            speech_style["tone"] = "讽刺"
+        elif "冷酷" in personality or "冷漠" in personality:
+            speech_style["tone"] = "冷峻"
+
+        # 根据特征推断句式
+        if "急躁" in traits or "直率" in traits:
+            speech_style["sentence_pattern"] = "短句"
+        elif "沉稳" in traits or "深思" in traits:
+            speech_style["sentence_pattern"] = "长句"
+        elif "诗意" in traits or "文艺" in traits:
+            speech_style["sentence_pattern"] = "断句"  # 类似古龙风格
+
+        # 根据背景推断文风影响
+        if "北京" in background or "北方" in background:
+            speech_style["style_influences"].append("老舍式京味")
+        if "江湖" in background or "武侠" in background:
+            speech_style["style_influences"].append("古龙式冷艳")
+        if "上海" in background or "都市" in background:
+            speech_style["style_influences"].append("张爱玲式苍凉")
+
+        return speech_style

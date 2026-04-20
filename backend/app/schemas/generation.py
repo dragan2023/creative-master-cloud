@@ -23,6 +23,7 @@ class GenerationStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 # ==================== 短视频脚本 ====================
@@ -97,18 +98,25 @@ class NovelInput(BaseModel):
     """小说大纲输入"""
     title: Optional[str] = Field(None, description="标题/主题")
     length: str = Field(default="中篇", description="篇幅(短篇/中篇/长篇)")
-    genre: str = Field(...,
-                       description="类型标签(言情/悬疑推理/科幻/奇幻玄幻/历史/现实题材/轻小说/恐怖惊悚)")
     target_platform: str = Field(
         default="起点", description="目标读者/平台(起点/晋江/番茄/实体出版/纯个人创作)")
-    tone: str = Field(default="正剧", description="基调氛围(正剧/喜剧/虐恋催泪/爽文/治愈温暖)")
-    theme: Optional[str] = Field(None, description="故事主题——想表达的核心思想")
-    unique_selling_point: Optional[str] = Field(
-        None, description="独特卖点——最吸引人的钩子")
     synopsis: str = Field(..., description="故事梗概")
     chapter_count: Optional[str] = Field(None, description="章节数")
     custom_outline: Optional[str] = Field(
         None, description="自写大纲URL（用户上传的文本文件）")
+    writing_styles: Optional[List[str]] = Field(
+        default=None,
+        description="写作风格ID列表，如['realism', 'hemingway_concise']，最多3个")
+    style_intensity: Optional[float] = Field(
+        default=0.7,
+        description="风格强度(0.0-1.0)，控制文风特征的应用程度")
+    # 标题风格（新增）
+    title_style: Optional[str] = Field(
+        default=None,
+        description="标题风格ID，如'classical_chapter_narrative'、'network_suspense'等")
+    title_style_name: Optional[str] = Field(
+        default=None,
+        description="标题风格中文名称")
 
 
 # ==================== 平面广告 ====================
@@ -318,3 +326,36 @@ class OriginalIPInput(BaseModel):
         None,
         description="其他特殊要求（可选）"
     )
+
+
+# ==================== 修订相关 ====================
+
+class RevisionRequest(BaseModel):
+    """修订请求"""
+    generation_id: int = Field(..., description="生成记录ID")
+    user_feedback: str = Field(..., description="用户修改意见")
+    current_content: str = Field(..., description="当前完整内容")
+    original_params: Dict[str, Any] = Field(..., description="原始生成参数")
+    module: str = Field(..., description="模块名称")
+    round_number: int = Field(..., description="当前修订轮次")
+    provider: Optional[str] = Field(None, description="LLM提供者")
+    temperature: float = Field(default=0.7, ge=0, le=1, description="温度参数")
+
+
+class FinalizeRequest(BaseModel):
+    """最终确认请求"""
+    generation_id: int = Field(..., description="生成记录ID")
+    final_content: str = Field(..., description="最终确认的内容")
+    enable_knowledge_check: bool = Field(default=True, description="是否启用知识库验证")
+    enable_self_reflection: bool = Field(default=True, description="是否启用自反思")
+
+
+# ==================== 单元概述质控相关 ====================
+
+class UnitSummariesQCRequest(BaseModel):
+    """单元概述质控请求"""
+    content_type: str = Field(..., description="内容类型（novel/script等）")
+    global_outline: str = Field(default="", description="全局大纲内容")
+    unit_summaries: Dict[str, Any] = Field(..., description="单元概述字典")
+    enable_auto_revise: bool = Field(default=True, description="是否启用自动修正")
+    temperature: float = Field(default=0.7, description="LLM温度参数")

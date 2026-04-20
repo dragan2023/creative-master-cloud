@@ -7,7 +7,7 @@ Agent 编排器
 @author: 周金磊
 @contact: QQ：7527149（添加时请说明来意）
 """
-from app.models.generation import Generation, GenerationModule, GenerationStatus
+from app.models.generation import Generation, GenerationModule, GenerationStatus, GenerationRevisionHistory
 from app.models.knowledge_base import KnowledgeBase, KnowledgeBaseType, KnowledgeBaseStatus, KnowledgeBaseCategory
 from typing import AsyncGenerator, Dict, Any, Optional, List
 from datetime import datetime
@@ -703,16 +703,25 @@ class AgentOrchestrator:
         enable_knowledge: bool,
         temperature: float,
         cancel_event: Optional[asyncio.Event],
-        logger
+        logger,
+        kb_vertical: bool = False,
+        kb_user_specific: bool = False,
+        kb_manual: bool = False
     ) -> AsyncGenerator[str, None]:
         """
         评估和修正内容
+
+        流程：
+        1. 通用知识库修正（默认启用，当enable_knowledge=True时）
+        2. 根据用户选择叠加垂直领域、用户专属、官方手册知识库修正
+        3. 自反思机制评估和修正
+        4. 自洽性检查
 
         Yields:
             SSE 格式的事件字符串
         """
         # 知识库评估与修正
-        if enable_knowledge and (ctx.kb_contexts["theory"].strip() or ctx.kb_contexts["case"].strip() or ctx.kb_contexts["manual"].strip()):
+        if enable_knowledge and (ctx.kb_contexts["theory"].strip() or ctx.kb_contexts["case"].strip() or ctx.kb_contexts["user_specific"].strip() or ctx.kb_contexts["manual"].strip()):
             yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "running", "message": "智能体正在评估内容质量...", "icon": "DataAnalysis"})
 
             if cancel_event and cancel_event.is_set():
@@ -730,6 +739,7 @@ class AgentOrchestrator:
             if evaluation_result.get("needs_revision"):
                 issue_count = len(evaluation_result.get("theory_issues", [])) + \
                     len(evaluation_result.get("case_insights", [])) + \
+                    len(evaluation_result.get("user_specific_issues", [])) + \
                     len(evaluation_result.get("compliance_issues", []))
                 yield self._format_sse("workflow", {"type": "step", "step": "evaluate", "status": "done", "message": f"检测到可优化点：{issue_count}处"})
 
@@ -1210,7 +1220,10 @@ class AgentOrchestrator:
                 enable_knowledge=enable_knowledge,
                 temperature=temperature,
                 cancel_event=cancel_event,
-                logger=logger
+                logger=logger,
+                kb_vertical=kb_vertical,
+                kb_user_specific=kb_user_specific,
+                kb_manual=kb_manual
             ):
                 yield sse_event
 
@@ -1609,15 +1622,18 @@ class AgentOrchestrator:
 【创意理论知识库】
 {kb_contexts.get('theory', '无相关理论')}
 
-【案例资料知识库】
+【垂直领域案例知识库】
 {kb_contexts.get('case', '无相关案例')}
 
-【用户规范手册】
+【用户专属知识库】
+{kb_contexts.get('user_specific', '无用户专属知识')}
+
+【官方规范手册】
 {kb_contexts.get('manual', '无规范手册')}
 
 ## 评估任务
 
-请从以下三个维度评估初次回答：
+请从以下四个维度评估初次回答：
 
 ### 1. 理论支撑性
 - 是否运用了知识库中的创意理论？
@@ -1629,8 +1645,12 @@ class AgentOrchestrator:
 - **严格要求**：禁止直接复制案例的具体内容、框架或文案
 - **正确做法**：分析案例背后的方法论和亮点，进行创新性转化
 
-### 3. 规范符合性
-- 是否违反用户规范手册中的要求？
+### 3. 用户专属知识应用
+- 是否合理应用了用户专属知识库中的内容？
+- 是否符合用户的特定需求和偏好？
+
+### 4. 规范符合性
+- 是否违反官方规范手册中的要求？
 - 如有明确规范，是否严格遵守？
 
 ## 输出要求
@@ -1640,13 +1660,14 @@ class AgentOrchestrator:
 {{
     "theory_issues": ["如：未运用知识库中的'悬念理论'"],
     "case_insights": ["如：可借鉴案例中的'反差式开头'但需重新设计"],
+    "user_specific_issues": ["如：未应用用户专属知识中的特定要求"],
     "compliance_issues": ["如：违反手册'禁止使用夸张词汇'的规定"],
     "needs_revision": true,
     "explanation": "简要说明是否需要修正及原因"
 }}
 
 如果内容质量良好、无重大问题，返回：
-{{"theory_issues": [], "case_insights": [], "compliance_issues": [], "needs_revision": false, "explanation": "内容符合要求"}}
+{{"theory_issues": [], "case_insights": [], "user_specific_issues": [], "compliance_issues": [], "needs_revision": false, "explanation": "内容符合要求"}}
 """
 
         try:
@@ -1669,6 +1690,7 @@ class AgentOrchestrator:
                     return {
                         "theory_issues": result.get("theory_issues", []),
                         "case_insights": result.get("case_insights", []),
+                        "user_specific_issues": result.get("user_specific_issues", []),
                         "compliance_issues": result.get("compliance_issues", []),
                         "needs_revision": result.get("needs_revision", False),
                         "explanation": result.get("explanation", "")
@@ -1680,6 +1702,7 @@ class AgentOrchestrator:
             return {
                 "theory_issues": [],
                 "case_insights": [],
+                "user_specific_issues": [],
                 "compliance_issues": [],
                 "needs_revision": False,
                 "explanation": "评估完成"
@@ -1691,6 +1714,7 @@ class AgentOrchestrator:
             return {
                 "theory_issues": [],
                 "case_insights": [],
+                "user_specific_issues": [],
                 "compliance_issues": [],
                 "needs_revision": False,
                 "explanation": f"评估失败: {str(e)}"
@@ -1724,6 +1748,8 @@ class AgentOrchestrator:
         """
         theory_issues = evaluation_result.get("theory_issues", [])
         case_insights = evaluation_result.get("case_insights", [])
+        user_specific_issues = evaluation_result.get(
+            "user_specific_issues", [])
         compliance_issues = evaluation_result.get("compliance_issues", [])
 
         # 获取用户选择的AI平台
@@ -1749,13 +1775,15 @@ class AgentOrchestrator:
 {original_content}
 
 ## 知识库参考（用于优化指导）
-- 创意理论：{kb_contexts.get('theory', '无')}
-- 案例资料：{kb_contexts.get('case', '无')}
-- 规范手册：{kb_contexts.get('manual', '无')}
+- 通用创意理论：{kb_contexts.get('theory', '无')}
+- 垂直领域案例：{kb_contexts.get('case', '无')}
+- 用户专属知识：{kb_contexts.get('user_specific', '无')}
+- 官方规范手册：{kb_contexts.get('manual', '无')}
 
 ## 评估发现的问题（需要针对性优化）
 - 理论支撑问题：{theory_issues if theory_issues else '无'}
 - 案例启发建议：{case_insights if case_insights else '无'}
+- 用户专属知识应用：{user_specific_issues if user_specific_issues else '无'}
 - 规范符合问题：{compliance_issues if compliance_issues else '无'}
 
 ## 优化任务要求（必须严格遵守）
@@ -1765,8 +1793,9 @@ class AgentOrchestrator:
 3. **【强制】内容完整**：确保所有分镜序号（如分镜1、分镜2...分镜9）都包含在输出中，不要遗漏任何一部分。
 4. **理论融入**：自然地运用相关创意理论，增强专业性
 5. **案例转化**：从案例中提取方法论和亮点，创新性转化（绝不照搬）
-6. **规范遵守**：严格遵守用户手册中的所有规定
-7. **保持创意**：不要变得死板，保持内容的灵活性和创新性
+6. **用户专属知识应用**：合理应用用户专属知识库中的内容，满足用户特定需求
+7. **规范遵守**：严格遵守官方规范手册中的所有规定
+8. **保持创意**：不要变得死板，保持内容的灵活性和创新性
 {ai_platform_hint}
 
 ## 输出格式要求
@@ -2254,6 +2283,277 @@ class AgentOrchestrator:
                     result.update(reflection_result)
 
         return result
+
+    # ==================== 修订相关方法 ====================
+
+    async def generate_revision_diff(
+        self,
+        db: AsyncSession,
+        generation_id: int,
+        user_feedback: str,
+        current_content: str,
+        original_params: Dict[str, Any],
+        module: str,
+        round_number: int,
+        provider: Optional[str] = None,
+        temperature: float = 0.7,
+        user_id: int = 0  # 新增user_id参数
+    ) -> AsyncGenerator[str, None]:
+        """
+        生成修订差异指令(流式)
+
+        输出格式(JSON):
+        {
+            "modifications": [
+                {
+                    "type": "replace|insert|delete",
+                    "location": "第3段第2行",
+                    "original_text": "原文内容",
+                    "new_text": "新内容",
+                    "reason": "用户要求..."
+                }
+            ],
+            "summary": "本次修改概述"
+        }
+        """
+        from app.utils.diff_applier import validate_diff_instructions
+        import json
+
+        logger = self.logger
+
+        try:
+            # 1. 加载LLM provider - 修复：传入正确的db和user_id参数
+            llm_provider = await self._load_llm_provider(db, user_id, provider)
+            logger.info(
+                f"Revision: LLM provider loaded successfully for user {user_id}")
+
+            # 2. 获取修订历史
+            logger.info(
+                f"Revision: Loading revision history for generation {generation_id}")
+            revision_history_stmt = select(GenerationRevisionHistory).where(
+                GenerationRevisionHistory.generation_id == generation_id
+            ).order_by(GenerationRevisionHistory.round_number)
+            revision_history_result = await db.execute(revision_history_stmt)
+            revision_history = revision_history_result.scalars().all()
+            logger.info(
+                f"Revision: Found {len(revision_history)} previous revisions")
+
+            # 3. 构建修订提示词
+            logger.info(
+                f"Revision: Building revision prompt for round {round_number}")
+            prompt = self._build_revision_prompt(
+                module=module,
+                original_params=original_params,
+                current_content=current_content,
+                user_feedback=user_feedback,
+                revision_history=[rev.to_dict() for rev in revision_history],
+                round_number=round_number
+            )
+            logger.info(f"Revision: Prompt length: {len(prompt)} characters")
+
+            # 4. 流式调用LLM
+            logger.info("Revision: Starting LLM stream generation")
+            diff_instructions_text = ""
+            chunk_count = 0
+            async for chunk in llm_provider.generate_stream(prompt):
+                diff_instructions_text += chunk
+                chunk_count += 1
+                # 发送SSE事件
+                yield f"data: {json.dumps({'event': 'diff_chunk', 'data': chunk}, ensure_ascii=False)}\n\n"
+
+            logger.info(
+                f"Revision: LLM stream completed, received {chunk_count} chunks, total length: {len(diff_instructions_text)}")
+
+            # 5. 解析JSON
+            try:
+                # 尝试提取JSON
+                json_match = re.search(
+                    r'```json\s*({.*?})\s*```', diff_instructions_text, re.DOTALL)
+                if json_match:
+                    diff_instructions = json.loads(json_match.group(1))
+                else:
+                    # 尝试直接解析
+                    diff_instructions = json.loads(diff_instructions_text)
+
+                # 验证格式
+                if not validate_diff_instructions(diff_instructions):
+                    raise ValueError("Invalid diff instructions format")
+
+                # 发送完成事件
+                yield f"data: {json.dumps({'event': 'diff_complete', 'data': diff_instructions}, ensure_ascii=False)}\n\n"
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse diff instructions: {e}")
+                yield f"data: {json.dumps({'event': 'error', 'data': '解析差异指令失败'}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            logger.error(
+                f"Revision diff generation failed: {e}", exc_info=True)
+            yield f"data: {json.dumps({'event': 'error', 'data': f'修订生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    def _build_revision_prompt(
+        self,
+        module: str,
+        original_params: Dict[str, Any],
+        current_content: str,
+        user_feedback: str,
+        revision_history: List[Dict],
+        round_number: int
+    ) -> str:
+        """
+        构建修订提示词
+
+        核心设计:
+        1. 包含原始生成参数(保持创作方向)
+        2. 包含当前完整内容(作为修改基准)
+        3. 包含用户本轮修改意见
+        4. 压缩历史修订记录(最近3轮摘要)
+        5. 强制要求输出JSON格式diff指令
+        """
+        # 压缩历史修订
+        history_summary = self._compress_revision_history(revision_history)
+
+        prompt = f"""# 创意内容修订指令
+
+## 原始创作参数
+{json.dumps(original_params, ensure_ascii=False, indent=2)}
+
+## 当前完整内容
+{current_content}
+
+## 用户修改意见(本轮)
+{user_feedback}
+
+## 历史修订摘要(最近3轮)
+{history_summary}
+
+## 输出格式要求(强制)
+
+你必须严格按照以下JSON格式输出修订指令,不得包含其他内容:
+
+```json
+{{
+    "modifications": [
+        {{
+            "type": "replace",  // replace|insert|delete
+            "location": "精确定位(如:第3节第2段)",
+            "original_text": "被替换的原文(仅replace/delete需要)",
+            "new_text": "新增或替换的内容",
+            "reason": "修改原因"
+        }}
+    ],
+    "summary": "本次修改的简要说明(50字以内)"
+}}
+```
+
+## 修订原则
+1. **精确定位**: 必须明确指出修改位置
+2. **最小变更**: 只修改用户要求的部分,保持其他内容不变
+3. **保持连贯**: 修改后的内容必须与上下文连贯
+4. **遵守原始要求**: 不得偏离原始创作参数
+
+现在,请根据用户修改意见生成修订指令。"""
+        return prompt
+
+    def _compress_revision_history(self, revision_history: List[Dict], max_rounds: int = 3) -> str:
+        """
+        压缩修订历史为摘要
+
+        策略:
+        - 仅保留最近max_rounds轮
+        - 每轮压缩为: "第N轮: 用户要求X → 修改了Y"
+        """
+        if not revision_history:
+            return "无历史修订"
+
+        recent = revision_history[-max_rounds:]
+        summaries = []
+        for rev in recent:
+            feedback = rev.get('user_feedback', '')[:30]
+            diff_instructions = rev.get('diff_instructions', '')
+            try:
+                diff_data = json.loads(
+                    diff_instructions) if diff_instructions else {}
+                summary = diff_data.get('summary', '已修改')
+            except:
+                summary = '已修改'
+
+            summary_text = f"第{rev['round_number']}轮: 用户要求'{feedback}...' → {summary}"
+            summaries.append(summary_text)
+
+        return "\n".join(summaries) if summaries else "无历史修订"
+
+    async def finalize_generation(
+        self,
+        db: AsyncSession,
+        generation_id: int,
+        final_content: str,
+        enable_knowledge_check: bool = True,
+        enable_self_reflection: bool = True
+    ) -> Dict[str, Any]:
+        """
+        最终确认生成内容,执行优化
+
+        流程:
+        1. 更新generation记录(is_finalized=True)
+        2. 如启用知识库检查:
+           - 调用_evaluate_with_llm验证内容
+           - 生成优化建议
+        3. 如启用自反思:
+           - 调用_evaluate_result评估质量
+           - 如需要优化,调用_reflect_and_retry生成改进版本
+        4. 返回最终内容
+        """
+        logger = self.logger
+
+        try:
+            # 1. 更新数据库
+            generation = await db.get(Generation, generation_id)
+            if not generation:
+                return {"success": False, "error": "Generation not found"}
+
+            generation.output_content = final_content
+            generation.is_finalized = True
+            await db.commit()
+
+            optimized_content = final_content
+            knowledge_issues = []
+            reflection_suggestions = []
+
+            # 2. 知识库验证(可选)
+            if enable_knowledge_check:
+                try:
+                    # TODO: 实现知识库验证逻辑
+                    # evaluation_result = await self._evaluate_with_llm(...)
+                    logger.info(
+                        "Knowledge check enabled (not yet implemented)")
+                except Exception as e:
+                    logger.error(f"Knowledge check failed: {e}")
+
+            # 3. 自反思优化(可选)
+            if enable_self_reflection:
+                try:
+                    # TODO: 实现自反思逻辑
+                    # reflection_result = await self._reflect_and_retry(...)
+                    logger.info(
+                        "Self-reflection enabled (not yet implemented)")
+                except Exception as e:
+                    logger.error(f"Self-reflection failed: {e}")
+
+            # 4. 更新最终内容
+            generation.output_content = optimized_content
+            await db.commit()
+
+            return {
+                "success": True,
+                "final_content": optimized_content,
+                "knowledge_issues": knowledge_issues,
+                "reflection_suggestions": reflection_suggestions
+            }
+
+        except Exception as e:
+            logger.error(f"Finalize generation failed: {e}")
+            return {"success": False, "error": str(e)}
 
 
 # 全局 Agent 编排器实例

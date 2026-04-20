@@ -133,6 +133,14 @@
           <el-icon><Download /></el-icon>
           下载全文
         </el-button>
+        <!-- 质控检测按钮 -->
+        <el-button
+          type="warning"
+          @click="showQualityControlVisualization = true"
+        >
+          <el-icon><Monitor /></el-icon>
+          质控检测
+        </el-button>
       </div>
     </div>
 
@@ -233,37 +241,6 @@
             </el-alert>
 
             <!-- 架构优化：移除生成模式选择器，固定使用direct模式 -->
-
-            <!-- AI文风消除配置 -->
-            <div class="ai-elimination-config">
-              <div class="config-header">
-                <span class="header-title">
-                  <el-icon><MagicStick /></el-icon>
-                  AI文风消除
-                </span>
-                <el-switch 
-                  v-model="taskForm.ai_elimination_enabled"
-                  @change="handleTaskAiEliminationChange"
-                />
-              </div>
-              <div class="config-content" v-if="taskForm.ai_elimination_enabled">
-                <div class="threshold-row">
-                  <span class="threshold-label">消除强度</span>
-                  <el-slider 
-                    v-model="taskForm.ai_elimination_threshold" 
-                    :min="0" 
-                    :max="100" 
-                    :step="10"
-                    :format-tooltip="(val) => `${val}%`"
-                    style="flex: 1; margin: 0 16px;"
-                  />
-                  <span class="threshold-value">{{ taskForm.ai_elimination_threshold }}%</span>
-                </div>
-                <el-text type="info" size="small">
-                  消除AI生成文本的机械感，使内容更接近自然人类写作风格
-                </el-text>
-              </div>
-            </div>
 
             <!-- 基本参数 -->
             <el-form :model="taskForm" label-width="80px" class="task-form">
@@ -1117,6 +1094,14 @@
       :unit-label="unitLabel"
     />
 
+    <!-- 实时质控仪表盘弹窗 (v2.0) -->
+    <RealtimeQualityControlDashboard
+      ref="realtimeQCDashboardRef"
+      v-model:visible="showQualityControlVisualization"
+      :project-id="projectId"
+      :units="writingStore.units"
+    />
+
     <!-- 项目设置弹窗 -->
     <el-dialog
       v-model="showSettingsDialog"
@@ -1143,6 +1128,47 @@
       </el-divider>
       
       <div class="style-settings-section">
+        <!-- 文风知识库选择 -->
+        <div class="style-library-section">
+          <div class="section-header">
+            <span class="section-title">文风知识库</span>
+            <el-tag v-if="selectedStyleIds.length > 0" type="success" size="small">
+              已选 {{ selectedStyleIds.length }} 种
+            </el-tag>
+          </div>
+          
+          <div class="style-library-content">
+            <div v-if="selectedStyleIds.length > 0" class="selected-styles">
+              <el-tag
+                v-for="(style, idx) in selectedStyleNames"
+                :key="idx"
+                closable
+                :type="idx === 0 ? '' : 'success'"
+                @close="removeSelectedStyle(idx)"
+                style="margin-right: 8px; margin-bottom: 8px;"
+              >
+                {{ idx === 0 ? '主' : '辅' }} · {{ style }}
+              </el-tag>
+              <div class="style-intensity-info">
+                <el-text type="info" size="small">
+                  风格强度: {{ Math.round(styleIntensity * 100) }}%
+                </el-text>
+              </div>
+            </div>
+            
+            <div v-else class="empty-style-selection">
+              <el-text type="info">
+                从61种经典文风中选择1-3种进行融合创作
+              </el-text>
+            </div>
+            
+            <el-button type="primary" plain @click="showStyleSelector = true" style="margin-top: 12px;">
+              <el-icon><Edit /></el-icon>
+              {{ selectedStyleIds.length > 0 ? '修改文风选择' : '选择写作风格' }}
+            </el-button>
+          </div>
+        </div>
+
         <!-- 风格文档上传 -->
         <div class="style-document-section">
           <div class="section-header">
@@ -1234,6 +1260,14 @@
         <el-button @click="showSettingsDialog = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 文风选择器对话框 -->
+    <StyleSelectorDialog
+      v-model:visible="showStyleSelector"
+      :initial-style-ids="selectedStyleIds"
+      :initial-intensity="styleIntensity"
+      @confirm="handleStyleSelectionConfirm"
+    />
 
     <!-- 风格文档详情弹窗 -->
     <el-dialog
@@ -1362,12 +1396,15 @@ import {
   Edit,
   Close,
   DataAnalysis,
+  Monitor,
 } from "@element-plus/icons-vue";
 
 // 导入子组件
 import ProjectSetupPanel from "./components/ProjectSetupPanel.vue";
 import KnowledgeGraphDialog from "./components/KnowledgeGraphDialog.vue";
 import ConsistencyReportDialog from "./components/ConsistencyReportDialog.vue";
+import RealtimeQualityControlDashboard from "./components/RealtimeQualityControlDashboard.vue";
+import StyleSelectorDialog from "./components/StyleSelectorDialog.vue";
 import ModelConfigPanel from "./ModelConfigPanel.vue";
 // 架构优化：移除 GenerationModeSelector 组件导入
 
@@ -1573,6 +1610,45 @@ const consistencyReportVisible = ref(false);
 // 项目设置弹窗
 const showSettingsDialog = ref(false);
 
+// 质控检测可视化弹窗（v2.0改为实时质控仪表盘）
+const showQualityControlVisualization = ref(false);
+const realtimeQCDashboardRef = ref(null);
+
+// 监听writingStore.units变化,同步质控状态到仪表盘
+// 注意: Dashboard组件内部也有自己的watch监听props.units
+// 这里的watch作为备用通道,主要处理Dashboard已打开时的实时推送
+watch(
+  () => {
+    // 使用getter返回包含QC信息的数组，确保响应式追踪可靠
+    return writingStore.units.map(u => ({
+      unit_index: u.unit_index,
+      quality_control: u.quality_control || null
+    }))
+  },
+  (mappedUnits) => {
+    const qcUnits = mappedUnits.filter(u => u.quality_control)
+    console.log('[WritingWorkbench] units变化, 总数:', mappedUnits.length, '有QC数据的:', qcUnits.length)
+    
+    if (realtimeQCDashboardRef.value) {
+      // 只同步有质控更新的单元
+      mappedUnits.forEach(({ unit_index, quality_control }) => {
+        if (quality_control) {
+          console.log('[WritingWorkbench] 同步单元质控到仪表盘:', unit_index, quality_control.status)
+          realtimeQCDashboardRef.value.updateUnitQC(
+            unit_index,
+            quality_control
+          )
+        }
+      })
+    } else if (qcUnits.length > 0) {
+      // Dashboard未挂载时,数据保留在store中
+      // 当Dashboard打开后,其onMounted钩子会从props.units初始化数据
+      console.log('[WritingWorkbench] Dashboard未挂载,', qcUnits.length, '个单元有质控数据(已保留在store中)')
+    }
+  },
+  { deep: true }
+)
+
 // 模型配置弹窗
 const showModelConfigDialog = ref(false);
 
@@ -1581,6 +1657,45 @@ const styleDocumentInfo = ref(null);
 const showStyleDocumentDetail = ref(false);
 const aiEliminationEnabled = ref(true);
 const aiEliminationThreshold = ref(50);
+
+// 文风选择器相关
+const showStyleSelector = ref(false);
+const selectedStyleIds = ref([]);
+const selectedStyleNames = ref([]);
+const styleIntensity = ref(0.7);
+const styleGuide = ref({});
+
+/**
+ * 处理文风选择确认
+ */
+function handleStyleSelectionConfirm(data) {
+  selectedStyleIds.value = data.styleIds || [];
+  selectedStyleNames.value = data.styleNames || [];
+  styleIntensity.value = data.intensity || 0.7;
+  styleGuide.value = data.styleGuide || {};
+  
+  ElMessage.success(`已选择 ${selectedStyleNames.value.length} 种文风: ${selectedStyleNames.value.join(' + ')}`);
+  
+  // 将文风配置保存到项目元数据中
+  console.log('文风配置:', {
+    styleIds: selectedStyleIds.value,
+    styleNames: selectedStyleNames.value,
+    intensity: styleIntensity.value,
+    styleGuide: styleGuide.value
+  });
+}
+
+/**
+ * 移除已选文风
+ */
+function removeSelectedStyle(index) {
+  selectedStyleIds.value.splice(index, 1);
+  selectedStyleNames.value.splice(index, 1);
+  
+  if (selectedStyleIds.value.length === 0) {
+    ElMessage.info('已清空文风选择');
+  }
+}
 
 // 计算属性：检查风格文档数据是否有效
 const hasStyleDocumentData = computed(() => {
@@ -1813,9 +1928,6 @@ const taskForm = ref({
     compliance: null,
     knowledge: null,
   },
-  // AI文风消除配置
-  ai_elimination_enabled: true,
-  ai_elimination_threshold: 50,
 });
 
 // ==================== Computed ====================
@@ -2251,6 +2363,12 @@ async function handleCreateTask() {
       agents: agentsConfig,
       agent_api_bases: taskForm.value.agent_api_bases,
       agent_api_keys: taskForm.value.agent_api_keys,
+      // 文风知识库配置
+      style_guide: {
+        style_library_guide: styleGuide.value || null,
+        writing_styles: selectedStyleIds.value.length > 0 ? selectedStyleIds.value : null,
+        style_intensity: styleIntensity.value !== 0.7 ? styleIntensity.value : null,
+      },
     },
   });
   if (task) {
@@ -2581,14 +2699,14 @@ async function handleExport() {
     const taskId = writingStore.currentTask?.id;
     if (!taskId) return;
 
-    const response = await writingTaskApi.exportTask(taskId, "txt");
+    const response = await writingTaskApi.exportTask(taskId, "md");
     const blob = new Blob([response.data || response], {
-      type: "text/plain;charset=utf-8",
+      type: "text/markdown;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `writing_task_${taskId}.txt`;
+    a.download = `writing_task_${taskId}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -4078,6 +4196,7 @@ watch(
   gap: 20px;
   padding: 0 4px;
   
+  .style-library-section,
   .style-document-section,
   .ai-elimination-section {
     .section-header {
@@ -4091,6 +4210,25 @@ watch(
         font-weight: 500;
         color: #303133;
       }
+    }
+  }
+  
+  .style-library-content {
+    padding: 12px 16px;
+    background: rgba(64, 158, 255, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(64, 158, 255, 0.15);
+    
+    .selected-styles {
+      margin-bottom: 8px;
+      
+      .style-intensity-info {
+        margin-top: 8px;
+      }
+    }
+    
+    .empty-style-selection {
+      padding: 8px 0;
     }
   }
   
@@ -4238,57 +4376,4 @@ watch(
   text-align: center;
 }
 
-// AI文风消除配置样式
-.ai-elimination-config {
-  margin-top: 16px;
-  padding: 14px 16px;
-  background: linear-gradient(135deg, #f0f9eb 0%, #fff 100%);
-  border-radius: 8px;
-  border: 1px solid rgba(103, 194, 58, 0.2);
-  
-  .config-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    
-    .header-title {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 14px;
-      font-weight: 500;
-      color: #303133;
-      
-      .el-icon {
-        color: #67c23a;
-      }
-    }
-  }
-  
-  .config-content {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px dashed #e4e7ed;
-    
-    .threshold-row {
-      display: flex;
-      align-items: center;
-      margin-bottom: 8px;
-      
-      .threshold-label {
-        font-size: 13px;
-        color: #606266;
-        min-width: 70px;
-      }
-      
-      .threshold-value {
-        font-size: 13px;
-        font-weight: 500;
-        color: #67c23a;
-        min-width: 40px;
-        text-align: right;
-      }
-    }
-  }
-}
 </style>

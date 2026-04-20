@@ -574,9 +574,51 @@ class VectorStore:
                 "internal error" in error_msg or
                     "error executing plan" in error_msg):
                 logger.warning(
-                    f"[向量库] 查询遇到内部错误，返回空结果: {collection_name}, error={str(e)[:100]}")
-                # 返回空结果而不是抛出异常
-                return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+                    f"[向量库] 查询遇到内部错误，尝试修复: {collection_name}, error={str(e)[:100]}")
+
+                # v2.3增强：尝试自动修复损坏的索引
+                try:
+                    # 1. 清除集合缓存
+                    self._clear_collection_cache(collection_name)
+                    logger.info(f"[向量库] 已清除集合缓存: {collection_name}")
+
+                    # 2. 清除ChromaDB系统级缓存（关键步骤：解决多进程/多实例数据不一致）
+                    try:
+                        # v2.3修复：确保_client已初始化
+                        if self._client is None:
+                            _ = self.client  # 通过property触发初始化
+                        
+                        if hasattr(self._client, 'clear_system_cache'):
+                            self._client.clear_system_cache()
+                            logger.info(f"[向量库] 已清除系统缓存: {collection_name}")
+                    except Exception as sys_cache_err:
+                        logger.debug(
+                            f"[向量库] clear_system_cache不可用: {sys_cache_err}")
+
+                    # 3. 重新获取集合
+                    collection = self.get_or_create_collection(collection_name)
+
+                    # 4. 检查集合状态
+                    doc_count = collection.count()
+                    logger.info(
+                        f"[向量库] 集合重建后文档数: {collection_name}, count={doc_count}")
+
+                    if doc_count == 0:
+                        logger.warning(f"[向量库] 集合重建后为空，返回空结果")
+                        return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+                    # 5. 重试查询
+                    logger.info(f"[向量库] 重试查询: {collection_name}")
+                    return collection.query(
+                        query_texts=query_texts,
+                        n_results=min(n_results, doc_count),
+                        where=where
+                    )
+                except Exception as repair_error:
+                    logger.error(
+                        f"[向量库] 自动修复失败，返回空结果: {collection_name}, error={str(repair_error)[:100]}")
+                    # 返回空结果而不是抛出异常
+                    return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
             else:
                 logger.error(f"[向量库] 查询失败: {collection_name}, error={str(e)}")
                 raise

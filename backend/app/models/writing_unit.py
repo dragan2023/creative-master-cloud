@@ -18,9 +18,10 @@
 版本: 1.0.0
 作者: AI Assistant
 """
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, Enum, JSON, UniqueConstraint
+from sqlalchemy import Column, String, Integer, ForeignKey, Text, Enum, JSON, UniqueConstraint, Float, DateTime
 from sqlalchemy.orm import relationship
 import enum
+from datetime import datetime
 
 from app.models.base import BaseModel
 
@@ -28,34 +29,49 @@ from app.models.base import BaseModel
 class UnitStatus(str, enum.Enum):
     """单元状态枚举"""
     PENDING = "pending"         # 等待中
-    STRUCTURING = "structuring" # 结构分析中
+    STRUCTURING = "structuring"  # 结构分析中
     PROCESSING = "processing"   # 内容生成中
     COMPLETED = "completed"     # 已完成
-    INTERRUPTED = "interrupted" # 已中断
+    INTERRUPTED = "interrupted"  # 已中断
 
 
 class WritingUnit(BaseModel):
     """写作单元表 - 存储文学作品生成的单元级任务"""
     __tablename__ = "writing_units"
     __table_args__ = (
-        UniqueConstraint('task_id', 'unit_index', name='uq_writing_units_task_unit'),
+        UniqueConstraint('task_id', 'unit_index',
+                         name='uq_writing_units_task_unit'),
     )
 
     # 注意：id, created_at, updated_at 由BaseModel提供（整数自增主键）
-    task_id = Column(Integer, ForeignKey("writing_tasks.id", ondelete="CASCADE"), nullable=False, comment="关联任务ID")
+    task_id = Column(Integer, ForeignKey("writing_tasks.id",
+                     ondelete="CASCADE"), nullable=False, comment="关联任务ID")
     unit_index = Column(Integer, nullable=False, comment="单元序号")
     unit_title = Column(String(200), nullable=True, comment="单元标题")
     unit_summary = Column(Text, nullable=True, comment="单元概述")
-    status = Column(Enum(UnitStatus), default=UnitStatus.PENDING, nullable=False, comment="单元状态")
+    status = Column(Enum(UnitStatus), default=UnitStatus.PENDING,
+                    nullable=False, comment="单元状态")
     scenes_data = Column(JSON, default=list, comment="结构师输出的场景列表JSON")
     final_content = Column(Text, nullable=True, comment="最终合成内容")
     word_count = Column(Integer, default=0, comment="字数统计")
     token_count = Column(Integer, default=0, comment="Token消耗统计")
     duration_ms = Column(Integer, default=0, comment="生成耗时(毫秒)")
 
+    # 质控相关字段 (v2.0新增 - 实时质控机制)
+    quality_control_status = Column(
+        String(50), default='pending', comment="质控状态: pending/running/completed/failed")
+    quality_control_report = Column(JSON, default=dict, comment="质控报告JSON")
+    quality_control_fixes = Column(JSON, default=list, comment="应用的修正列表JSON")
+    quality_control_score = Column(Float, default=0.0, comment="质控得分(0-100)")
+    quality_control_completed_at = Column(
+        DateTime, nullable=True, comment="质控完成时间")
+    original_content_before_fix = Column(
+        Text, nullable=True, comment="修正前的原始内容(用于撤销)")
+
     # 关联关系
     task = relationship("WritingTask", back_populates="units")
-    scenes = relationship("WritingScene", back_populates="unit", cascade="all, delete-orphan")
+    scenes = relationship(
+        "WritingScene", back_populates="unit", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<WritingUnit(id={self.id}, task_id={self.task_id}, index={self.unit_index}, status={self.status})>"

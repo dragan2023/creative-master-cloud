@@ -307,20 +307,27 @@ class NovelProject(BaseModel):
     #     "updated_at": "2024-..."
     # }
 
-    # 生成任务状态（用于页面刷新后恢复任务状态）
+    # ==================== 生成任务状态（DEPRECATED: 已迁移到WritingTask模型） ====================
+    # 以下字段已废弃，保留仅为向后兼容。新代码应使用WritingTask API查询任务进度。
+    # 迁移脚本: 019_migrate_generation_task_to_writing_task.py
     generation_task_type = Column(
-        String(50), nullable=True, comment="当前生成任务类型")
+        String(50), nullable=True, comment="[DEPRECATED] 当前生成任务类型，已迁移到WritingTask")
     generation_task_status = Column(
-        String(20), nullable=True, comment="生成任务状态(running/completed/cancelled/failed)")
-    generation_task_total = Column(Integer, default=0, comment="任务总数量")
-    generation_task_completed = Column(Integer, default=0, comment="已完成数量")
-    generation_task_failed = Column(Integer, default=0, comment="失败数量")
-    generation_task_skipped = Column(Integer, default=0, comment="跳过数量")
-    generation_task_current = Column(Integer, nullable=True, comment="当前处理项")
+        String(20), nullable=True, comment="[DEPRECATED] 生成任务状态，已迁移到WritingTask")
+    generation_task_total = Column(
+        Integer, default=0, comment="[DEPRECATED] 任务总数量，已迁移到WritingTask")
+    generation_task_completed = Column(
+        Integer, default=0, comment="[DEPRECATED] 已完成数量，已迁移到WritingTask")
+    generation_task_failed = Column(
+        Integer, default=0, comment="[DEPRECATED] 失败数量，已迁移到WritingTask")
+    generation_task_skipped = Column(
+        Integer, default=0, comment="[DEPRECATED] 跳过数量，已迁移到WritingTask")
+    generation_task_current = Column(
+        Integer, nullable=True, comment="[DEPRECATED] 当前处理项，已迁移到WritingTask")
     generation_task_started_at = Column(
-        String(50), nullable=True, comment="任务开始时间(ISO格式)")
+        String(50), nullable=True, comment="[DEPRECATED] 任务开始时间，已迁移到WritingTask")
     generation_task_updated_at = Column(
-        String(50), nullable=True, comment="任务更新时间(ISO格式)")
+        String(50), nullable=True, comment="[DEPRECATED] 任务更新时间，已迁移到WritingTask")
 
     # 关联关系
     user = relationship("User", back_populates="novel_projects")

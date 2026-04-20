@@ -80,6 +80,12 @@ const routes = [
         component: () => import('@/views/novel-writer/WritingWorkbench.vue'),
         meta: { title: '写作工作台' }
       },
+      {
+        path: 'novel-writer/:projectId/quality',
+        name: 'QualityAnalysis',
+        component: () => import('@/views/novel-writer/QualityAnalysis.vue'),
+        meta: { title: 'AI质量分析' }
+      },
       // 管理员后台路由
       {
         path: 'admin',

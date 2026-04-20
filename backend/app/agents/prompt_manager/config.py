@@ -307,6 +307,11 @@ MODULE_VARIABLES_CONFIG = {
                 "default": "",
                 "description": "章节数",
                 "required": True
+            },
+            "title_style_guidance": {
+                "default": "",
+                "description": "标题风格指导文本",
+                "required": False
             }
         }
     },

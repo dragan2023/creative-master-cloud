@@ -36,6 +36,8 @@ from . import chapters      # 章节管理端点
 from . import knowledge_base  # 知识库端点
 from . import style_document  # 风格文档端点
 from . import content       # 内容管理端点
+from . import quality_control  # 质量管控端点(旧版)
+from . import quality_control_v2  # 质量管控端点v2.0(LLM智能修正+反馈学习)
 
 # 从 task_manager 直接导出
 from app.services.task_manager import (

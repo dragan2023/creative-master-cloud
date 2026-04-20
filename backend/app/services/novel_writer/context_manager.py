@@ -11,6 +11,7 @@
 import os
 import json
 import re
+import asyncio
 import aiofiles
 from typing import Dict, Any, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,9 @@ from app.core.logger import get_logger
 from app.models import NovelProject, NovelChapter
 from app.services.novel_writer.vector_store import ProjectVectorStore
 from app.services.proofread.document_formatter import DocumentFormatter
+from app.services.novel_writer.semantic_compressor import SemanticCompressor
+from app.services.novel_writer.strategies.factory import get_strategy as get_context_strategy
+from app.services.novel_writer.strategies.base import ContextBuildStrategy
 
 # 知识库集成模块（可选，用于兼容旧代码）
 # TODO: 迁移到新的Writing Task系统后移除
@@ -58,36 +62,68 @@ class ContextWindowManager:
         self.vector_store = ProjectVectorStore()
         # 初始化文档格式化器
         self.formatter = DocumentFormatter(content_type="novel")
-        # 上下文压缩配置 - 已禁用，不再主动截断
-        # 让LLM自然处理超长内容
-        self.compression_threshold = None  # 禁用压缩阈值
-        self.target_compressed_length = None  # 禁用压缩目标
+        # 上下文压缩配置 - 分级语义压缩机制
+        # 当上下文总字符数超过阈值时，用LLM语义压缩替代粗暴截断
+        # 核心约束：禁止对global_outline/unit_summaries做字符串切片
+        self.compression_threshold = 10000  # 超过10000字符时触发压缩
+        self.target_compressed_length = 8000  # 压缩目标长度
+        self.semantic_compressor: SemanticCompressor = None  # 延迟初始化，需要llm_provider
 
-    def _compress_context(
+    def set_llm_provider(self, llm_provider):
+        """设置LLM提供者并初始化语义压缩器
+
+        Args:
+            llm_provider: LLM提供者实例
+        """
+        self.semantic_compressor = SemanticCompressor(
+            llm_provider=llm_provider,
+            max_context_chars=self.max_context_tokens * 2,  # 粗估：1 token ~ 2 字符
+            compression_threshold=self.compression_threshold
+        )
+        self.logger.info("语义压缩器已初始化")
+
+    async def _compress_context(
         self,
         context: Dict[str, Any],
         max_length: int = None
     ) -> Dict[str, Any]:
-        """
-        上下文压缩（已禁用）
+        """语义压缩：对超长字段用LLM摘要替代截断
 
-        不再主动截断，直接返回原始上下文，让LLM自然处理。
+        核心原则：
+        - 仅压缩"参考性"字段（前文摘要、向量检索结果等）
+        - 绝不压缩"指导性"字段（global_outline、unit_summaries、当前单元大纲等）
+        - 绝不使用字符串切片截断大纲/概述内容
+        - 当上下文总长度超过阈值时才触发压缩
 
         Args:
             context: 原始上下文字典
-            max_length: 最大允许长度（已忽略）
+            max_length: 最大允许长度（已忽略，由压缩阈值控制）
 
         Returns:
-            原始上下文字典（不做修改）
+            压缩后的上下文字典
         """
-        # 不再压缩，直接返回原始上下文
-        return context
+        if not self.semantic_compressor:
+            # 无压缩器时直接返回原始上下文（向后兼容）
+            return context
+
+        # 仅压缩可压缩的参考性字段
+        compressible_keys = [
+            "previous_content_summaries",
+            "short_summary",
+            "vector_context",
+            "global_summary",
+        ]
+
+        return await self.semantic_compressor.compress_context_dict(
+            context, compressible_keys=compressible_keys
+        )
 
     def _smart_truncate(self, text: str, max_len: int) -> str:
-        """
-        智能截断（已禁用）
+        """智能截断（已重构为安全占位方法）
 
-        不再主动截断，直接返回原始文本。
+        核心约束：禁止对正文生成结果做截断处理。
+        此方法保留仅为向后兼容，实际不再执行截断。
+        对于前文摘要等需要精简的场景，使用SemanticCompressor替代。
 
         Args:
             text: 原始文本
@@ -96,7 +132,8 @@ class ContextWindowManager:
         Returns:
             原始文本（不做截断）
         """
-        # 不再截断，直接返回原始文本
+        # 核心约束：禁止截断，直接返回原始文本
+        # 如需压缩前文摘要等参考性内容，请使用SemanticCompressor
         return text
 
     async def build_chapter_context(
@@ -105,8 +142,12 @@ class ContextWindowManager:
         chapter_num: int,
         chapter_metadata: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        构建章节生成上下文
+        """构建章节生成上下文（并行化优化版）
+
+        将10步串行IO改为asyncio.gather并行执行：
+        - 第一组：独立的IO操作并行执行（摘要/角色/近章/向量/知识库/大纲元信息）
+        - 第二组：依赖第一组结果的后续操作（单元摘要/当前大纲/剧集大纲）
+        - 第三组：上下文压缩
 
         Args:
             project: 项目对象
@@ -136,31 +177,54 @@ class ContextWindowManager:
         }
 
         try:
-            # 1. 获取前文摘要
-            context["global_summary"] = await self._get_summary(project)
+            # ========== 第一组：独立的IO操作并行执行 ==========
+            # 这6个操作互相独立，可以同时执行，预计提速3-5倍
+            results = await asyncio.gather(
+                self._get_summary(project),                           # 1. 前文摘要
+                self._get_character_state(project),                   # 2. 角色状态
+                self._get_recent_chapters(project, chapter_num),      # 3. 近章内容
+                self._get_vector_context(
+                    project, chapter_metadata, chapter_num),         # 4. 向量检索
+                self._get_knowledge_context(
+                    project, chapter_metadata),                      # 5. 知识库
+                self._get_outline_metadata(
+                    project),                  # 6. 大纲元信息
+                return_exceptions=True
+            )
 
-            # 2. 获取角色状态
-            context["character_state"] = await self._get_character_state(project)
-
-            # 3. 获取最近章节内容（滑动窗口）
-            recent_context = await self._get_recent_chapters(project, chapter_num)
+            # 处理并行结果，异常项降级为空字符串/空字典
+            context["global_summary"] = (
+                results[0] if not isinstance(results[0], Exception) else ""
+            )
+            context["character_state"] = (
+                results[1] if not isinstance(results[1], Exception) else ""
+            )
+            recent_context = (
+                results[2] if not isinstance(results[2], Exception) else {
+                    "endings": "", "summary": ""}
+            )
             context["previous_scene_ending"] = recent_context.get(
                 "endings", "")
             context["short_summary"] = recent_context.get("summary", "")
-
-            # 4. 获取向量检索相关内容
-            context["vector_context"] = await self._get_vector_context(
-                project, chapter_metadata, chapter_num
+            context["vector_context"] = (
+                results[3] if not isinstance(results[3], Exception) else ""
+            )
+            context["knowledge_context"] = (
+                results[4] if not isinstance(results[4], Exception) else ""
+            )
+            context["outline_metadata"] = (
+                results[5] if not isinstance(results[5], Exception) else ""
             )
 
-            # 5. 获取知识库内容（如果配置了）
-            context["knowledge_context"] = await self._get_knowledge_context(
-                project, chapter_metadata
-            )
+            # 记录并行执行中的异常
+            names = ["前文摘要", "角色状态", "近章内容", "向量检索", "知识库", "大纲元信息"]
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    self.logger.warning(
+                        f"并行获取{names[i] if i < len(names) else '未知'}失败: {result}"
+                    )
 
-            # 6. 获取大纲元信息（不再嵌入完整大纲）
-            context["outline_metadata"] = await self._get_outline_metadata(project)
-
+            # ========== 第二组：依赖第一组结果的后续操作 ==========
             # 7. 构建单元摘要上下文（重构核心：替代完整大纲嵌入）
             content_type = getattr(project, 'content_type', 'novel')
             unit_summaries = await self._build_unit_summaries(project, chapter_num, content_type, chapter_metadata)
@@ -186,6 +250,10 @@ class ContextWindowManager:
                 context["previous_episodes_summary"] = await self._get_previous_episodes_summary(
                     project, episode_num
                 )
+
+            # ========== 第三组：上下文压缩 ==========
+            # 11. 分级语义压缩（仅压缩参考性字段，不压缩大纲/概述）
+            context = await self._compress_context(context)
 
             return context
 
@@ -1442,32 +1510,52 @@ class ContextWindowManager:
         }
 
         try:
-            # 1. 获取前文摘要（全局摘要）
-            context["global_summary"] = await self._get_summary(project)
+            # ========== 第一组：独立的IO操作并行执行 ==========
+            episode_metadata = {"episode_number": episode_number}
+            results = await asyncio.gather(
+                # 1. 前文摘要
+                self._get_summary(project),
+                # 2. 角色状态
+                self._get_character_state(project),
+                self._get_recent_episodes(
+                    project, episode_number),              # 3. 近集内容
+                self._get_vector_context(
+                    project, episode_metadata, episode_number),                 # 4. 向量检索
+                self._get_knowledge_context(
+                    project, episode_metadata),         # 5. 知识库
+                # 6. 大纲元信息
+                self._get_outline_metadata(project),
+                return_exceptions=True
+            )
 
-            # 2. 获取角色状态
-            context["character_states"] = await self._get_character_state(project)
-
-            # 3. 获取最近集数内容（滑动窗口，适配剧集）
-            recent_context = await self._get_recent_episodes(project, episode_number)
+            # 处理并行结果
+            context["global_summary"] = results[0] if not isinstance(
+                results[0], Exception) else ""
+            context["character_states"] = results[1] if not isinstance(
+                results[1], Exception) else ""
+            recent_context = results[2] if not isinstance(results[2], Exception) else {
+                "endings": "", "summary": ""}
             context["previous_scene_ending"] = recent_context.get(
                 "endings", "")
             context["short_summary"] = recent_context.get("summary", "")
+            context["vector_context"] = results[3] if not isinstance(
+                results[3], Exception) else ""
+            context["knowledge_context"] = results[4] if not isinstance(
+                results[4], Exception) else ""
+            outline_meta = results[5] if not isinstance(
+                results[5], Exception) else ""
+            context["outline_metadata"] = outline_meta
+            context["outline_content"] = outline_meta  # 兼容旧字段
 
-            # 4. 获取向量检索相关内容
-            context["vector_context"] = await self._get_vector_context(
-                project, {"episode_number": episode_number}, episode_number
-            )
+            # 记录并行执行中的异常
+            ep_names = ["前文摘要", "角色状态", "近集内容", "向量检索", "知识库", "大纲元信息"]
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    self.logger.warning(
+                        f"并行获取{ep_names[i] if i < len(ep_names) else '未知'}失败: {result}"
+                    )
 
-            # 5. 获取知识库内容
-            context["knowledge_context"] = await self._get_knowledge_context(
-                project, {"episode_number": episode_number}
-            )
-
-            # 6. 获取大纲元信息
-            context["outline_metadata"] = await self._get_outline_metadata(project)
-            context["outline_content"] = context["outline_metadata"]  # 兼容旧字段
-
+            # ========== 第二组：依赖第一组结果的后续操作 ==========
             # 7. 获取当前分集详细大纲
             context["episode_outline"] = await self._get_episode_outline(project, episode_number)
 
@@ -1481,16 +1569,19 @@ class ContextWindowManager:
                 project, episode_number, "series_script"
             )
 
-            # 9. 获取当前单元大纲（用于提示词模板中的 current_unit_outline 变量）
+            # 9. 获取当前单元大纲
             context["current_unit_outline"] = await self._get_current_unit_outline(
-                project, episode_number, {"episode_number": episode_number}
+                project, episode_number, episode_metadata
             )
 
             # 10. 获取单元大纲摘要
             context["unit_outline_summary"] = await self._get_current_unit_outline_summary(
-                project, episode_number, "series_script", {
-                    "episode_number": episode_number}
+                project, episode_number, "series_script", episode_metadata
             )
+
+            # ========== 第三组：上下文压缩 ==========
+            # 11. 分级语义压缩（仅压缩参考性字段，不压缩大纲/概述）
+            context = await self._compress_context(context)
 
             return context
 
@@ -1665,31 +1756,50 @@ class ContextWindowManager:
         }
 
         try:
-            # 1. 获取前文摘要（全局摘要）
-            context["global_summary"] = await self._get_summary(project)
+            # ========== 第一组：独立的IO操作并行执行 ==========
+            scene_metadata = {"scene_number": scene_number}
+            results = await asyncio.gather(
+                # 1. 前文摘要
+                self._get_summary(project),
+                # 2. 角色状态
+                self._get_character_state(project),
+                self._get_recent_scenes(
+                    project, scene_number),                  # 3. 近场景内容
+                self._get_vector_context(
+                    project, scene_metadata, scene_number),                     # 4. 向量检索
+                self._get_knowledge_context(
+                    project, scene_metadata),           # 5. 知识库
+                # 6. 故事大纲
+                self._get_outline_content(project),
+                return_exceptions=True
+            )
 
-            # 2. 获取角色状态
-            context["character_states"] = await self._get_character_state(project)
-
-            # 3. 获取最近场景内容（滑动窗口，适配电影）
-            recent_context = await self._get_recent_scenes(project, scene_number)
+            # 处理并行结果
+            context["global_summary"] = results[0] if not isinstance(
+                results[0], Exception) else ""
+            context["character_states"] = results[1] if not isinstance(
+                results[1], Exception) else ""
+            recent_context = results[2] if not isinstance(results[2], Exception) else {
+                "endings": "", "summary": ""}
             context["previous_scene_ending"] = recent_context.get(
                 "endings", "")
             context["short_summary"] = recent_context.get("summary", "")
+            context["vector_context"] = results[3] if not isinstance(
+                results[3], Exception) else ""
+            context["knowledge_context"] = results[4] if not isinstance(
+                results[4], Exception) else ""
+            context["outline_content"] = results[5] if not isinstance(
+                results[5], Exception) else ""
 
-            # 4. 获取向量检索相关内容
-            context["vector_context"] = await self._get_vector_context(
-                project, {"scene_number": scene_number}, scene_number
-            )
+            # 记录并行执行中的异常
+            sc_names = ["前文摘要", "角色状态", "近场景内容", "向量检索", "知识库", "故事大纲"]
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    self.logger.warning(
+                        f"并行获取{sc_names[i] if i < len(sc_names) else '未知'}失败: {result}"
+                    )
 
-            # 5. 获取知识库内容
-            context["knowledge_context"] = await self._get_knowledge_context(
-                project, {"scene_number": scene_number}
-            )
-
-            # 6. 获取故事大纲
-            context["outline_content"] = await self._get_outline_content(project)
-
+            # ========== 第二组：依赖第一组结果的后续操作 ==========
             # 7. 获取当前场景详细大纲
             context["scene_outline"] = await self._get_scene_outline(project, scene_number)
 
@@ -1698,16 +1808,19 @@ class ContextWindowManager:
                 project, scene_number
             )
 
-            # 9. 获取当前单元大纲（用于提示词模板中的 current_unit_outline 变量）
+            # 9. 获取当前单元大纲
             context["current_unit_outline"] = await self._get_current_unit_outline(
-                project, scene_number, {"scene_number": scene_number}
+                project, scene_number, scene_metadata
             )
 
             # 10. 获取单元大纲摘要
             context["unit_outline_summary"] = await self._get_current_unit_outline_summary(
-                project, scene_number, "movie_script", {
-                    "scene_number": scene_number}
+                project, scene_number, "movie_script", scene_metadata
             )
+
+            # ========== 第三组：上下文压缩 ==========
+            # 11. 分级语义压缩（仅压缩参考性字段，不压缩大纲/概述）
+            context = await self._compress_context(context)
 
             return context
 

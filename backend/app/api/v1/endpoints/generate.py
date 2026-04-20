@@ -34,7 +34,7 @@ from app.schemas.generation import (
     GenerateRequest, GenerateResponse, SessionCreateResponse,
     UserActionCreate, UserActionResponse, ActionStatsResponse,
     GenerationHistoryResponse, OptimizeRequest, OptimizeResponse,
-    OriginalIPInput
+    OriginalIPInput, RevisionRequest, FinalizeRequest, UnitSummariesQCRequest
 )
 from app.schemas.common import ResponseModel
 from app.models import User, Generation, GenerationModule, GenerationStatus, UserAction
@@ -86,6 +86,86 @@ def parse_kb_ids(ids_str: Optional[str]) -> Optional[List[int]]:
     except ValueError:
         logger.warning(f"无效的知识库ID字符串: {ids_str}")
         return None
+
+
+@router.get("/latest/{module}")
+async def get_latest_generation(
+    module: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取用户最近的生成记录(通用API,适用于所有模块)
+
+    用于在前端页面加载时恢复上次的生成状态。
+    """
+    from app.utils.generation_state_manager import GenerationStateManager
+
+    try:
+        state = await GenerationStateManager.get_latest_generation(
+            db, current_user.id, module, days=7
+        )
+
+        return ResponseModel(success=True, data=state)
+
+    except ValidationException:
+        raise
+    except Exception as e:
+        logger.error(f"获取最近生成记录失败: {str(e)}")
+        raise GenerationException(f"获取失败: {str(e)}")
+
+
+@router.get("/{generation_id}/restore")
+async def restore_generation(
+    generation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    恢复指定的生成记录
+
+    返回完整的生成状态,包括修订历史等。
+    """
+    from app.models.generation import Generation
+    from sqlalchemy import select
+
+    try:
+        stmt = select(Generation).where(
+            Generation.id == generation_id,
+            Generation.user_id == current_user.id
+        )
+
+        result = await db.execute(stmt)
+        generation = result.scalar_one_or_none()
+
+        if not generation:
+            raise ValidationException("生成记录不存在")
+
+        return ResponseModel(
+            success=True,
+            data={
+                "id": generation.id,
+                "title": generation.title,
+                "module": generation.module.value,
+                "status": generation.status.value,
+                "outline_stage": generation.outline_stage,
+                "global_outline_content": generation.global_outline_content,
+                "unit_summaries_content": generation.unit_summaries_content,
+                "revision_messages": generation.revision_messages,
+                "revision_count": generation.revision_count,
+                "is_finalized": generation.is_finalized,
+                "output_content": generation.output_content,
+                "created_at": generation.created_at.isoformat(),
+                "updated_at": generation.updated_at.isoformat(),
+                "input_params": generation.input_params
+            }
+        )
+
+    except ValidationException:
+        raise
+    except Exception as e:
+        logger.error(f"恢复生成记录失败: {str(e)}")
+        raise GenerationException(f"恢复失败: {str(e)}")
 
 
 @router.post("/cancel/{session_id}")
@@ -199,17 +279,39 @@ async def upload_file(
         file_type = 'document'
         max_size = settings.MAX_DOC_SIZE
     else:
-        # 尝试通过文件扩展名判断
+        # 尝试通过文件扩展名判断（优先于 MIME 类型）
         original_ext = os.path.splitext(file.filename)[
             1].lower() if file.filename else ""
         if original_ext in ALLOWED_DOC_EXTENSIONS:
             file_ext = original_ext
             file_type = 'document'
             max_size = settings.MAX_DOC_SIZE
+        elif content_type == "application/octet-stream":
+            # 对于 application/octet-stream，尝试通过扩展名判断
+            original_ext = os.path.splitext(file.filename)[
+                1].lower() if file.filename else ""
+            if original_ext in ALLOWED_DOC_EXTENSIONS:
+                file_ext = original_ext
+                file_type = 'document'
+                max_size = settings.MAX_DOC_SIZE
+            elif original_ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"]:
+                # 检查是否是图片扩展名
+                for mime_type, ext in ALLOWED_IMAGE_TYPES.items():
+                    if ext == original_ext or (original_ext == ".jpeg" and ext == ".jpg"):
+                        file_ext = ext
+                        file_type = 'image'
+                        max_size = settings.MAX_IMAGE_SIZE
+                        break
+            else:
+                logger.warning(
+                    f"[上传] 不支持的文件类型: {content_type}, 扩展名: {original_ext}")
+                raise ValidationException(
+                    f"不支持的文件类型: {original_ext}。支持图片(png/jpg/gif/webp)或文档(txt/md/doc/docx/pdf)，最大{int(settings.MAX_DOC_SIZE / 1024 / 1024)}MB"
+                )
         else:
             logger.warning(f"[上传] 不支持的文件类型: {content_type or original_ext}")
             raise ValidationException(
-                f"不支持的文件类型: {content_type or original_ext}。支持图片(png/jpg/gif/webp)或文档(txt/md/doc/docx/pdf)，最大{int(settings.MAX_IMAGE_SIZE / 1024 / 1024)}MB"
+                f"不支持的文件类型: {content_type or original_ext}。支持图片(png/jpg/gif/webp)或文档(txt/md/doc/docx/pdf)，最大{int(settings.MAX_DOC_SIZE / 1024 / 1024)}MB"
             )
 
     # 检查文件大小
@@ -244,6 +346,138 @@ async def upload_file(
         "size": len(content),
         "file_type": file_type
     })
+
+
+@router.post("/upload-outline-import")
+async def upload_outline_for_import(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    上传大纲文件用于导入（解析文件内容并返回）
+
+    支持格式：.txt, .md, .docx, .doc
+
+    Args:
+        file: 上传的大纲文件
+
+    Returns:
+        文件内容文本
+    """
+    from app.core.config import get_settings
+    from app.tools.file_parser import parse_document_file
+
+    settings = get_settings()
+
+    logger.info(
+        f"[导入大纲上传] 开始处理文件上传: filename={file.filename}, content_type={file.content_type}")
+
+    # 验证文件类型
+    allowed_extensions = ['.txt', '.md', '.docx', '.doc']
+    original_ext = os.path.splitext(file.filename)[
+        1].lower() if file.filename else ""
+
+    if original_ext not in allowed_extensions:
+        logger.warning(f"[导入大纲上传] 不支持的文件类型: {original_ext}")
+        raise ValidationException(
+            f"不支持的文件类型: {original_ext}。支持 .txt, .md, .docx, .doc 格式"
+        )
+
+    # 检查文件大小（使用配置的最大文档大小）
+    content = await file.read()
+    max_size = settings.MAX_DOC_SIZE
+    if len(content) > max_size:
+        raise ValidationException(
+            f"文件大小超过限制（最大{int(max_size / 1024 / 1024)}MB）")
+
+    try:
+        # 解析文件内容
+        text_content = await parse_document_file(file.filename, content)
+
+        if not text_content or not text_content.strip():
+            raise ValidationException("文件内容为空")
+
+        logger.info(
+            f"[导入大纲上传] 文件上传并解析成功: filename={file.filename}, content_length={len(text_content)}")
+
+        return ResponseModel(data={
+            "content": text_content,
+            "file_name": file.filename,
+            "file_type": original_ext,
+            "size": len(content)
+        })
+
+    except ValidationException:
+        raise
+    except Exception as e:
+        logger.error(f"[导入大纲上传] 文件解析失败: {str(e)}")
+        raise ValidationException(f"文件解析失败: {str(e)}")
+
+
+@router.post("/upload-unit-summaries-import")
+async def upload_unit_summaries_for_import(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    上传单元概述文件用于导入
+
+    支持格式：.txt, .md, .docx, .doc
+
+    Args:
+        file: 上传的单元概述文件
+
+    Returns:
+        文件内容文本
+    """
+    from app.core.config import get_settings
+    from app.tools.file_parser import parse_document_file
+
+    settings = get_settings()
+
+    logger.info(
+        f"[导入单元概述上传] 开始处理文件上传: filename={file.filename}, content_type={file.content_type}")
+
+    # 验证文件类型
+    allowed_extensions = ['.txt', '.md', '.docx', '.doc']
+    original_ext = os.path.splitext(file.filename)[
+        1].lower() if file.filename else ""
+
+    if original_ext not in allowed_extensions:
+        logger.warning(f"[导入单元概述上传] 不支持的文件类型: {original_ext}")
+        raise ValidationException(
+            f"不支持的文件类型: {original_ext}。支持 .txt, .md, .docx, .doc 格式"
+        )
+
+    # 检查文件大小（使用配置的最大文档大小）
+    content = await file.read()
+    max_size = settings.MAX_DOC_SIZE
+    if len(content) > max_size:
+        raise ValidationException(
+            f"文件大小超过限制（最大{int(max_size / 1024 / 1024)}MB）")
+
+    try:
+        # 解析文件内容
+        text_content = await parse_document_file(file.filename, content)
+
+        if not text_content or not text_content.strip():
+            raise ValidationException("文件内容为空")
+
+        logger.info(
+            f"[导入单元概述上传] 文件上传并解析成功: filename={file.filename}, content_length={len(text_content)}")
+
+        return ResponseModel(data={
+            "content": text_content,
+            "file_name": file.filename,
+            "file_type": original_ext,
+            "size": len(content)
+        })
+
+    except ValidationException:
+        raise
+    except Exception as e:
+        logger.error(f"[导入单元概述上传] 文件解析失败: {str(e)}")
+        raise ValidationException(f"文件解析失败: {str(e)}")
 
 
 @router.post("/upload/multiple")
@@ -375,6 +609,8 @@ async def _create_streaming_endpoint(
     """
     通用流式生成端点工厂 - 消除8个端点的重复代码
 
+    已集成状态持久化: 自动保存生成状态到数据库
+
     Args:
         module: 模块名称 (short_video, script, novel, print_ad, tvc, original_ip)
         input_params: 输入参数字典
@@ -399,6 +635,37 @@ async def _create_streaming_endpoint(
     Returns:
         StreamingResponse: 流式响应
     """
+    from app.models.generation import Generation, GenerationModule, GenerationStatus
+    from app.utils.generation_state_manager import GenerationStateManager
+
+    # 映射模块名称到枚举
+    module_map = {
+        'short_video': GenerationModule.SHORT_VIDEO,
+        'script': GenerationModule.SCRIPT,
+        'novel': GenerationModule.NOVEL,
+        'print_ad': GenerationModule.PRINT_AD,
+        'tvc': GenerationModule.TVC,
+        'original_ip': GenerationModule.ORIGINAL_IP
+    }
+
+    module_enum = module_map.get(module, GenerationModule.SHORT_VIDEO)
+
+    # 创建Generation记录
+    generation = Generation(
+        user_id=user_id,
+        module=module_enum,
+        status=GenerationStatus.PROCESSING,
+        input_params=input_params,
+        title=input_params.get('title', input_params.get(
+            'ip_description', '未命名生成'))[:100],
+        current_stage='generating'
+    )
+    db.add(generation)
+    await db.commit()
+    await db.refresh(generation)
+
+    state_manager = GenerationStateManager(db, generation.id)
+
     orchestrator = get_agent_orchestrator()
 
     # 创建内存取消事件（实现立即中断）
@@ -406,8 +673,19 @@ async def _create_streaming_endpoint(
     if session_id:
         cancel_tokens[session_id] = cancel_event
 
+    # 用于收集完整内容
+    content_buffer = []
+    has_error = False  # 标记是否有异常发生
+
     async def event_generator():
         try:
+            # 保存“生成中”状态
+            await state_manager.save_stage(
+                stage='generating',
+                stage_data={'progress': 0},
+                status=GenerationStatus.PROCESSING
+            )
+
             async for chunk in orchestrator.generate_stream(
                 db=db,
                 module=module,
@@ -433,12 +711,86 @@ async def _create_streaming_endpoint(
                 # 优先检查内存事件（立即中断）
                 if cancel_event.is_set():
                     logger.info(f"生成任务被立即取消: {session_id}")
+                    # 保存“已取消”状态
+                    try:
+                        await state_manager.save_stage(
+                            stage='generating',
+                            stage_data={
+                                'partial_content': ''.join(content_buffer),
+                                'cancelled': True
+                            },
+                            status=GenerationStatus.CANCELLED
+                        )
+                    except Exception as e:
+                        logger.error(f"保存取消状态失败: {e}")
                     break
                 # 同时检查 Redis（多 worker 兼容）
                 if await is_cancelled(session_id):
                     logger.info(f"生成任务被取消(Redis): {session_id}")
+                    # 保存“已取消”状态
+                    try:
+                        await state_manager.save_stage(
+                            stage='generating',
+                            stage_data={
+                                'partial_content': ''.join(content_buffer),
+                                'cancelled': True
+                            },
+                            status=GenerationStatus.CANCELLED
+                        )
+                    except Exception as e:
+                        logger.error(f"保存取消状态失败: {e}")
                     break
+
                 yield chunk
+
+                # 累积内容
+                try:
+                    if chunk.startswith('event: content\ndata: '):
+                        import json
+                        json_str = chunk.split('data: ', 2)[1].strip()
+                        if json_str:
+                            content_data = json.loads(json_str)
+                            text = content_data.get('text', '')
+                            content_buffer.append(text)
+
+                            # 定期保存进度和内容(每500字符保存一次)
+                            total_length = sum(len(t) for t in content_buffer)
+                            if total_length > 0 and total_length % 500 < len(text):
+                                try:
+                                    await state_manager.save_stage(
+                                        stage='generating',
+                                        stage_data={
+                                            # 假设5000字符完成
+                                            'progress': min(total_length / 5000, 1.0),
+                                            'partial_content': ''.join(content_buffer)
+                                        },
+                                        status=GenerationStatus.PROCESSING
+                                    )
+                                except Exception as save_err:
+                                    # 保存失败不影响生成
+                                    pass
+                except Exception as parse_err:
+                    logger.debug(f"解析chunk失败: {parse_err}")
+
+        except asyncio.CancelledError:
+            logger.info(f"生成任务被取消: {session_id}")
+            has_error = True  # 标记有异常
+            raise
+        except Exception as e:
+            logger.error(f"生成任务失败: {e}")
+            has_error = True  # 标记有异常
+            # 保存“失败”状态
+            try:
+                await state_manager.save_stage(
+                    stage='generating',
+                    stage_data={
+                        'partial_content': ''.join(content_buffer),
+                        'error': str(e)[:500]
+                    },
+                    status=GenerationStatus.FAILED
+                )
+            except Exception as save_error:
+                logger.error(f"保存失败状态失败: {save_error}")
         finally:
             # 清理取消令牌
             if session_id and session_id in cancel_tokens:
@@ -447,6 +799,20 @@ async def _create_streaming_endpoint(
             if session_id:
                 cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
                 await redis_manager.delete(cancel_key)
+
+            # 如果内容完整且没有异常，保存“完成”状态
+            if content_buffer and not has_error:
+                try:
+                    await state_manager.save_stage(
+                        stage='completed',
+                        stage_data={
+                            'content': ''.join(content_buffer),
+                            'progress': 1.0
+                        },
+                        status=GenerationStatus.COMPLETED
+                    )
+                except Exception as e:
+                    logger.error(f"保存完成状态失败: {e}")
 
     return StreamingResponse(
         event_generator(),
@@ -1250,7 +1616,18 @@ class GlobalOutlineRequest(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     temperature: float = 0.7
-    enable_knowledge: bool = True  # 是否启用知识库修正
+    enable_knowledge: bool = False  # 是否启用知识库修正（默认False，由用户主动控制）
+    enable_auto_qc: bool = False  # v2.3新增：是否启用自动质控修正（默认False，由用户主动控制）
+
+    # 文风参数（可选）
+    style_ids: Optional[List[str]] = []
+    style_names: Optional[List[str]] = []
+    style_intensity: Optional[float] = 0.7
+    style_guide: Optional[Dict[str, Any]] = None
+
+    # 标题风格参数（可选，新增）
+    title_style: Optional[str] = None
+    title_style_name: Optional[str] = None
 
 
 class UnitSummariesRequest(BaseModel):
@@ -1263,7 +1640,16 @@ class UnitSummariesRequest(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     temperature: float = 0.7
-    enable_logic_check: bool = True  # 是否启用逻辑修正
+    enable_quality_control: bool = True  # 是否启用质量管控
+
+    # 续生成参数（可选）
+    existing_content: Optional[str] = None  # 已生成的内容
+    existing_parsed: Optional[Dict[str, Any]] = None  # 已解析的单元数据
+    start_from_unit: int = 1  # 从第几章开始续生成（默认1表示全新生成）
+
+    # 标题风格参数（可选，新增）
+    title_style: Optional[str] = None
+    title_style_name: Optional[str] = None
 
 
 class LogicCheckRequest(BaseModel):
@@ -1297,7 +1683,12 @@ async def generate_global_outline(
             model=data.model,
             temperature=data.temperature,
             user_id=current_user.id,
-            enable_knowledge=data.enable_knowledge
+            enable_knowledge=data.enable_knowledge,
+            # 文风参数
+            style_ids=data.style_ids or [],
+            style_names=data.style_names or [],
+            style_intensity=data.style_intensity or 0.7,
+            style_guide=data.style_guide
         )
 
         if result["success"]:
@@ -1321,6 +1712,233 @@ async def generate_global_outline(
         raise GenerationException(f"生成失败: {str(e)}")
 
 
+@router.post("/outline/global/revise")
+async def revise_global_outline_with_knowledge(
+    data: GlobalOutlineRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    对全局大纲执行知识库修正（用户确认后调用）
+
+    此API在全局大纲生成完成后，由用户审核确认后再执行知识库修正。
+    这样可以确保知识库修正是基于用户最终确认的大纲内容进行的。
+    已集成状态持久化：自动保存修正后的大纲内容
+    """
+    from app.models.generation import Generation, GenerationModule, GenerationStatus
+    from app.utils.generation_state_manager import GenerationStateManager
+
+    try:
+        # 1. 查找最近的generation记录
+        module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+        state = await GenerationStateManager.get_latest_generation(
+            db, current_user.id, module_enum.value, days=7
+        )
+
+        state_manager = None
+        if state:
+            state_manager = GenerationStateManager(db, state['id'])
+
+        generator = get_outline_generator(db)
+
+        # 2. 获取LLM provider
+        llm_provider = await generator.llm_manager.get_provider_from_db(
+            db, current_user.id, data.provider
+        )
+        if not llm_provider:
+            raise ValueError(f"未找到LLM提供商: {data.provider}")
+
+        # 3. 执行知识库修正
+        revised_content = await generator._revise_with_knowledge_base(
+            llm_provider=llm_provider,
+            original_content=data.input_params.get('existing_outline', ''),
+            input_params=data.input_params,
+            temperature=data.temperature,
+            db=db,
+            user_id=current_user.id,
+            content_type=data.content_type
+        )
+
+        # 4. 更新状态
+        if state_manager and revised_content:
+            try:
+                stage_data = state.get('stage_data', {})
+                stage_data['global_outline'] = revised_content
+
+                await state_manager.save_stage(
+                    stage='knowledge_revising',
+                    stage_data=stage_data,
+                    status=GenerationStatus.PROCESSING
+                )
+            except Exception as save_err:
+                logger.error(f"保存知识库修正状态失败: {save_err}")
+
+        if revised_content:
+            logger.info(f"用户 {current_user.id} 全局大纲知识库修正完成")
+            return ResponseModel(
+                success=True,
+                data={
+                    "revised_content": revised_content,
+                    "message": "知识库优化完成"
+                }
+            )
+        else:
+            return ResponseModel(
+                success=True,
+                data={
+                    "revised_content": data.input_params.get('existing_outline', ''),
+                    "message": "知识库验证通过，无需修正"
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"全局大纲知识库修正失败: {str(e)}")
+        raise GenerationException(f"知识库修正失败: {str(e)}")
+
+
+class GlobalOutlineReviseRequest(BaseModel):
+    """全局大纲流式修订请求"""
+    content_type: str  # novel/script
+    current_content: str  # 当前大纲内容
+    user_feedback: str  # 用户修改意见
+    revision_history: Optional[List[Dict[str, Any]]] = []  # 修订历史
+    input_params: Optional[Dict[str, Any]] = {}
+    provider: Optional[str] = None
+    temperature: float = 0.7
+
+
+@router.post("/outline/global/revise-stream")
+async def revise_global_outline_stream(
+    data: GlobalOutlineReviseRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    流式修订全局大纲（多轮对话）
+
+    用户可以对全局大纲进行多轮对话修正，LLM流式输出修订后的内容。
+    """
+    from app.utils.generation_state_manager import GenerationStateManager
+
+    # 获取最近的generation记录
+    state = await GenerationStateManager.get_latest_generation(
+        db, current_user.id, data.content_type, days=7
+    )
+
+    if not state:
+        # 如果没有找到，创建一个新的
+        from app.models.generation import Generation, GenerationModule, GenerationStatus
+        module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+        generation = Generation(
+            user_id=current_user.id,
+            module=module_enum,
+            status=GenerationStatus.PROCESSING,
+            input_params=data.input_params,
+            title='大纲修订',
+            current_stage='revising_global'
+        )
+        db.add(generation)
+        await db.commit()
+        await db.refresh(generation)
+        state_manager = GenerationStateManager(db, generation.id)
+    else:
+        state_manager = GenerationStateManager(db, state['id'])
+
+    async def generate():
+        try:
+            generator = get_outline_generator(db)
+
+            # 保存“修订中”状态
+            await state_manager.save_stage(
+                stage='revising_global',
+                stage_data=state.get('stage_data', {}) if state else {},
+                session_context={
+                    'revising': True,
+                    'current_feedback': data.user_feedback
+                }
+            )
+
+            # 获取LLM provider
+            llm_provider = await generator.llm_manager.get_provider_from_db(
+                db, current_user.id, data.provider
+            )
+            if not llm_provider:
+                raise ValueError(f"未找到LLM提供商: {data.provider}")
+
+            # 构建修订提示词
+            history_text = ""
+            if data.revision_history:
+                history_text = "\n\n## 修订历史\n"
+                for rev in data.revision_history[-3:]:  # 只保留最近3轮
+                    history_text += f"- 第{rev.get('round', '?')}轮: {rev.get('feedback', '')}\n"
+
+            revise_prompt = f"""您是一位专业的大纲修订助手。
+
+## 当前大纲内容
+{data.current_content}
+
+## 用户修改意见
+{data.user_feedback}
+{history_text}
+## 任务
+请根据用户的修改意见，对大纲进行修订。
+
+**修订规则**：
+1. 保持大纲的整体结构和核心设定
+2. 只修改用户提到的部分
+3. 确保修改后的内容逻辑自洽
+4. 输出完整的修订后大纲内容
+
+请直接输出修订后的大纲内容：
+"""
+
+            # 流式生成修订内容
+            full_content = []
+            async for chunk in llm_provider.generate_stream(prompt=revise_prompt, temperature=data.temperature):
+                content = chunk.content if hasattr(chunk, 'content') else chunk
+                if isinstance(content, str):
+                    full_content.append(content)
+                    yield generator._format_sse("content", {"text": content})
+
+            revised_content = ''.join(full_content)
+
+            # 追加修订消息
+            await state_manager.append_revision_message({
+                'role': 'user',
+                'content': data.user_feedback
+            })
+
+            # 保存修订后状态
+            stage_data = state.get('stage_data', {}) if state else {}
+            stage_data['global_outline'] = revised_content
+
+            await state_manager.save_stage(
+                stage='global_completed',
+                stage_data=stage_data,
+                session_context={'revising': False}
+            )
+
+            # 发送修订完成事件
+            yield generator._format_sse("diff_complete", {
+                "summary": f"已根据'{data.user_feedback}'完成修订",
+                "content_length": len(revised_content)
+            })
+
+        except Exception as e:
+            logger.error(f"全局大纲修订失败: {e!r}")
+            yield generator._format_sse("error", {"data": str(e)[:200]})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
+
+
 @router.post("/outline/global/stream")
 async def generate_global_outline_stream(
     data: GlobalOutlineRequest,
@@ -1333,18 +1951,87 @@ async def generate_global_outline_stream(
     支持知识库修正：生成完成后，自动调用知识库进行内容优化。
     修正后的内容会以分隔线标识，前端可识别并替换显示。
     """
+    from app.models.generation import Generation, GenerationModule, GenerationStatus
+    from app.utils.generation_state_manager import GenerationStateManager
+
+    # 创建generation记录
+    module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+    generation = Generation(
+        user_id=current_user.id,
+        module=module_enum,
+        status=GenerationStatus.PROCESSING,
+        input_params=data.input_params,
+        title=data.input_params.get('title', '未命名大纲'),
+        current_stage='global_generating'
+    )
+    db.add(generation)
+    await db.commit()
+    await db.refresh(generation)
+
+    state_manager = GenerationStateManager(db, generation.id)
+
     async def generate():
         generator = get_outline_generator(db)
-        async for chunk in generator.generate_global_outline_stream(
-            content_type=data.content_type,
-            input_params=data.input_params,
-            provider=data.provider,
-            model=data.model,
-            temperature=data.temperature,
-            user_id=current_user.id,
-            enable_knowledge=data.enable_knowledge
-        ):
-            yield chunk
+        full_content = []
+
+        try:
+            # 保存“生成中”状态
+            await state_manager.save_stage(
+                stage='global_generating',
+                stage_data={'progress': 0},
+                status=GenerationStatus.PROCESSING
+            )
+
+            async for chunk in generator.generate_global_outline_stream(
+                content_type=data.content_type,
+                input_params=data.input_params,
+                provider=data.provider,
+                model=data.model,
+                temperature=data.temperature,
+                user_id=current_user.id,
+                enable_knowledge=data.enable_knowledge,
+                enable_auto_qc=data.enable_auto_qc,  # v2.3新增：传递自动质控参数
+                # 文风参数
+                style_ids=data.style_ids or [],
+                style_names=data.style_names or [],
+                style_intensity=data.style_intensity or 0.7,
+                style_guide=data.style_guide
+            ):
+                yield chunk
+
+                # 累积内容
+                if chunk.startswith('event: content\ndata: '):
+                    try:
+                        import json
+                        json_str = chunk.split('data: ', 2)[1].strip()
+                        if json_str:
+                            content_data = json.loads(json_str)
+                            full_content.append(content_data.get('text', ''))
+                    except:
+                        pass
+
+            # 生成完成，保存状态
+            complete_content = ''.join(full_content)
+            await state_manager.save_stage(
+                stage='global_completed',
+                stage_data={
+                    'global_outline': complete_content,
+                    'progress': 1.0
+                },
+                status=GenerationStatus.COMPLETED
+            )
+
+        except Exception as e:
+            # 保存错误状态
+            try:
+                await state_manager.save_stage(
+                    stage='global_generating',
+                    stage_data={'error': str(e)[:500]},
+                    status=GenerationStatus.FAILED
+                )
+            except:
+                pass
+            raise
 
     return StreamingResponse(
         generate(),
@@ -1368,7 +2055,7 @@ async def generate_unit_summaries(
 
     基于全局大纲生成各单元的简要概述（章节概要/分集概要/分场概要）。
     这是两阶段生成流程的第二阶段。
-    支持逻辑性修正，自动检测和修正设定冲突、剧情衔接、人物成长等问题。
+    支持质量管控系统，自动检测和修正结构、人物、技术性等问题。
     """
     try:
         generator = get_outline_generator(db)
@@ -1382,7 +2069,9 @@ async def generate_unit_summaries(
             model=data.model,
             temperature=data.temperature,
             user_id=current_user.id,
-            enable_logic_check=data.enable_logic_check
+            enable_quality_control=data.enable_quality_control,
+            title_style=data.title_style,
+            title_style_name=data.title_style_name
         )
 
         if result["success"]:
@@ -1418,15 +2107,59 @@ async def generate_unit_summaries_stream(
     流式生成单元简要概述（第二阶段）
 
     支持中断机制：通过 session_id 可以调用 /cancel/{session_id} 取消生成
+    已集成状态持久化：自动保存生成状态到数据库
     """
-    # 创建取消令牌
+    from app.models.generation import Generation, GenerationModule, GenerationStatus
+    from app.utils.generation_state_manager import GenerationStateManager
+
+    # 1. 查找最近的generation记录
+    module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+    state = await GenerationStateManager.get_latest_generation(
+        db, current_user.id, module_enum.value, days=7
+    )
+
+    if not state:
+        # 创建新记录
+        generation = Generation(
+            user_id=current_user.id,
+            module=module_enum,
+            status=GenerationStatus.PROCESSING,
+            input_params={'content_type': data.content_type},
+            title='单元概述生成',
+            current_stage='units_generating'
+        )
+        db.add(generation)
+        await db.commit()
+        await db.refresh(generation)
+        state_manager = GenerationStateManager(db, generation.id)
+    else:
+        state_manager = GenerationStateManager(db, state['id'])
+
+    # 2. 保存"单元概述生成中"状态
+    await state_manager.save_stage(
+        stage='units_generating',
+        stage_data={
+            'global_outline': data.global_outline,  # 保留全局大纲
+            'progress': 0
+        },
+        status=GenerationStatus.PROCESSING
+    )
+
+    # 3. 创建取消令牌
     cancel_event = asyncio.Event()
     if session_id:
         cancel_tokens[session_id] = cancel_event
 
+    content_buffer = []
+
     async def generate():
         try:
             generator = get_outline_generator(db)
+
+            logger.info(
+                f"[单元概述] 开始生成: 从第{data.start_from_unit}章开始, 共{data.unit_count}章"
+            )
+
             async for chunk in generator.generate_unit_summaries_stream(
                 global_outline=data.global_outline,
                 unit_count=data.unit_count,
@@ -1437,13 +2170,77 @@ async def generate_unit_summaries_stream(
                 model=data.model,
                 temperature=data.temperature,
                 user_id=current_user.id,
-                cancel_event=cancel_event
+                enable_quality_control=data.enable_quality_control,
+                cancel_event=cancel_event,
+                # 续生成参数
+                existing_content=data.existing_content or "",
+                existing_parsed=data.existing_parsed,
+                start_from_unit=data.start_from_unit,
+                # 标题风格参数
+                title_style=data.title_style,
+                title_style_name=data.title_style_name
             ):
                 # 检查是否被取消
                 if cancel_event.is_set():
                     logger.info(f"单元概述生成被取消: {session_id}")
+                    # 保存取消状态
+                    try:
+                        await state_manager.save_stage(
+                            stage='units_generating',
+                            stage_data={
+                                'global_outline': data.global_outline,
+                                'partial_unit_summaries': ''.join(content_buffer),
+                                'cancelled': True
+                            },
+                            status=GenerationStatus.CANCELLED
+                        )
+                    except Exception as save_err:
+                        logger.error(f"保存取消状态失败: {save_err}")
                     break
+
                 yield chunk
+
+                # 累积内容
+                try:
+                    if chunk.startswith('event: content\ndata: '):
+                        import json
+                        json_str = chunk.split('data: ', 2)[1].strip()
+                        if json_str:
+                            content_data = json.loads(json_str)
+                            content_buffer.append(content_data.get('text', ''))
+                except Exception as parse_err:
+                    logger.debug(f"解析chunk失败: {parse_err}")
+
+            # 生成完成,保存状态
+            if content_buffer:
+                try:
+                    await state_manager.save_stage(
+                        stage='units_completed',
+                        stage_data={
+                            'global_outline': data.global_outline,
+                            'unit_summaries': ''.join(content_buffer),
+                            'progress': 1.0
+                        },
+                        status=GenerationStatus.COMPLETED
+                    )
+                except Exception as save_err:
+                    logger.error(f"保存完成状态失败: {save_err}")
+
+        except Exception as e:
+            logger.error(f"单元概述生成失败: {e}")
+            # 保存失败状态
+            try:
+                await state_manager.save_stage(
+                    stage='units_generating',
+                    stage_data={
+                        'global_outline': data.global_outline,
+                        'partial_unit_summaries': ''.join(content_buffer),
+                        'error': str(e)[:500]
+                    },
+                    status=GenerationStatus.FAILED
+                )
+            except Exception as save_err:
+                logger.error(f"保存失败状态失败: {save_err}")
         finally:
             # 清理取消令牌
             if session_id and session_id in cancel_tokens:
@@ -1458,6 +2255,208 @@ async def generate_unit_summaries_stream(
             "Connection": "keep-alive"
         }
     )
+
+
+@router.get("/outline/units/resume-info/{project_id}")
+async def get_unit_summaries_resume_info(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取单元概述断点续生成信息
+
+    根据项目ID自动识别当前生成状态和断点位置，返回续生成所需的全部信息：
+    - existing_parsed: 已解析的单元数据
+    - existing_content: 已生成的原始文本内容
+    - existing_count: 已生成章节数
+    - expected_count: 预期总章节数（来自全局大纲/项目设置）
+    - start_from_unit: 建议续生成的起始章节号
+    - global_outline: 全局大纲内容
+    """
+    from app.models.novel_project import NovelProject
+    from app.core.exceptions import NotFoundException
+    from sqlalchemy import select
+
+    # 获取项目
+    query = select(NovelProject).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id
+    )
+    result = await db.execute(query)
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise NotFoundException(f"项目不存在: {project_id}")
+
+    # 获取已有的单元概述数据
+    existing_parsed = project.unit_summaries or {}
+    existing_count = len(existing_parsed)
+
+    # 获取预期总章节数
+    expected_count = project.total_chapters or 0
+
+    # 如果 unit_summaries 中有更多数据，以实际数量为准
+    if existing_count > expected_count:
+        expected_count = existing_count
+
+    # 如果预期数仍为0，尝试从全局大纲推断
+    if expected_count == 0 and project.global_outline_content:
+        # 从全局大纲中尝试提取章节数
+        import re
+        chapter_matches = re.findall(
+            r'第[一二三四五六七八九十百千万\d]+章',
+            project.global_outline_content
+        )
+        if chapter_matches:
+            expected_count = len(set(chapter_matches))
+
+    # 获取全局大纲内容
+    global_outline = project.global_outline_content or ""
+
+    # 计算续生成起始位置
+    start_from_unit = existing_count + 1 if existing_count > 0 else 1
+
+    # 重建 existing_content 文本
+    existing_content_parts = []
+    content_type = getattr(project, 'content_type', 'novel')
+    unit_label = '章' if content_type == 'novel' else '集' if content_type in (
+        'series_script', 'script') else '场'
+
+    for unit_num, unit_data in sorted(existing_parsed.items(), key=lambda x: int(x[0])):
+        title = unit_data.get("title", "")
+        summary = unit_data.get("summary", "")
+        full_content = unit_data.get("full_content", "") or summary
+        existing_content_parts.append(
+            f"### 第{unit_num}{unit_label}：{title}\n{full_content}"
+        )
+    existing_content = "\n\n".join(existing_content_parts)
+
+    # 判断是否可以续生成
+    can_resume = existing_count > 0 and existing_count < expected_count
+
+    return ResponseModel(
+        success=True,
+        message="断点信息获取成功",
+        data={
+            "project_id": project_id,
+            "project_title": project.title or "未命名项目",
+            "content_type": content_type,
+            "existing_count": existing_count,
+            "expected_count": expected_count,
+            "start_from_unit": start_from_unit,
+            "can_resume": can_resume,
+            "remaining_count": max(0, expected_count - existing_count),
+            "global_outline": global_outline,
+            "existing_parsed": existing_parsed,
+            "existing_content": existing_content
+        }
+    )
+
+
+@router.post("/outline/units/quality-control")
+async def quality_control_unit_summaries(
+    data: UnitSummariesQCRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    对单元概述执行质量检测和修正（手动触发）
+
+    流程（参照全局大纲质控）：
+    1. 调用LLM检测质量问题
+    2. 如果发现critical问题且enable_auto_revise=True，自动调用LLM修正
+    3. 返回质控报告 + 修正后内容 + 变更列表（用于前端高亮对比）
+    """
+    try:
+        # 参数验证
+        if not data.unit_summaries:
+            from app.core.exceptions import ValidationException
+            raise ValidationException("单元概述数据不能为空")
+
+        if not isinstance(data.unit_summaries, dict):
+            from app.core.exceptions import ValidationException
+            raise ValidationException("单元概述数据格式错误，应为字典类型")
+
+        if len(data.unit_summaries) == 0:
+            from app.core.exceptions import ValidationException
+            raise ValidationException("单元概述数据为空，至少需要一个单元")
+
+        from app.services.outline_generator import get_outline_generator
+
+        generator = get_outline_generator(db)
+
+        # 步骤1: 调用LLM执行质量检测
+        logger.info(f"[单元概述质控] 开始LLM质量检测，单元数: {len(data.unit_summaries)}")
+
+        quality_report = await generator.analyze_unit_summaries_quality_manual(
+            unit_summaries=data.unit_summaries,
+            global_outline=data.global_outline,
+            content_type=data.content_type,
+            user_id=current_user.id
+        )
+
+        logger.info(f"[单元概述质控] 检测完成，总分: {quality_report.get('overall_score', 0)}, "
+                    f"问题数: {len(quality_report.get('issues', []))}")
+
+        # 步骤2: 检查是否有问题需要修正（所有级别：critical + major + minor）
+        # 修复1：不限制只修正critical，而是修正所有问题
+        all_issues = quality_report.get("issues", [])
+
+        revised_content = None
+        revised_parsed = None
+        changes = []
+
+        if all_issues and data.enable_auto_revise:
+            logger.info(f"[单元概述质控] 发现{len(all_issues)}个问题，执行LLM自动修正...")
+
+            # 构建完整的单元概述文本（修正前）
+            unit_label = "章" if data.content_type == "novel" else "集"
+            original_content_parts = []
+            for unit_num, unit_data in sorted(data.unit_summaries.items(), key=lambda x: int(x[0])):
+                title = unit_data.get("title", "")
+                full_content = unit_data.get(
+                    "full_content", "") or unit_data.get("summary", "")
+                original_content_parts.append(
+                    f"### 第{unit_num}{unit_label}：{title}\n{full_content}")
+            original_content = "\n\n".join(original_content_parts)
+
+            # 调用LLM修正（参照全局大纲的修正流程）
+            revision_result = await generator.revise_unit_summaries_quality(
+                unit_summaries=data.unit_summaries,
+                quality_report=quality_report,
+                global_outline=data.global_outline,
+                content_type=data.content_type,
+                temperature=data.temperature,
+                user_id=current_user.id
+            )
+
+            revised_content = revision_result.get("revised_content")
+            revised_parsed = revision_result.get("revised_parsed")
+            changes = revision_result.get("changes", [])
+
+            logger.info(f"[单元概述质控] LLM修正完成，修正前长度: {len(original_content)}, "
+                        f"修正后长度: {len(revised_content) if revised_content else 0}")
+
+        # 步骤3: 返回完整结果（用于前端对比显示）
+        return ResponseModel(
+            success=True,
+            message="质控检测完成",
+            data={
+                "quality_report": quality_report,
+                "revised_content": revised_content,
+                "revised_parsed": revised_parsed,
+                "changes": changes,
+                "has_issues": len(all_issues) > 0,  # 修复1：改为has_issues
+                "issues_count": len(all_issues),  # 修复1：改为issues_count
+                "auto_revised": len(changes) > 0
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[单元概述质控] 失败: {str(e)}", exc_info=True)
+        from app.core.exceptions import GenerationException
+        raise GenerationException(f"质控失败: {str(e)}")
 
 
 @router.post("/outline/download")
@@ -1803,3 +2802,142 @@ async def generate_original_ip_stream(
             "Connection": "keep-alive"
         }
     )
+
+
+# ==================== 修订相关 API ====================
+
+@router.post("/revision/{generation_id}/stream")
+async def revise_content_stream(
+    generation_id: int,
+    request: RevisionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    流式生成修订差异指令
+
+    工作流程:
+    1. 加载原始生成记录和上下文
+    2. 构建修订提示词(包含原始内容+用户反馈)
+    3. LLM输出差异指令(流式)
+    4. 前端接收后应用diff
+    """
+    from app.models.generation import GenerationRevisionHistory
+    from sqlalchemy import select
+
+    orchestrator = get_agent_orchestrator()
+
+    async def event_generator():
+        try:
+            logger.info(
+                f"Revision stream started: generation_id={generation_id}, user={current_user.id}")
+
+            # 保存修订历史记录
+            revision_record = GenerationRevisionHistory(
+                generation_id=generation_id,
+                round_number=request.round_number,
+                user_feedback=request.user_feedback,
+                content_before=request.current_content
+            )
+            db.add(revision_record)
+            await db.commit()
+            logger.info(
+                f"Revision history record saved for round {request.round_number}")
+
+            # 流式生成修订差异 - 修复：传递user_id参数
+            logger.info(
+                f"Calling generate_revision_diff with user_id={current_user.id}")
+            async for chunk in orchestrator.generate_revision_diff(
+                db=db,
+                generation_id=generation_id,
+                user_feedback=request.user_feedback,
+                current_content=request.current_content,
+                original_params=request.original_params,
+                module=request.module,
+                round_number=request.round_number,
+                provider=request.provider,
+                temperature=request.temperature,
+                user_id=current_user.id  # 修复：传递user_id
+            ):
+                yield chunk
+
+            logger.info(
+                f"Revision stream completed successfully for generation {generation_id}")
+
+        except Exception as e:
+            logger.error(f"Revision stream failed: {e}", exc_info=True)
+            yield f"data: {json.dumps({'event': 'error', 'data': f'修订流失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
+
+
+@router.post("/finalize/{generation_id}")
+async def finalize_generation(
+    generation_id: int,
+    request: FinalizeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    最终确认生成内容,执行知识库修正和自反思优化
+    """
+    try:
+        orchestrator = get_agent_orchestrator()
+
+        result = await orchestrator.finalize_generation(
+            db=db,
+            generation_id=generation_id,
+            final_content=request.final_content,
+            enable_knowledge_check=request.enable_knowledge_check,
+            enable_self_reflection=request.enable_self_reflection
+        )
+
+        if result.get("success"):
+            return ResponseModel(
+                code=200,
+                message="最终确认成功",
+                data=result
+            )
+        else:
+            raise GenerationException(result.get("error", "最终确认失败"))
+
+    except Exception as e:
+        logger.error(f"Finalize generation failed: {e}")
+        raise GenerationException(str(e))
+
+
+@router.get("/revision/{generation_id}/history")
+async def get_revision_history(
+    generation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取某次生成的修订历史记录"""
+    try:
+        from app.models.generation import GenerationRevisionHistory
+        from sqlalchemy import select
+
+        stmt = select(GenerationRevisionHistory).where(
+            GenerationRevisionHistory.generation_id == generation_id
+        ).order_by(GenerationRevisionHistory.round_number)
+
+        result = await db.execute(stmt)
+        revisions = result.scalars().all()
+
+        return ResponseModel(
+            code=200,
+            message="获取修订历史成功",
+            data=[rev.to_dict() for rev in revisions]
+        )
+
+    except Exception as e:
+        logger.error(f"Get revision history failed: {e}")
+        raise ResourceNotFoundException(str(e))

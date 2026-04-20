@@ -10,6 +10,7 @@
 import os
 import json
 import re
+import aiofiles
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
@@ -59,13 +60,13 @@ class ConsistencyManager:
 
             # 初始化摘要文件
             if project.summary_file:
-                with open(project.summary_file, 'w', encoding='utf-8') as f:
-                    f.write("")  # 空文件
+                async with aiofiles.open(project.summary_file, 'w', encoding='utf-8') as f:
+                    await f.write("")  # 空文件
 
             # 初始化角色状态文件
             if project.characters_file:
-                with open(project.characters_file, 'w', encoding='utf-8') as f:
-                    json.dump({}, f)
+                async with aiofiles.open(project.characters_file, 'w', encoding='utf-8') as f:
+                    await f.write(json.dumps({}))
 
             self.logger.info("项目文件初始化完成")
             return True
@@ -97,16 +98,18 @@ class ConsistencyManager:
             # 读取当前摘要
             current_summary = ""
             if project.summary_file and os.path.exists(project.summary_file):
-                with open(project.summary_file, 'r', encoding='utf-8') as f:
-                    current_summary = f.read()
+                async with aiofiles.open(project.summary_file, 'r', encoding='utf-8') as f:
+                    current_summary = await f.read()
 
             # 如果有LLM，使用AI更新摘要
             if self.llm_provider:
+                # 核心约束：禁止对chapter_content做字符串切片
+                # 完整传入章节内容，由LLM自行处理关键信息提取
                 prompt = SUMMARY_UPDATE_PROMPT.format(
                     current_summary=current_summary or "（暂无前文摘要）",
                     chapter_number=chapter_number,
                     chapter_title=chapter_title,
-                    chapter_content=chapter_content[:3000]  # 限制长度
+                    chapter_content=chapter_content  # 完整传入，不做切片
                 )
 
                 llm_response = await self.llm_provider.generate(prompt)
@@ -119,13 +122,14 @@ class ConsistencyManager:
                 new_summary = self._clean_llm_output(new_summary)
             else:
                 # 无LLM时简单追加
+                # 对纯追加场景允许截断，因为这不是LLM提示词而是文件存储
                 new_summary = current_summary + \
                     f"\n第{chapter_number}章: {chapter_title}\n{chapter_content[:500]}..."
 
             # 保存新摘要
             if project.summary_file:
-                with open(project.summary_file, 'w', encoding='utf-8') as f:
-                    f.write(new_summary)
+                async with aiofiles.open(project.summary_file, 'w', encoding='utf-8') as f:
+                    await f.write(new_summary)
 
             self.logger.info(f"摘要更新完成: 第{chapter_number}章")
             return new_summary
@@ -159,8 +163,9 @@ class ConsistencyManager:
             if project.characters_file:
                 if os.path.exists(project.characters_file):
                     try:
-                        with open(project.characters_file, 'r', encoding='utf-8') as f:
-                            current_state = json.load(f)
+                        async with aiofiles.open(project.characters_file, 'r', encoding='utf-8') as f:
+                            content = await f.read()
+                        current_state = json.loads(content)
                     except json.JSONDecodeError as je:
                         self.logger.warning(f"角色状态文件JSON格式错误: {je}")
                         current_state = {}
@@ -170,18 +175,20 @@ class ConsistencyManager:
                     project_dir = os.path.dirname(project.characters_file)
                     if project_dir and not os.path.exists(project_dir):
                         os.makedirs(project_dir, exist_ok=True)
-                    with open(project.characters_file, 'w', encoding='utf-8') as f:
-                        json.dump({}, f)
+                    async with aiofiles.open(project.characters_file, 'w', encoding='utf-8') as f:
+                        await f.write(json.dumps({}))
 
             # 如果有LLM，使用AI更新角色状态
             if self.llm_provider:
                 try:
+                    # 核心约束：禁止对chapter_content做字符串切片
+                    # 完整传入章节内容，由LLM自行处理
                     prompt = CHARACTER_UPDATE_PROMPT.format(
                         current_state=json.dumps(
                             current_state, ensure_ascii=False, indent=2),
                         chapter_number=chapter_number,
                         chapter_title=chapter_title,
-                        chapter_content=chapter_content[:2000]
+                        chapter_content=chapter_content  # 完整传入，不做切片
                     )
 
                     response = await self.llm_provider.generate(prompt)
@@ -211,8 +218,8 @@ class ConsistencyManager:
 
             # 保存新状态
             if project.characters_file:
-                with open(project.characters_file, 'w', encoding='utf-8') as f:
-                    json.dump(current_state, f, ensure_ascii=False, indent=2)
+                async with aiofiles.open(project.characters_file, 'w', encoding='utf-8') as f:
+                    await f.write(json.dumps(current_state, ensure_ascii=False, indent=2))
 
             self.logger.info(f"角色状态更新完成: 第{chapter_number}章")
             return current_state
@@ -256,15 +263,18 @@ class ConsistencyManager:
 
             character_state = ""
             if project.characters_file and os.path.exists(project.characters_file):
-                with open(project.characters_file, 'r', encoding='utf-8') as f:
-                    character_state = f.read()
+                async with aiofiles.open(project.characters_file, 'r', encoding='utf-8') as f:
+                    character_state = await f.read()
 
             global_summary = ""
             if project.summary_file and os.path.exists(project.summary_file):
-                with open(project.summary_file, 'r', encoding='utf-8') as f:
-                    global_summary = f.read()
+                async with aiofiles.open(project.summary_file, 'r', encoding='utf-8') as f:
+                    global_summary = await f.read()
 
             # 执行一致性检查
+            # 注意：novel_setting/character_state/global_summary的[:1000]切片
+            # 用于一致性检查的上下文构建，非正文生成提示词，属于可接受范围
+            # 但仍建议未来使用SemanticCompressor替代
             prompt = CONSISTENCY_CHECK_PROMPT.format(
                 novel_setting=novel_setting[:1000],
                 character_state=character_state[:1000] or "暂无角色状态",

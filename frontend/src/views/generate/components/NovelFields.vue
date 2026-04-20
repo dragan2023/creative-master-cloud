@@ -1,5 +1,5 @@
 <template>
-  <!-- 第一行：篇幅与类型 -->
+  <!-- 第一行：篇幅与目标平台 -->
   <el-row :gutter="20">
     <el-col :span="12">
       <el-form-item label="篇幅体量" prop="length">
@@ -11,24 +11,6 @@
       </el-form-item>
     </el-col>
     <el-col :span="12">
-      <el-form-item label="类型标签" prop="genre">
-        <el-select v-model="form.genre" placeholder="选择类型（可多选）" style="width: 100%" multiple>
-          <el-option label="言情" value="言情" />
-          <el-option label="悬疑推理" value="悬疑推理" />
-          <el-option label="科幻" value="科幻" />
-          <el-option label="奇幻玄幻" value="奇幻玄幻" />
-          <el-option label="历史" value="历史" />
-          <el-option label="现实题材" value="现实题材" />
-          <el-option label="轻小说" value="轻小说" />
-          <el-option label="恐怖惊悚" value="恐怖惊悚" />
-        </el-select>
-      </el-form-item>
-    </el-col>
-  </el-row>
-  
-  <!-- 第二行：目标读者/平台 -->
-  <el-row :gutter="20">
-    <el-col :span="12">
       <el-form-item label="目标读者/平台" prop="target_platform">
         <el-select v-model="form.target_platform" placeholder="选择目标平台" style="width: 100%">
           <el-option label="网文平台-起点" value="起点" />
@@ -39,43 +21,68 @@
         </el-select>
       </el-form-item>
     </el-col>
-    <el-col :span="12">
-      <el-form-item label="基调氛围" prop="tone">
-        <el-select v-model="form.tone" placeholder="选择基调" style="width: 100%">
-          <el-option label="正剧（严肃厚重）" value="正剧" />
-          <el-option label="喜剧（轻松解压）" value="喜剧" />
-          <el-option label="虐恋催泪" value="虐恋催泪" />
-          <el-option label="爽文（逆袭打脸）" value="爽文" />
-          <el-option label="治愈温暖" value="治愈温暖" />
-        </el-select>
+  </el-row>
+  
+  <!-- 第三行：标题风格选择器 -->
+  <el-row :gutter="20">
+    <el-col :span="24">
+      <el-form-item label="标题风格（可选）">
+        <div class="title-style-selector-wrapper">
+          <div class="selector-header">
+            <div class="style-info">
+              <el-tag v-if="titleStyleName" type="warning" size="small" style="margin-right: 8px;">
+                已选: {{ titleStyleName }}
+              </el-tag>
+              <el-text type="info" size="small" v-else>
+                选择章节标题的命名风格（可选）
+              </el-text>
+            </div>
+            <el-button type="primary" text size="small" @click="showTitleStyleSelector = true">
+              <el-icon><Edit /></el-icon>
+              {{ titleStyleName ? '修改' : '选择' }}
+            </el-button>
+          </div>
+        </div>
       </el-form-item>
     </el-col>
   </el-row>
   
-  <!-- 第三行：故事主题 -->
+  <!-- 第四行：写作风格选择器 -->
   <el-row :gutter="20">
     <el-col :span="24">
-      <el-form-item label="故事主题" prop="theme">
-        <el-input
-          v-model="form.theme"
-          type="textarea"
-          :rows="2"
-          placeholder="你想通过这个故事表达什么？——关于爱、牺牲、正义、自由、欲望、人性的探讨？"
-        />
-      </el-form-item>
-    </el-col>
-  </el-row>
-  
-  <!-- 第四行：独特卖点 -->
-  <el-row :gutter="20">
-    <el-col :span="24">
-      <el-form-item label="独特卖点" prop="unique_selling_point">
-        <el-input
-          v-model="form.unique_selling_point"
-          type="textarea"
-          :rows="2"
-          placeholder="这个故事最吸引人的钩子是什么？——高概念设定、极致人设、社会热点映射、还是烧脑谜题？"
-        />
+      <el-form-item label="写作风格（可选）">
+        <div class="style-selector-wrapper">
+          <div class="style-selector-header">
+            <div class="style-info">
+              <el-tag v-if="styleData.styleNames.length > 0" type="success" size="small" style="margin-right: 8px;">
+                已选 {{ styleData.styleNames.length }} 种
+              </el-tag>
+              <el-text type="info" size="small" v-else>
+                从61种经典文风中选择1-3种进行融合（可选）
+              </el-text>
+            </div>
+            <el-button type="primary" text size="small" @click="showStyleSelector = true">
+              <el-icon><Edit /></el-icon>
+              {{ styleData.styleNames.length > 0 ? '修改文风' : '选择文风' }}
+            </el-button>
+          </div>
+          
+          <!-- 已选文风展示 -->
+          <div v-if="styleData.styleNames.length > 0" class="selected-styles-display">
+            <el-tag
+              v-for="(name, idx) in styleData.styleNames"
+              :key="idx"
+              :type="idx === 0 ? 'primary' : 'success'"
+              size="small"
+              style="margin-right: 8px; margin-bottom: 4px;"
+            >
+              {{ idx === 0 ? '主' : '辅' }} · {{ name }}
+            </el-tag>
+            <el-text type="info" size="small" style="margin-left: 8px;">
+              强度: {{ Math.round(styleData.intensity * 100) }}%
+            </el-text>
+          </div>
+        </div>
       </el-form-item>
     </el-col>
   </el-row>
@@ -126,12 +133,31 @@
       </el-form-item>
     </el-col>
   </el-row>
+  
+  <!-- 文风选择器对话框 -->
+  <StyleSelectorDialog
+    v-model:visible="showStyleSelector"
+    :initial-style-ids="styleData.styleIds"
+    :initial-intensity="styleData.intensity"
+    @confirm="handleStyleSelectionConfirm"
+  />
+  
+  <!-- 标题风格选择器对话框 -->
+  <TitleStyleSelectorDialog
+    v-model:visible="showTitleStyleSelector"
+    :initial-style-id="titleStyle"
+    @confirm="handleTitleStyleConfirm"
+  />
 </template>
 
 <script setup>
+import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Edit, Upload, Document, InfoFilled } from '@element-plus/icons-vue'
+import StyleSelectorDialog from '@/views/novel-writer/components/StyleSelectorDialog.vue'
+import TitleStyleSelectorDialog from './TitleStyleSelectorDialog.vue'
 
-defineProps({
+const props = defineProps({
   form: {
     type: Object,
     required: true
@@ -154,13 +180,68 @@ defineProps({
   }
 })
 
-defineEmits([
+const emit = defineEmits([
   'update:form',
   'outline-upload-success',
   'outline-upload-error',
   'outline-progress',
-  'remove-outline'
+  'remove-outline',
+  'update:styleData',  // 传递文风数据
+  'update:titleStyleData'  // 传递标题风格数据
 ])
+
+// 文风选择器相关
+const showStyleSelector = ref(false)
+const styleData = reactive({
+  styleIds: [],
+  styleNames: [],
+  intensity: 0.7,
+  styleGuide: null  // 融合后的风格指南
+})
+
+// 标题风格选择器相关
+const showTitleStyleSelector = ref(false)
+const titleStyle = ref('')
+const titleStyleName = ref('')
+
+/**
+ * 处理文风选择确认
+ */
+function handleStyleSelectionConfirm(data) {
+  styleData.styleIds = data.styleIds || []
+  styleData.styleNames = data.styleNames || []
+  styleData.intensity = data.intensity || 0.7
+  styleData.styleGuide = data.styleGuide
+  
+  emit('update:styleData', styleData)
+  
+  ElMessage.success(`已选择 ${styleData.styleNames.length} 种文风: ${styleData.styleNames.join(' + ')}`)
+  
+  console.log('[NovelFields] 文风配置:', {
+    styleIds: styleData.styleIds,
+    styleNames: styleData.styleNames,
+    intensity: styleData.intensity,
+    styleGuide: styleData.styleGuide
+  })
+}
+
+/**
+ * 处理标题风格选择确认
+ */
+function handleTitleStyleConfirm(data) {
+  titleStyle.value = data.styleId || ''
+  titleStyleName.value = data.styleName || ''
+  
+  emit('update:titleStyleData', { 
+    styleId: titleStyle.value, 
+    styleName: titleStyleName.value 
+  })
+  
+  console.log('[NovelFields] 标题风格配置:', {
+    styleId: titleStyle.value,
+    styleName: titleStyleName.value
+  })
+}
 
 // 上传前验证（大纲文件）
 const beforeOutlineUpload = (file) => {
@@ -171,12 +252,19 @@ const beforeOutlineUpload = (file) => {
     ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf 格式的文件！')
     return false
   }
-  if (file.size / 1024 / 1024 > 50) {
-    ElMessage.error('文件大小不能超过50MB！')
+  if (file.size / 1024 / 1024 > 100) {
+    ElMessage.error('文件大小不能超过100MB！')
     return false
   }
   return true
 }
+
+// 暴露styleData和titleStyle给父组件
+defineExpose({
+  styleData,
+  titleStyle,
+  titleStyleName
+})
 </script>
 
 <style lang="scss" scoped>
@@ -215,6 +303,46 @@ const beforeOutlineUpload = (file) => {
     
     .el-icon {
       font-size: 14px;
+    }
+  }
+}
+
+.style-selector-wrapper {
+  width: 100%;
+  
+  .selector-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    
+    .style-info {
+      flex: 1;
+    }
+  }
+  
+  .selected-styles-display {
+    padding: 8px 12px;
+    background: rgba(64, 158, 255, 0.05);
+    border-radius: 6px;
+    border: 1px solid rgba(64, 158, 255, 0.15);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
+
+.title-style-selector-wrapper {
+  width: 100%;
+  
+  .selector-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    
+    .style-info {
+      flex: 1;
     }
   }
 }

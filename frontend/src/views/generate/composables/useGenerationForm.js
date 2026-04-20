@@ -198,8 +198,8 @@ export function useGenerationForm(type, router) {
       ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf 格式的文件！')
       return false
     }
-    if (file.size / 1024 / 1024 > 50) {
-      ElMessage.error('文件大小不能超过50MB！')
+    if (file.size / 1024 / 1024 > 100) {
+      ElMessage.error('文件大小不能超过100MB！')
       return false
     }
     uploading_outline.value = true

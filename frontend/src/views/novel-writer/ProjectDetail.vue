@@ -1,121 +1,20 @@
 <template>
   <div class="project-detail-page" v-loading="loading">
-    <!-- 统一的任务状态提示条 - 始终固定在页面顶部 -->
-    <div v-show="taskStore.hasTask" class="task-status-bar" :class="{ 'is-running': taskStore.isRunning }">
-      <div class="task-info">
-        <el-icon class="is-loading" v-if="taskStore.isRunning"><Refresh /></el-icon>
-        <el-icon v-else><Finished /></el-icon>
-        <span class="task-type">{{ taskStore.taskTypeLabel }}</span>
-        <span class="task-progress">
-          进度: {{ taskStore.progress?.completed || 0 }} / {{ taskStore.progress?.total || 0 }}
-          <template v-if="taskStore.currentItemName">
-            ({{ taskStore.currentItemName }})
-          </template>
-        </span>
-        <!-- 当前步骤信息 -->
-        <div v-if="taskStore.currentStep && taskStore.isRunning" class="current-step">
-          <el-icon :class="{ 'is-loading': taskStore.currentStep.status === 'running' }">
-            <component :is="getStepIcon(taskStore.currentStep.icon)" />
-          </el-icon>
-          <span class="step-message" :class="{ 'step-error': taskStore.currentStep.status === 'error', 'step-done': taskStore.currentStep.status === 'done' }">
-            {{ taskStore.currentStep.message }}
-          </span>
-        </div>
-      </div>
-      <div class="task-actions">
-        <!-- 步骤历史按钮 -->
-        <el-popover
-          v-if="taskStore.stepsHistory.length > 0"
-          placement="bottom"
-          :width="400"
-          trigger="click"
-        >
-          <template #reference>
-            <el-button size="small" text>
-              <el-icon><List /></el-icon>
-              步骤详情
-            </el-button>
-          </template>
-          <div class="steps-history">
-            <div class="steps-title">执行步骤历史</div>
-            <div 
-              v-for="(step, index) in getDisplaySteps" 
-              :key="index" 
-              class="step-item"
-              :class="{ 'step-running': step.status === 'running', 'step-done': step.status === 'done', 'step-error': step.status === 'error' }"
-            >
-              <el-icon :size="16">
-                <component :is="getStepIcon(step.icon)" />
-              </el-icon>
-              <span class="step-text">{{ step.message }}</span>
-              <span v-if="step.duration_ms" class="step-duration">{{ formatDuration(step.duration_ms) }}</span>
-              <el-tag v-if="step.status === 'running'" type="warning" size="small">进行中</el-tag>
-              <el-tag v-else-if="step.status === 'done'" type="success" size="small">完成</el-tag>
-              <el-tag v-else-if="step.status === 'error'" type="danger" size="small">失败</el-tag>
-            </div>
-          </div>
-        </el-popover>
-        <el-button type="danger" size="small" @click="handleCancelTask">
-          <el-icon><VideoPause /></el-icon>
-          终止生成
-        </el-button>
-      </div>
-    </div>
+    <!-- 任务状态条 -->
+    <TaskStatusBar v-show="taskStore.hasTask" :on-cancel="handleCancelTask" />
 
-    <div class="page-header">
-      <div class="header-left">
-        <el-button link @click="router.back()">
-          <el-icon><ArrowLeft /></el-icon>
-          返回
-        </el-button>
-        <h1 class="project-title">{{ project?.title }}</h1>
-        <el-tag :type="getTypeTagType(project?.content_type)" size="small">
-          {{ getTypeLabel(project?.content_type) }}
-        </el-tag>
-      </div>
-      <div class="header-actions">
-        <el-button @click="showSettingsDialog">
-          <el-icon><Setting /></el-icon>
-          设置
-        </el-button>
-        <el-button type="primary" @click="showExportDialog">
-          <el-icon><Download /></el-icon>
-          导出
-        </el-button>
-        <!-- 一键清空下拉菜单 -->
-        <el-dropdown trigger="click">
-          <el-button type="warning" plain>
-            <el-icon><DeleteFilled /></el-icon>
-            清空
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="handleSyncContentStatus">
-                <el-icon><Refresh /></el-icon>
-                同步正文状态
-              </el-dropdown-item>
-              <el-dropdown-item divided @click="handleClearAllOutlines">
-                <el-icon><DocumentDelete /></el-icon>
-                清空所有大纲
-              </el-dropdown-item>
-              <el-dropdown-item @click="handleClearAllContent">
-                <el-icon><Delete /></el-icon>
-                清空所有正文
-              </el-dropdown-item>
-              <el-dropdown-item divided @click="handleClearAll">
-                <el-icon><DeleteFilled /></el-icon>
-                清空全部（大纲+正文）
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-button type="danger" plain @click="handleDelete">
-          <el-icon><Delete /></el-icon>
-          删除项目
-        </el-button>
-      </div>
-    </div>
+    <!-- 页面头部 -->
+    <ProjectHeader
+      :project="project"
+      :on-back="() => router.back()"
+      :on-settings="showSettingsDialog"
+      :on-export="showExportDialog"
+      :on-sync-content-status="handleSyncContentStatus"
+      :on-clear-all-outlines="handleClearAllOutlines"
+      :on-clear-all-content="handleClearAllContent"
+      :on-clear-all="handleClearAll"
+      :on-delete="handleDelete"
+    />
 
     <!-- 项目信息卡片 -->
     <el-row :gutter="16" v-if="project">
@@ -133,1185 +32,172 @@
           </template>
 
           <!-- 大纲上传区域 -->
-          <div v-if="!project.outline_content" class="outline-upload-area">
-            <el-upload
-              drag
-              :show-file-list="false"
-              :http-request="handleOutlineUpload"
-              accept=".txt,.md,.doc,.docx"
-            >
-              <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-              <div class="el-upload__text">
-                拖拽大纲文件到此处，或<em>点击上传</em>
-              </div>
-              <template #tip>
-                <div class="el-upload__tip">
-                  支持 .txt, .md, .doc, .docx 格式
-                </div>
-              </template>
-            </el-upload>
-          </div>
+          <OutlineUploadSection
+            :project="project"
+            :chapters="chapters"
+            :unit-label="unitLabel"
+            :loading="generatingDirectory"
+            :on-upload="handleOutlineUpload"
+            :on-generate-directory="handleGenerateDirectory"
+            v-model:unit-count="manualUnitCount"
+          />
 
-          <!-- 已有大纲时显示大纲信息和更换按钮 -->
-          <div v-else-if="!chapters.length" class="outline-info">
-            <div class="outline-status">
-              <el-icon color="#67c23a"><CircleCheckFilled /></el-icon>
-              <span>大纲已上传</span>
-              <el-text type="info" size="small" style="margin-left: 12px;">
-                {{ (project.outline_content || '').replace(/\s/g, '').length }} 字
-              </el-text>
-            </div>
-            <el-upload
-              :show-file-list="false"
-              :http-request="handleOutlineUpload"
-              accept=".txt,.md,.doc,.docx"
-            >
-              <el-button size="small" type="primary" plain>
-                <el-icon><Upload /></el-icon>
-                更换大纲
-              </el-button>
-            </el-upload>
-          </div>
+          <!-- 单元概述区域 -->
+          <UnitSummariesSection
+            :project="project"
+            :quality-control-loading="qualityControlLoading"
+            :on-show-upload-dialog="() => showUnitSummariesUploadDialog = true"
+            :on-quality-control="handleTriggerQualityControl"
+          />
 
-          <!-- 大纲已上传但无章节时，显示章节设置区域 -->
-          <div v-if="project.outline_content && !chapters.length" class="chapter-setup-area">
-            <el-divider content-position="left">{{ unitLabel }}设置</el-divider>
-            <div class="setup-content">
-              <div class="setup-info">
-                <el-icon color="##E6A23C"><WarningFilled /></el-icon>
-                <span v-if="project.total_chapters > 0">
-                  已识别到 <strong>{{ project.total_chapters }}</strong> 个{{ unitLabel }}
-                </span>
-                <span v-else>
-                  未能自动识别{{ unitLabel }}，请手动设置数量
-                </span>
-              </div>
-              <div class="setup-actions">
-                <el-input-number
-                  v-model="manualUnitCount"
-                  :min="1"
-                  :max="200"
-                  :step="1"
-                  placeholder="数量"
-                  style="width: 120px;"
-                />
-                <el-button
-                  type="primary"
-                  size="small"
-                  @click="handleGenerateDirectory"
-                  :loading="generatingDirectory"
-                >
-                  {{ chapters.length > 0 ? '重新生成目录' : `生成${unitLabel}目录` }}
-                </el-button>
-              </div>
-            </div>
-          </div>
+          <!-- 详细大纲区域（根据内容类型显示不同区域） -->
+          <DetailedOutlineSection
+            :content-type="project.content_type"
+            :chapters="chapters"
+            :episode-outlines="episodeOutlines"
+            :chapter-outlines="chapterOutlines"
+            :scene-outlines="sceneOutlines"
+            :generated-episode-count="generatedEpisodeCount"
+            :total-episode-count="totalEpisodeCount"
+            :generated-chapter-outline-count="generatedChapterOutlineCount"
+            :total-chapter-outline-count="totalChapterOutlineCount"
+            :generated-scene-outline-count="generatedSceneOutlineCount"
+            :total-scene-outline-count="totalSceneOutlineCount"
+            :generating-episode-outlines="generatingEpisodeOutlines"
+            :generating-chapter-outlines="generatingChapterOutlines"
+            :generating-scene-outlines="generatingSceneOutlines"
+            :task-store="taskStore"
+            :generating="generating"
+            :selected-episode="selectedEpisode"
+            :generating-single-episode="generatingSingleEpisode"
+            :generating-single-chapter-outline="generatingSingleChapterOutline"
+            :generating-single-scene-outline="generatingSingleSceneOutline"
+            :selected-chapter="selectedChapter"
+            :selected-scene="selectedScene"
+            :editing-episode-title="editingEpisodeTitle"
+            :edit-episode-title-value="editEpisodeTitleValue"
+            :editing-chapter-outline-title="editingChapterOutlineTitle"
+            :edit-chapter-outline-title-value="editChapterOutlineTitleValue"
+            :editing-scene-outline-title="editingSceneOutlineTitle"
+            :edit-scene-outline-title-value="editSceneOutlineTitleValue"
+            @generate-all-episode-outlines="handleGenerateAllEpisodeOutlines()"
+            @generate-single-episode-outline="handleGenerateSingleEpisodeOutline"
+            @show-episode-outline-detail="showEpisodeOutlineDetail"
+            @download-episode-outline="downloadEpisodeOutline"
+            @download-all-episode-outlines="downloadAllEpisodeOutlines"
+            @generate-episode-content="generateEpisodeContent"
+            @stop-generation="handleStopGeneration"
+            @delete-episode-content="handleDeleteEpisodeContent"
+            @delete-episode-outline="handleDeleteEpisodeOutline"
+            @edit-episode-title="startEditEpisodeTitle"
+            @save-episode-title="saveEpisodeTitle"
+            @cancel-edit-episode-title="cancelEditEpisodeTitle"
+            @generate-all-chapter-outlines="handleGenerateAllChapterOutlines()"
+            @generate-single-chapter-outline="handleGenerateSingleChapterOutline"
+            @show-chapter-outline-detail="showChapterOutlineDetail"
+            @download-chapter-outline="downloadChapterOutline"
+            @download-all-chapter-outlines="downloadAllChapterOutlines"
+            @generate-chapter-content="generateChapterContent"
+            @regenerate-chapter-outline="(num) => handleGenerateSingleChapterOutline(num, true)"
+            @delete-chapter-content="handleDeleteChapterContent"
+            @delete-chapter-outline="handleDeleteChapterOutline"
+            @edit-chapter-outline-title="startEditChapterOutlineTitle"
+            @save-chapter-outline-title="saveChapterOutlineTitle"
+            @cancel-edit-chapter-outline-title="cancelEditChapterOutlineTitle"
+            @generate-all-scene-outlines="handleGenerateAllSceneOutlines()"
+            @generate-single-scene-outline="handleGenerateSingleSceneOutline"
+            @show-scene-outline-detail="showSceneOutlineDetail"
+            @download-scene-outline="downloadSceneOutline"
+            @download-all-scene-outlines="downloadAllSceneOutlines"
+            @generate-scene-content="generateSceneContent"
+            @delete-scene-content="handleDeleteSceneContent"
+            @delete-scene-outline="handleDeleteSceneOutline"
+            @edit-scene-outline-title="startEditSceneOutlineTitle"
+            @save-scene-outline-title="saveSceneOutlineTitle"
+            @cancel-edit-scene-outline-title="cancelEditSceneOutlineTitle"
+            @update:edit-episode-title-value="(val) => editEpisodeTitleValue = val"
+            @update:edit-chapter-outline-title-value="(val) => editChapterOutlineTitleValue = val"
+            @update:edit-scene-outline-title-value="(val) => editSceneOutlineTitleValue = val"
+            @open-batch-dialog="openBatchCountDialog"
+          />
 
-          <!-- 单元概述上传区域（大纲已上传后显示） -->
-          <div v-if="project.outline_content && !project.unit_summaries" class="unit-summaries-upload-area">
-            <el-divider content-position="left">单元概述</el-divider>
-            <div class="unit-summaries-info">
-              <div class="info-text">
-                <el-icon color="#E6A23C"><InfoFilled /></el-icon>
-                <span>单元概述用于指导详细大纲生成，可从创意生成板块导出后上传</span>
-              </div>
-              <el-button size="small" type="primary" @click="showUnitSummariesUploadDialog = true">
-                <el-icon><Upload /></el-icon>
-                上传单元概述
-              </el-button>
-            </div>
-          </div>
 
-          <!-- 已有单元概述时显示信息 -->
-          <div v-if="project.unit_summaries && Object.keys(project.unit_summaries).length > 0" class="unit-summaries-info-area">
-            <el-divider content-position="left">单元概述</el-divider>
-            <div class="unit-summaries-status">
-              <div class="status-info">
-                <el-icon color="#67c23a"><CircleCheckFilled /></el-icon>
-                <span>已上传单元概述：<strong>{{ Object.keys(project.unit_summaries).length }}</strong> 个</span>
-              </div>
-              <el-button size="small" type="primary" plain @click="showUnitSummariesUploadDialog = true">
-                <el-icon><Upload /></el-icon>
-                更换单元概述
-              </el-button>
-            </div>
-          </div>
-
-          <!-- 分集详细大纲生成区域（仅剧集类型项目显示） -->
-          <div 
-            v-if="project.outline_content && project.content_type === 'series_script' && chapters.length > 0" 
-            class="episode-outline-area"
-          >
-            <el-divider content-position="left">分集详细大纲</el-divider>
-            <div class="episode-outline-info">
-              <div class="outline-stats">
-                <el-icon color="#409EFC"><Document /></el-icon>
-                <span>已生成分集大纲：<strong>{{ generatedEpisodeCount }}</strong> / {{ totalEpisodeCount }} 集</span>
-              </div>
-              <div class='outline-actions'>
-                <el-button
-                  v-if='generatedEpisodeCount > 0'
-                  size='small'
-                  plain
-                  @click='downloadAllEpisodeOutlines'
-                >
-                  <el-icon><Download /></el-icon>
-                  下载全部大纲
-                </el-button>
-                <el-button
-                  type='primary'
-                  size='small'
-                  @click='handleGenerateAllEpisodeOutlines()'
-                  :loading='generatingEpisodeOutlines'
-                  :disabled='totalEpisodeCount === 0 || taskStore.isRunning'
-                >
-                  <el-icon><MagicStick /></el-icon>
-                  {{ generatingEpisodeOutlines ? '生成中...' : '一键生成全部分集大纲' }}
-                </el-button>
-                <el-button
-                  size='small'
-                  @click='openBatchCountDialog("outline", "episode")'
-                  :disabled='totalEpisodeCount === 0 || taskStore.isRunning'
-                >
-                  生成指定数量
-                </el-button>
-              </div>
-            </div>
-            
-            <!-- 分集大纲列表 -->
-            <div class="episode-outline-list" v-if="episodeOutlines.length > 0">
-              <div 
-                v-for="outline in episodeOutlines" 
-                :key="outline.episode_number"
-                class="episode-outline-item"
-                :class="{ 
-                  'has-outline': outline.has_detailed, 
-                  'has-content': outline.content_status === 'generated',
-                  'is-generating': taskStore.isRunning && taskStore.currentTask?.task_type === 'episode_outline' && taskStore.progress?.current === outline.episode_number,
-                  'is-completed': taskStore.currentTask?.task_type === 'episode_outline' && taskStore.progress?.completed >= outline.episode_number && !outline.has_detailed
-                }"
-              >
-                <!-- 左侧：剧集信息 -->
-                <div class="outline-left">
-                  <span class='episode-num'>第{{ outline.episode_number }}集</span>
-                  <span 
-                    v-if='editingEpisodeTitle !== outline.episode_number'
-                    class='episode-title editable'
-                    @click.stop='startEditEpisodeTitle(outline)'
-                    title='点击编辑集标题'
-                  >
-                    {{ outline.episode_title || '未命名' }}
-                  </span>
-                  <el-input
-                    v-else
-                    v-model='editEpisodeTitleValue'
-                    size='small'
-                    style='width: 150px;'
-                    @click.stop
-                    @keyup.enter='saveEpisodeTitle(outline)'
-                    @keyup.escape='cancelEditEpisodeTitle'
-                    @blur='saveEpisodeTitle(outline)'
-                  />
-                </div>
-                
-                <!-- 右侧：状态和操作 -->
-                <div class="outline-right">
-                  <!-- 状态标签行 -->
-                  <div class="status-tags">
-                    <!-- 生成中状态标签 -->
-                    <el-tag 
-                      v-if="taskStore.isRunning && taskStore.currentTask?.task_type === 'episode_outline' && taskStore.progress?.current === outline.episode_number" 
-                      type="warning" 
-                      size="small"
-                      class="generating-tag"
-                    >
-                      <el-icon class="is-loading"><Refresh /></el-icon>
-                      生成中...
-                    </el-tag>
-                    <!-- 大纲状态标签 -->
-                    <el-tag v-else :type="outline.has_detailed ? 'success' : 'info'" size="small">
-                      {{ outline.has_detailed ? '已生成详细大纲' : '仅基础概要' }}
-                    </el-tag>
-                    <!-- 正文生成状态标签 -->
-                    <el-tag v-if="outline.content_status === 'generated'" type="warning" size="small">
-                      正文已生成
-                    </el-tag>
-                  </div>
-                  
-                  <!-- 操作按钮行 -->
-                  <div class="action-buttons">
-                    <el-button
-                      v-if='!outline.has_detailed'
-                      size='small'
-                      text
-                      type='primary'
-                      @click='handleGenerateSingleEpisodeOutline(outline.episode_number)'
-                      :loading='generatingSingleEpisode === outline.episode_number'
-                    >
-                      生成大纲
-                    </el-button>
-                    <template v-else>
-                      <el-button size='small' text type='primary' @click='showEpisodeOutlineDetail(outline)'>
-                        查看
-                      </el-button>
-                      <el-button size='small' text type='success' @click='downloadEpisodeOutline(outline)'>
-                        下载
-                      </el-button>
-                      <el-button 
-                        size='small' 
-                        :type="outline.content_status === 'generated' ? 'info' : 'warning'" 
-                        text 
-                        @click='generateEpisodeContent(outline)'
-                        :loading='generating && selectedEpisode === outline.episode_number'
-                      >
-                        {{ outline.content_status === 'generated' ? '重生成正文' : '生成正文' }}
-                      </el-button>
-                      <el-button 
-                        v-if='generating && selectedEpisode === outline.episode_number'
-                        size='small' 
-                        type='danger' 
-                        text 
-                        @click='handleStopGeneration'
-                      >
-                        终止
-                      </el-button>
-                      <!-- 删除按钮 -->
-                      <el-popconfirm
-                        v-if="outline.content_status === 'generated'"
-                        title="确定要删除该集正文吗？（大纲将保留）"
-                        @confirm='handleDeleteEpisodeContent(outline)'
-                        confirm-button-text="删除"
-                        cancel-button-text="取消"
-                      >
-                        <template #reference>
-                          <el-button size='small' text type='danger'>
-                            删除正文
-                          </el-button>
-                        </template>
-                      </el-popconfirm>
-                      <el-popconfirm
-                        title="确定要删除该集详细大纲吗？"
-                        @confirm='handleDeleteEpisodeOutline(outline)'
-                        confirm-button-text="删除"
-                        cancel-button-text="取消"
-                      >
-                        <template #reference>
-                          <el-button size='small' text type='danger'>
-                            删除大纲
-                          </el-button>
-                        </template>
-                      </el-popconfirm>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 章节详细大纲生成区域（仅小说类型项目显示） -->
-          <div 
-            v-if="project.outline_content && project.content_type === 'novel' && chapters.length > 0" 
-            class="chapter-outline-area"
-          >
-            <el-divider content-position="left">章节详细大纲</el-divider>
-            <div class="chapter-outline-info">
-              <div class="outline-stats">
-                <el-icon color="#409EFC"><Document /></el-icon>
-                <span>已生成章节大纲：<strong>{{ generatedChapterOutlineCount }}</strong> / {{ totalChapterOutlineCount }} 章</span>
-              </div>
-              <div class='outline-actions'>
-                <el-button
-                  v-if='generatedChapterOutlineCount > 0'
-                  size='small'
-                  plain
-                  @click='downloadAllChapterOutlines'
-                >
-                  <el-icon><Download /></el-icon>
-                  下载全部大纲
-                </el-button>
-                <el-button
-                  type='primary'
-                  size='small'
-                  @click='handleGenerateAllChapterOutlines()'
-                  :loading='generatingChapterOutlines'
-                  :disabled='totalChapterOutlineCount === 0 || taskStore.isRunning'
-                >
-                  <el-icon><MagicStick /></el-icon>
-                  {{ generatingChapterOutlines ? '生成中...' : '一键生成全部章节大纲' }}
-                </el-button>
-                <el-button
-                  size='small'
-                  @click='openBatchCountDialog("outline", "chapter")'
-                  :disabled='totalChapterOutlineCount === 0 || taskStore.isRunning'
-                >
-                  生成指定数量
-                </el-button>
-              </div>
-            </div>
-            
-            <!-- 章节大纲列表 -->
-            <div class="chapter-outline-list" v-if="chapterOutlines.length > 0">
-              <div 
-                v-for="outline in chapterOutlines" 
-                :key="outline.chapter_number"
-                class="chapter-outline-item"
-                :class="{ 
-                  'has-outline': outline.has_detailed, 
-                  'has-content': outline.content_status === 'generated',
-                  'is-generating': taskStore.isRunning && taskStore.currentTask?.task_type === 'chapter_outline' && taskStore.progress?.current === outline.chapter_number,
-                  'is-completed': taskStore.currentTask?.task_type === 'chapter_outline' && taskStore.progress?.completed >= outline.chapter_number && !outline.has_detailed
-                }"
-              >
-                <!-- 左侧：章节信息 -->
-                <div class="outline-left">
-                  <span class='chapter-num'>第{{ outline.chapter_number }}章</span>
-                  <span 
-                    v-if='editingChapterOutlineTitle !== outline.chapter_number'
-                    class='chapter-title-text editable'
-                    @click.stop='startEditChapterOutlineTitle(outline)'
-                    title='点击编辑章节标题'
-                  >
-                    {{ outline.chapter_title || '未命名' }}
-                  </span>
-                  <el-input
-                    v-else
-                    v-model='editChapterOutlineTitleValue'
-                    size='small'
-                    style='width: 150px;'
-                    @click.stop
-                    @keyup.enter='saveChapterOutlineTitle(outline)'
-                    @keyup.escape='cancelEditChapterOutlineTitle'
-                    @blur='saveChapterOutlineTitle(outline)'
-                  />
-                </div>
-                
-                <!-- 右侧：状态和操作 -->
-                <div class="outline-right">
-                  <!-- 状态标签行 -->
-                  <div class="status-tags">
-                    <!-- 生成中状态标签 -->
-                    <el-tag 
-                      v-if="taskStore.isRunning && taskStore.currentTask?.task_type === 'chapter_outline' && taskStore.progress?.current === outline.chapter_number" 
-                      type="warning" 
-                      size="small"
-                      class="generating-tag"
-                    >
-                      <el-icon class="is-loading"><Refresh /></el-icon>
-                      生成中...
-                    </el-tag>
-                    <!-- 大纲状态标签 -->
-                    <el-tag v-else :type="outline.has_detailed ? 'success' : 'info'" size="small">
-                      {{ outline.has_detailed ? '已生成详细大纲' : '仅基础概要' }}
-                    </el-tag>
-                    <!-- 正文生成状态标签 -->
-                    <el-tag v-if="outline.content_status === 'generated'" type="warning" size="small">
-                      正文已生成
-                    </el-tag>
-                  </div>
-                  
-                  <!-- 操作按钮行 -->
-                  <div class="action-buttons">
-                    <el-button
-                      v-if='!outline.has_detailed'
-                      size='small'
-                      text
-                      type='primary'
-                      @click='handleGenerateSingleChapterOutline(outline.chapter_number)'
-                      :loading='generatingSingleChapterOutline === outline.chapter_number'
-                    >
-                      生成大纲
-                    </el-button>
-                    <template v-else>
-                      <el-button size='small' text type='primary' @click='showChapterOutlineDetail(outline)'>
-                        查看
-                      </el-button>
-                      <el-button size='small' text type='success' @click='downloadChapterOutline(outline)'>
-                        下载
-                      </el-button>
-                      <el-button 
-                        size='small' 
-                        text 
-                        type='primary'
-                        @click='handleGenerateSingleChapterOutline(outline.chapter_number, true)'
-                        :loading='generatingSingleChapterOutline === outline.chapter_number'
-                      >
-                        重生成大纲
-                      </el-button>
-                      <el-button 
-                        size='small' 
-                        :type="outline.content_status === 'generated' ? 'info' : 'warning'" 
-                        text 
-                        @click='generateChapterContent(outline)'
-                        :loading='generating && selectedChapter === outline.chapter_number'
-                      >
-                        {{ outline.content_status === 'generated' ? '重生成正文' : '生成正文' }}
-                      </el-button>
-                      <el-button 
-                        v-if='generating && selectedChapter === outline.chapter_number'
-                        size='small' 
-                        type='danger' 
-                        text 
-                        @click='handleStopGeneration'
-                      >
-                        终止
-                      </el-button>
-                      <!-- 删除按钮 -->
-                      <el-popconfirm
-                        v-if="outline.content_status === 'generated'"
-                        title="确定要删除该章节正文吗？（大纲将保留）"
-                        @confirm='handleDeleteChapterContent(outline)'
-                        confirm-button-text="删除"
-                        cancel-button-text="取消"
-                      >
-                        <template #reference>
-                          <el-button size='small' text type='danger'>
-                            删除正文
-                          </el-button>
-                        </template>
-                      </el-popconfirm>
-                      <el-popconfirm
-                        title="确定要删除该章节详细大纲吗？"
-                        @confirm='handleDeleteChapterOutline(outline)'
-                        confirm-button-text="删除"
-                        cancel-button-text="取消"
-                      >
-                        <template #reference>
-                          <el-button size='small' text type='danger'>
-                            删除大纲
-                          </el-button>
-                        </template>
-                      </el-popconfirm>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 场景详细大纲生成区域（仅电影剧本类型项目显示） -->
-          <div 
-            v-if="project.outline_content && project.content_type === 'movie_script' && chapters.length > 0" 
-            class="scene-outline-area"
-          >
-            <el-divider content-position="left">场景详细大纲</el-divider>
-            <div class="scene-outline-info">
-              <div class="outline-stats">
-                <el-icon color="#409EFC"><Document /></el-icon>
-                <span>已生成场景大纲：<strong>{{ generatedSceneOutlineCount }}</strong> / {{ totalSceneOutlineCount }} 场</span>
-              </div>
-              <div class='outline-actions'>
-                <el-button
-                  v-if='generatedSceneOutlineCount > 0'
-                  size='small'
-                  plain
-                  @click='downloadAllSceneOutlines'
-                >
-                  <el-icon><Download /></el-icon>
-                  下载全部大纲
-                </el-button>
-                <el-button
-                  type='primary'
-                  size='small'
-                  @click='handleGenerateAllSceneOutlines()'
-                  :loading='generatingSceneOutlines'
-                  :disabled='totalSceneOutlineCount === 0 || taskStore.isRunning'
-                >
-                  <el-icon><MagicStick /></el-icon>
-                  {{ generatingSceneOutlines ? '生成中...' : '一键生成全部场景大纲' }}
-                </el-button>
-                <el-button
-                  size='small'
-                  @click='openBatchCountDialog("outline", "scene")'
-                  :disabled='totalSceneOutlineCount === 0 || taskStore.isRunning'
-                >
-                  生成指定数量
-                </el-button>
-              </div>
-            </div>
-            
-            <!-- 场景大纲列表 -->
-            <div class="scene-outline-list" v-if="sceneOutlines.length > 0">
-              <div 
-                v-for="outline in sceneOutlines" 
-                :key="outline.scene_number"
-                class="scene-outline-item"
-                :class="{ 
-                  'has-outline': outline.has_detailed, 
-                  'has-content': outline.content_status === 'generated',
-                  'is-generating': taskStore.isRunning && taskStore.currentTask?.task_type === 'scene_outline' && taskStore.progress?.current === outline.scene_number,
-                  'is-completed': taskStore.currentTask?.task_type === 'scene_outline' && taskStore.progress?.completed >= outline.scene_number && !outline.has_detailed
-                }"
-              >
-                <!-- 左侧：场景信息 -->
-                <div class="outline-left">
-                  <span class='scene-num'>第{{ outline.scene_number }}场</span>
-                  <span 
-                    v-if='editingSceneOutlineTitle !== outline.scene_number'
-                    class='scene-title-text editable'
-                    @click.stop='startEditSceneOutlineTitle(outline)'
-                    title='点击编辑场景标题'
-                  >
-                    {{ outline.scene_title || outline.location || '未命名' }}
-                  </span>
-                  <el-input
-                    v-else
-                    v-model='editSceneOutlineTitleValue'
-                    size='small'
-                    style='width: 150px;'
-                    @click.stop
-                    @keyup.enter='saveSceneOutlineTitle(outline)'
-                    @keyup.escape='cancelEditSceneOutlineTitle'
-                    @blur='saveSceneOutlineTitle(outline)'
-                  />
-                </div>
-                
-                <!-- 右侧：状态和操作 -->
-                <div class="outline-right">
-                  <!-- 状态标签行 -->
-                  <div class="status-tags">
-                    <!-- 生成中状态标签 -->
-                    <el-tag 
-                      v-if="taskStore.isRunning && taskStore.currentTask?.task_type === 'scene_outline' && taskStore.progress?.current === outline.scene_number" 
-                      type="warning" 
-                      size="small"
-                      class="generating-tag"
-                    >
-                      <el-icon class="is-loading"><Refresh /></el-icon>
-                      生成中...
-                    </el-tag>
-                    <!-- 大纲状态标签 -->
-                    <el-tag v-else :type="outline.has_detailed ? 'success' : 'info'" size="small">
-                      {{ outline.has_detailed ? '已生成详细大纲' : '仅基础概要' }}
-                    </el-tag>
-                    <!-- 正文生成状态标签 -->
-                    <el-tag v-if="outline.content_status === 'generated'" type="warning" size="small">
-                      正文已生成
-                    </el-tag>
-                  </div>
-                  
-                  <!-- 操作按钮行 -->
-                  <div class="action-buttons">
-                    <el-button
-                      v-if='!outline.has_detailed'
-                      size='small'
-                      text
-                      type='primary'
-                      @click='handleGenerateSingleSceneOutline(outline.scene_number)'
-                      :loading='generatingSingleSceneOutline === outline.scene_number'
-                    >
-                      生成大纲
-                    </el-button>
-                    <template v-else>
-                      <el-button size='small' text type='primary' @click='showSceneOutlineDetail(outline)'>
-                        查看
-                      </el-button>
-                      <el-button size='small' text type='success' @click='downloadSceneOutline(outline)'>
-                        下载
-                      </el-button>
-                      <el-button 
-                        size='small' 
-                        :type="outline.content_status === 'generated' ? 'info' : 'warning'" 
-                        text 
-                        @click='generateSceneContent(outline)'
-                        :loading='generating && selectedScene === outline.scene_number'
-                      >
-                        {{ outline.content_status === 'generated' ? '重生成正文' : '生成正文' }}
-                      </el-button>
-                      <el-button 
-                        v-if='generating && selectedScene === outline.scene_number'
-                        size='small' 
-                        type='danger' 
-                        text 
-                        @click='handleStopGeneration'
-                      >
-                        终止
-                      </el-button>
-                      <!-- 删除按钮 -->
-                      <el-popconfirm
-                        v-if="outline.content_status === 'generated'"
-                        title="确定要删除该场景正文吗？（大纲将保留）"
-                        @confirm='handleDeleteSceneContent(outline)'
-                        confirm-button-text="删除"
-                        cancel-button-text="取消"
-                      >
-                        <template #reference>
-                          <el-button size='small' text type='danger'>
-                            删除正文
-                          </el-button>
-                        </template>
-                      </el-popconfirm>
-                      <el-popconfirm
-                        title="确定要删除该场景详细大纲吗？"
-                        @confirm='handleDeleteSceneOutline(outline)'
-                        confirm-button-text="删除"
-                        cancel-button-text="取消"
-                      >
-                        <template #reference>
-                          <el-button size='small' text type='danger'>
-                            删除大纲
-                          </el-button>
-                        </template>
-                      </el-popconfirm>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 章节列表（有大纲且有章节时显示） -->
-          <div v-if="chapters.length > 0" class="chapter-list">
-            <!-- 章节名称操作区 -->
-            <div class="chapter-actions-bar" v-if="chapters.length > 0">
-              <div class="action-buttons">
-                <el-button
-                  size="small"
-                  type="warning"
-                  plain
-                  @click="handleRegenerateDirectory"
-                  :loading="generatingDirectory"
-                >
-                  <el-icon><Refresh /></el-icon>
-                  重新生成目录
-                </el-button>
-                <el-button
-                  size="small"
-                  @click="handleRegenerateNames"
-                  :loading="regeneratingNames"
-                >
-                  <el-icon><MagicStick /></el-icon>
-                  重新生成名称
-                </el-button>
-                <!-- 正文操作按钮（根据内容类型显示） -->
-                <el-button v-if='project.content_type === "series_script" && episodeOutlines.length > 0' type='success' size='small' @click='handleGenerateAllEpisodeContent()' :loading='generatingAllContent && batchContentType === "episode"'>
-                  <el-icon><MagicStick /></el-icon>
-                  一键生成全部分集正文
-                </el-button>
-                <el-button v-if='project.content_type === "series_script" && episodeOutlines.length > 0' size='small' @click='openBatchCountDialog("content", "episode")' :disabled='taskStore.isRunning'>
-                  生成指定数量
-                </el-button>
-                <el-button v-if='project.content_type === "series_script" && episodeOutlines.length > 0' size='small' plain type='success' @click='downloadAllEpisodeContent'>
-                  <el-icon><Download /></el-icon>
-                  下载全部正文
-                </el-button>
-                <el-button v-if='project.content_type === "novel" && chapterOutlines.length > 0' type='success' size='small' @click='handleGenerateAllChapterContent()' :loading='generatingAllContent && batchContentType === "chapter"'>
-                  <el-icon><MagicStick /></el-icon>
-                  一键生成全部章节正文
-                </el-button>
-                <el-button v-if='project.content_type === "novel" && chapterOutlines.length > 0' size='small' @click='openBatchCountDialog("content", "chapter")' :disabled='taskStore.isRunning'>
-                  生成指定数量
-                </el-button>
-                <el-button v-if='project.content_type === "novel" && chapterOutlines.length > 0' size='small' plain type='success' @click='downloadAllChapterContent'>
-                  <el-icon><Download /></el-icon>
-                  下载全部正文
-                </el-button>
-                <el-button v-if='project.content_type === "movie_script" && sceneOutlines.length > 0' type='success' size='small' @click='handleGenerateAllSceneContent()' :loading='generatingAllContent && batchContentType === "scene"'>
-                  <el-icon><MagicStick /></el-icon>
-                  一键生成全部场景正文
-                </el-button>
-                <el-button v-if='project.content_type === "movie_script" && sceneOutlines.length > 0' size='small' @click='openBatchCountDialog("content", "scene")' :disabled='taskStore.isRunning'>
-                  生成指定数量
-                </el-button>
-                <el-button v-if='project.content_type === "movie_script" && sceneOutlines.length > 0' size='small' plain type='success' @click='downloadAllSceneContent'>
-                  <el-icon><Download /></el-icon>
-                  下载全部正文
-                </el-button>
-              </div>
-              <el-text type="info" size="small">点击章节标题可编辑</el-text>
-            </div>
-
-            <div
-              v-for="chapter in chapters"
-              :key="chapter.id"
-              class="chapter-item"
-              :class="{ 
-                active: selectedChapter?.chapter_number === chapter.chapter_number,
-                'has-compliance-issue': chapter.chapter_metadata?.compliance_marking?.has_issues
-              }"
-              @click="selectChapter(chapter)"
-            >
-              <div class="chapter-info">
-                <span class="chapter-number">第{{ chapter.chapter_number }}{{ unitLabel }}</span>
-                <span
-                  class="chapter-title editable"
-                  @click.stop="startEditTitle(chapter)"
-                  v-if="editingChapter !== chapter.chapter_number"
-                  :title="'点击编辑'"
-                >
-                  {{ cleanChapterTitle(chapter.chapter_title) }}
-                </span>
-                <el-input
-                  v-else
-                  ref="editTitleInput"
-                  v-model="editTitleValue"
-                  size="small"
-                  style="width: 150px;"
-                  @click.stop
-                  @keyup.enter.stop="handleEnterSaveTitle(chapter)"
-                  @keyup.escape="cancelEditTitle"
-                  @blur="handleBlurSaveTitle(chapter)"
-                />
-              </div>
-              <div class="chapter-status">
-                <el-tag :type="getChapterStatusType(chapter.status)" size="small">
-                  {{ getChapterStatusText(chapter.status) }}
-                </el-tag>
-                <!-- 合规问题标记 - 更加明显 -->
-                <el-tooltip 
-                  v-if="chapter.chapter_metadata?.compliance_marking?.has_issues" 
-                  :content="`发现${chapter.chapter_metadata.compliance_marking.issue_count}处潜在合规问题，点击查看详情`"
-                  placement="top"
-                >
-                  <el-tag 
-                    type="danger" 
-                    size="small" 
-                    class="compliance-tag has-issues"
-                    effect="dark"
-                    @click.stop="showComplianceDetail(chapter)"
-                  >
-                    <el-icon><WarningFilled /></el-icon>
-                    合规问题 {{ chapter.chapter_metadata.compliance_marking.issue_count }}
-                  </el-tag>
-                </el-tooltip>
-                <span class="word-count" v-if="chapter.word_count">
-                  {{ chapter.word_count }}字
-                </span>
-              </div>
-            </div>
-          </div>
+          <!-- 章节列表 -->
+          <ChapterList
+            :chapters="chapters"
+            :selected-chapter="selectedChapter"
+            :content-type="project.content_type"
+            :unit-label="unitLabel"
+            :episode-outlines="episodeOutlines"
+            :chapter-outlines="chapterOutlines"
+            :scene-outlines="sceneOutlines"
+            :loading-directory="generatingDirectory"
+            :loading-names="regeneratingNames"
+            :loading-all-content="generatingAllContent"
+            :batch-content-type="batchContentType"
+            :task-store="taskStore"
+            :editing-chapter="editingChapter"
+            :edit-title-value="editTitleValue"
+            @select="selectChapter"
+            @edit-title="startEditTitle"
+            @save-title="handleEnterSaveTitle"
+            @cancel-edit="cancelEditTitle"
+            @update:edit-title-value="(val) => editTitleValue = val"
+            @regenerate-directory="handleRegenerateDirectory"
+            @regenerate-names="handleRegenerateNames"
+            @show-compliance="showComplianceDetail"
+            @open-batch-dialog="openBatchCountDialog"
+            @generate-all-episode-content="handleGenerateAllEpisodeContent"
+            @download-all-episode-content="downloadAllEpisodeContent"
+            @generate-all-chapter-content="handleGenerateAllChapterContent"
+            @download-all-chapter-content="downloadAllChapterContent"
+            @generate-all-scene-content="handleGenerateAllSceneContent"
+            @download-all-scene-content="downloadAllSceneContent"
+          />
         </el-card>
 
         <!-- 章节内容预览 -->
-        <el-card class="content-card" v-if="selectedChapter">
-          <template #header>
-            <div class="card-header">
-              <span>第{{ selectedChapter.chapter_number }}{{ unitLabel }} {{ selectedChapter.chapter_title }}</span>
-              <div class="header-actions">
-                <!-- 修正历史按钮 -->
-                <el-button 
-                  v-if="chapterRevisionInfo" 
-                  size="small" 
-                  plain
-                  type="success"
-                  @click="showRevisionCompareDialog"
-                >
-                  <el-icon><DataAnalysis /></el-icon>
-                  修正对比
-                </el-button>
-                <el-dropdown v-if="chapterContent" @command="handleDownloadChapter" style="margin-right: 8px;">
-                  <el-button size="small">
-                    <el-icon><Download /></el-icon>
-                    下载
-                    <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-                  </el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="txt">下载为 TXT</el-dropdown-item>
-                      <el-dropdown-item command="md">下载为 Markdown</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-                <el-button size="small" @click="generateSingleChapter" :loading="generatingChapter">
-                  {{ selectedChapter.status === 'completed' ? '重新生成' : '生成内容' }}
-                </el-button>
-              </div>
-            </div>
-          </template>
-
-          <!-- 修正信息提示 -->
-          <el-alert
-            v-if="chapterRevisionInfo"
-            type="success"
-            :closable="false"
-            show-icon
-            style="margin-bottom: 12px;"
-          >
-            <template #title>
-              <span>已应用知识库修正</span>
-              <span style="margin-left: 12px; font-size: 12px; color: #909399;">
-                原文 {{ chapterRevisionInfo.original_length }} 字 → 修正后 {{ chapterRevisionInfo.revised_length }} 字
-              </span>
-            </template>
-          </el-alert>
-
-          <!-- 合规审核提示 -->
-          <el-alert
-            v-if="chapterComplianceMarking?.has_issues"
-            type="warning"
-            :closable="false"
-            show-icon
-            style="margin-bottom: 12px;"
-          >
-            <template #title>
-              <span>合规审核：发现 {{ chapterComplianceMarking.issue_count }} 处潜在问题</span>
-              <el-button 
-                size="small" 
-                text 
-                type="primary" 
-                style="margin-left: 12px;"
-                @click="showComplianceDetail(selectedChapter)"
-              >
-                查看详情
-              </el-button>
-            </template>
-          </el-alert>
-
-          <div class="chapter-content" v-if="chapterContent">
-            <el-input
-              v-model="chapterContent"
-              type="textarea"
-              :rows="28"
-              placeholder="内容"
-              @blur="saveChapterContent"
-            />
-          </div>
-          <el-empty v-else description="暂无内容，点击生成按钮开始生成" />
-        </el-card>
+        <ChapterContentPreview
+          :selected-chapter="selectedChapter"
+          :content="chapterContent"
+          :unit-label="unitLabel"
+          :revision-info="chapterRevisionInfo"
+          :compliance-marking="chapterComplianceMarking"
+          :loading="generatingChapter"
+          @generate="generateSingleChapter"
+          @save="saveChapterContent"
+          @update:content="(val) => chapterContent = val"
+          @show-revision-compare="showRevisionCompareDialog"
+          @show-compliance-detail="showComplianceDetail"
+          @download="handleDownloadChapter"
+        />
       </el-col>
 
       <el-col :span="10">
-        <!-- 项目状态卡片 -->
-        <el-card class="status-card compact-card">
-          <template #header>
-            <span>项目状态</span>
-          </template>
+        <!-- 项目状态面板 -->
+        <ProjectStatusPanel
+          :project="project"
+          :unit-label="unitLabel"
+          :total-words="totalWords"
+        />
 
-          <div class="status-grid">
-            <div class="status-item-compact">
-              <span class="label">状态</span>
-              <el-tag :type="getStatusType(project.status)" size="small">
-                {{ getStatusText(project.status) }}
-              </el-tag>
-            </div>
-            <div class="status-item-compact">
-              <span class="label">进度</span>
-              <el-progress
-                :percentage="project.progress_percentage"
-                :status="project.status === 'completed' ? 'success' : null"
-                :stroke-width="8"
-              />
-            </div>
-            <div class="status-item-compact">
-              <span class="label">{{ unitLabel }}数</span>
-              <span class="value">{{ project.completed_chapters }}/{{ project.total_chapters }}</span>
-            </div>
-            <div class="status-item-compact">
-              <span class="label">总字数</span>
-              <span class="value">{{ totalWords }}</span>
-            </div>
-          </div>
-        </el-card>
-
-        <!-- 生成配置卡片 -->
-        <el-card class="config-card compact-card">
-          <template #header>
-            <span>生成配置</span>
-          </template>
-
-          <!-- 小说配置显示 -->
-          <template v-if="project?.content_type === 'novel'">
-            <div class="config-item" v-if="project.novel_config?.target_platform">
-              <span class="label">投放平台</span>
-              <span class="value">{{ project.novel_config.target_platform }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">每章字数</span>
-              <span class="value">{{ project.novel_config?.words_per_chapter || project.generation_config?.words_per_chapter || 3000 }}字</span>
-            </div>
-            <div class="config-item" v-if="project.novel_config?.narrative_perspective">
-              <span class="label">叙事视角</span>
-              <span class="value">{{ project.novel_config.narrative_perspective }}</span>
-            </div>
-            <div class="config-item" v-if="project.novel_config?.tone">
-              <span class="label">基调风格</span>
-              <span class="value">{{ project.novel_config.tone }}</span>
-            </div>
-          </template>
-
-          <!-- 剧集剧本配置显示 -->
-          <template v-else-if="project?.content_type === 'series_script'">
-            <div class="config-item">
-              <span class="label">剧集类型</span>
-              <span class="value">{{ project.series_script_config?.series_type || '电视剧' }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">总集数</span>
-              <span class="value">{{ project.series_script_config?.episode_count || '-' }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">每集时长</span>
-              <span class="value">{{ project.series_script_config?.episode_duration_range?.join('-') || '30-45' }}分钟</span>
-            </div>
-            <div class="config-item">
-              <span class="label">剧本格式</span>
-              <span class="value">{{ project.series_script_config?.format_standard || '标准格式' }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">对白比例</span>
-              <span class="value">{{ project.series_script_config?.dialogue_narration_ratio || '均衡' }}</span>
-            </div>
-            <div class="config-item" v-if="project.series_script_config?.target_broadcast">
-              <span class="label">投放平台</span>
-              <span class="value">{{ project.series_script_config.target_broadcast }}</span>
-            </div>
-          </template>
-
-          <!-- 电影剧本配置显示 -->
-          <template v-else-if="project?.content_type === 'movie_script'">
-            <div class="config-item">
-              <span class="label">电影类型</span>
-              <span class="value">{{ project.movie_script_config?.movie_type || '院线电影' }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">电影时长</span>
-              <span class="value">{{ project.movie_script_config?.total_duration || 90 }}分钟</span>
-            </div>
-            <div class="config-item">
-              <span class="label">剧本格式</span>
-              <span class="value">{{ project.movie_script_config?.format_standard || '标准格式' }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">对白比例</span>
-              <span class="value">{{ project.movie_script_config?.dialogue_narration_ratio || '均衡' }}</span>
-            </div>
-            <div class="config-item" v-if="project.movie_script_config?.target_platform">
-              <span class="label">投放平台</span>
-              <span class="value">{{ project.movie_script_config.target_platform }}</span>
-            </div>
-          </template>
-
-          <!-- 兼容旧版剧本配置显示 -->
-          <template v-else-if="project?.project_type === 'script'">
-            <div class="config-item">
-              <span class="label">剧集类型</span>
-              <span class="value">{{ project.script_config?.series_type || '电视剧' }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">每集时长</span>
-              <span class="value">{{ project.script_config?.episode_duration_range?.join('-') || '30-45' }}分钟</span>
-            </div>
-            <div class="config-item">
-              <span class="label">剧本格式</span>
-              <span class="value">{{ project.script_config?.format_standard || '标准格式' }}</span>
-            </div>
-            <div class="config-item">
-              <span class="label">对白比例</span>
-              <span class="value">{{ project.script_config?.dialogue_narration_ratio || '均衡' }}</span>
-            </div>
-          </template>
-
-          <!-- 通用配置 -->
-          <div class="config-item">
-            <span class="label">题材</span>
-            <span class="value">{{ project.genre || '未设置' }}</span>
-          </div>
-        </el-card>
-
-        <!-- 统计信息 -->
-        <el-card class="stats-card compact-card">
-          <template #header>
-            <span>统计信息</span>
-          </template>
-
-          <div class="stats-grid">
-            <div class="stats-item-compact">
-              <span class="label">Token消耗</span>
-              <span class="value">{{ project.total_tokens?.toLocaleString() || 0 }}</span>
-            </div>
-            <div class="stats-item-compact">
-              <span class="label">创建时间</span>
-              <span class="value small">{{ formatDateTime(project.created_at) }}</span>
-            </div>
-            <div class="stats-item-compact">
-              <span class="label">更新时间</span>
-              <span class="value small">{{ formatDateTime(project.updated_at) }}</span>
-            </div>
-          </div>
-        </el-card>
-
-        <!-- 知识库状态卡片 -->
-        <el-card class="knowledge-base-card compact-card">
-          <template #header>
-            <div class="card-header-flex">
-              <span>知识库</span>
-              <el-button 
-                size="small" 
-                text 
-                type="primary" 
-                @click="refreshKnowledgeBaseStatus"
-                :loading="loadingKbStatus"
-              >
-                <el-icon><Refresh /></el-icon>
-              </el-button>
-            </div>
-          </template>
-
-          <!-- 未构建状态 -->
-          <div v-if="kbStatus.status === 'pending'" class="kb-status-pending">
-            <el-empty :image-size="60" description="知识库未构建">
-              <el-button 
-                type="primary" 
-                size="small" 
-                @click="handleBuildKnowledgeBase"
-                :loading="buildingKb"
-                :disabled="!project.outline_content"
-              >
-                <el-icon><Cpu /></el-icon>
-                构建知识库
-              </el-button>
-            </el-empty>
-            <div v-if="!project.outline_content" class="kb-hint">
-              <el-icon><WarningFilled /></el-icon>
-              <span>请先上传大纲</span>
-            </div>
-          </div>
-
-          <!-- 构建中状态 -->
-          <div v-else-if="kbStatus.status === 'building'" class="kb-status-building">
-            <!-- 幽灵状态警告 -->
-            <el-alert
-              v-if="kbStatus.is_stale"
-              type="warning"
-              title="检测到异常状态"
-              description="知识库构建任务可能已中断，请点击下方按钮重置状态"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 12px;"
-            />
-            <div class="kb-progress">
-              <el-progress 
-                :percentage="kbStatus.progress?.progress || 0" 
-                :status="kbStatus.is_stale ? 'exception' : 'warning'"
-                :stroke-width="10"
-              />
-              <p class="kb-message">{{ kbStatus.progress?.message || '正在构建...' }}</p>
-            </div>
-            <!-- 正常构建中状态 -->
-            <el-button 
-              v-if="!kbStatus.is_stale"
-              type="danger" 
-              size="small" 
-              plain
-              disabled
-            >
-              构建中，请稍候...
-            </el-button>
-            <!-- 幽灵状态：显示重置按钮 -->
-            <el-button 
-              v-else
-              type="warning" 
-              size="small" 
-              plain
-              @click="handleResetKbStatus"
-              :loading="resettingKbStatus"
-            >
-              <el-icon><RefreshRight /></el-icon>
-              重置状态
-            </el-button>
-          </div>
-
-          <!-- 构建完成状态 -->
-          <div v-else-if="kbStatus.status === 'ready'" class="kb-status-ready">
-            <div class="kb-stats-grid">
-              <div class="kb-stat-item">
-                <el-icon color="#67c23a"><CircleCheckFilled /></el-icon>
-                <span class="kb-stat-label">状态</span>
-                <el-tag type="success" size="small">已就绪</el-tag>
-              </div>
-              <div class="kb-stat-item" v-if="kbStatus.progress?.entity_count">
-                <el-icon color="#409EFC"><DataAnalysis /></el-icon>
-                <span class="kb-stat-label">实体数</span>
-                <span class="kb-stat-value">{{ kbStatus.progress.entity_count }}</span>
-              </div>
-              <div class="kb-stat-item" v-if="kbStatus.progress?.relation_count">
-                <el-icon color="#E6A23C"><Connection /></el-icon>
-                <span class="kb-stat-label">关系数</span>
-                <span class="kb-stat-value">{{ kbStatus.progress.relation_count }}</span>
-              </div>
-              <div class="kb-stat-item">
-                <el-icon color="#909399"><Cpu /></el-icon>
-                <span class="kb-stat-label">GraphRAG</span>
-                <el-tag :type="kbStatus.graphrag_enabled ? 'success' : 'info'" size="small">
-                  {{ kbStatus.graphrag_enabled ? '已启用' : '未启用' }}
-                </el-tag>
-              </div>
-            </div>
-
-            <div class="kb-actions">
-              <el-button size="small" @click="showKnowledgeGraphDialog">
-                <el-icon><DataAnalysis /></el-icon>
-                查看图谱
-              </el-button>
-              <el-dropdown @command="handleUnitGraphCommand" style="margin-left: 8px;">
-                <el-button size="small" type="primary" plain>
-                  <el-icon><Collection /></el-icon>
-                  重建单元图谱
-                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-                </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="all">
-                      <el-icon><List /></el-icon>
-                      全部重建
-                    </el-dropdown-item>
-                    <el-dropdown-item command="select">
-                      <el-icon><Select /></el-icon>
-                      选择单元重建...
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-              <el-popconfirm
-                title="确定要重建全局知识库吗？这将清除现有数据。"
-                @confirm="handleBuildKnowledgeBase"
-                confirm-button-text="确定"
-                cancel-button-text="取消"
-              >
-                <template #reference>
-                  <el-button size="small" type="warning" plain :loading="buildingKb">
-                    <el-icon><Refresh /></el-icon>
-                    重建全局
-                  </el-button>
-                </template>
-              </el-popconfirm>
-              <el-popconfirm
-                title="确定要删除知识库吗？"
-                @confirm="handleDeleteKnowledgeBase"
-                confirm-button-text="删除"
-                cancel-button-text="取消"
-              >
-                <template #reference>
-                  <el-button size="small" type="danger" text>
-                    <el-icon><Delete /></el-icon>
-                  </el-button>
-                </template>
-              </el-popconfirm>
-            </div>
-          </div>
-
-          <!-- 构建失败状态 -->
-          <div v-else-if="kbStatus.status === 'failed'" class="kb-status-failed">
-            <el-alert
-              type="error"
-              :title="'构建失败'"
-              :description="kbStatus.progress?.error || '未知错误'"
-              show-icon
-              :closable="false"
-            />
-            <el-button 
-              type="primary" 
-              size="small" 
-              @click="handleBuildKnowledgeBase"
-              :loading="buildingKb"
-              style="margin-top: 12px;"
-            >
-              重试构建
-            </el-button>
-          </div>
-        </el-card>
+        <!-- 知识库面板 -->
+        <KnowledgeBasePanel
+          :kb-status="kbStatus"
+          :has-outline="!!project.outline_content"
+          :loading-status="loadingKbStatus"
+          :building="buildingKb"
+          :resetting="resettingKbStatus"
+          @refresh="refreshKnowledgeBaseStatus"
+          @build="handleBuildKnowledgeBase"
+          @reset="handleResetKbStatus"
+          @delete="handleDeleteKnowledgeBase"
+          @rebuild-global="handleBuildKnowledgeBase"
+          @show-graph="showKnowledgeGraphDialog"
+          @unit-graph-command="handleUnitGraphCommand"
+        />
       </el-col>
     </el-row>
-
     <!-- 知识图谱可视化弹窗 -->
     <el-dialog 
       v-model="knowledgeGraphVisible" 
@@ -2455,6 +1341,16 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 质控结果对话框 -->
+    <QualityControlResultDialog
+      v-model:visible="showQualityControlResultDialog"
+      :quality-report="qualityControlResult?.qualityReport"
+      :revision-summary="qualityControlResult?.revisionSummary || []"
+      :revised-count="qualityControlResult?.revisedCount || 0"
+      :message="qualityControlResult?.message"
+      :loading="false"
+    />
   </div>
 </template>
 
@@ -2462,11 +1358,23 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Setting, Download, Delete, DeleteFilled, DocumentDelete, UploadFilled, Upload, CircleCheckFilled, WarningFilled, InfoFilled, Refresh, RefreshRight, Document, MagicStick, ArrowDown, Edit, VideoPause, Reading, Cpu, DataAnalysis, ChatDotRound, Folder, List, Loading, Finished, CircleCheck, CircleClose, Warning, Connection, Collection, Select } from '@element-plus/icons-vue'
+import { ArrowLeft, Setting, Download, Delete, DeleteFilled, DocumentDelete, UploadFilled, Upload, CircleCheckFilled, WarningFilled, InfoFilled, Refresh, RefreshRight, Document, MagicStick, ArrowDown, Edit, VideoPause, Reading, Cpu, DataAnalysis, ChatDotRound, Folder, List, Loading, Finished, CircleCheck, CircleClose, Warning, Connection, Collection, Select, Search } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { novelWriterApi } from '@/api/novel-writer'
 import { useTaskStore } from '@/stores/task'
+import QualityControlResultDialog from './components/QualityControlResultDialog.vue'
+
+// 导入新拆分的组件
+import TaskStatusBar from './components/TaskStatusBar.vue'
+import ProjectHeader from './components/ProjectHeader.vue'
+import OutlineUploadSection from './components/OutlineUploadSection.vue'
+import UnitSummariesSection from './components/UnitSummariesSection.vue'
+import DetailedOutlineSection from './components/DetailedOutlineSection.vue'
+import ChapterList from './components/ChapterList.vue'
+import ChapterContentPreview from './components/ChapterContentPreview.vue'
+import ProjectStatusPanel from './components/ProjectStatusPanel.vue'
+import KnowledgeBasePanel from './components/KnowledgeBasePanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -2508,6 +1416,11 @@ const unitSummariesUploadMode = ref('file')  // 'file' 或 'json'
 const unitSummariesInput = ref('')
 const globalOutlineInput = ref('')
 const uploadingUnitSummaries = ref(false)
+
+// 单元概述质控状态
+const qualityControlLoading = ref(false)
+const showQualityControlResultDialog = ref(false)
+const qualityControlResult = ref(null)
 
 // AbortController 用于终止生成
 const abortController = ref(null)
@@ -3266,6 +2179,49 @@ async function handleUnitSummariesFileUpload(options) {
     ElMessage.error(error.response?.data?.detail || '上传失败')
   } finally {
     uploadingUnitSummaries.value = false
+  }
+}
+
+// 触发单元概述质控检测
+async function handleTriggerQualityControl() {
+  if (!project.value?.unit_summaries || Object.keys(project.value.unit_summaries).length === 0) {
+    ElMessage.warning('请先上传单元概述数据')
+    return
+  }
+
+  qualityControlLoading.value = true
+  try {
+    const res = await novelWriterApi.triggerUnitSummariesQualityControl(projectId.value, {
+      enable_auto_revision: true
+    })
+
+    if (res.success) {
+      const result = res.data
+      
+      // 保存质控结果
+      qualityControlResult.value = {
+        qualityReport: result.quality_report,
+        revisionSummary: result.revision_summary,
+        revisedCount: result.revised_count,
+        message: result.message
+      }
+
+      // 显示质控结果对话框
+      showQualityControlResultDialog.value = true
+
+      // 如果有修正内容，刷新项目数据
+      if (result.revised_count > 0) {
+        ElMessage.success(`质控完成：发现并修正了 ${result.revised_count} 个问题`)
+        await loadProject()
+      } else {
+        ElMessage.success('质控完成：未发现严重问题')
+      }
+    }
+  } catch (error) {
+    console.error('质控检测失败:', error)
+    ElMessage.error(error.response?.data?.detail || '质控检测失败')
+  } finally {
+    qualityControlLoading.value = false
   }
 }
 
@@ -6426,148 +5382,8 @@ watch(() => project.value, (newVal) => {
 <style lang="scss" scoped>
 .project-detail-page {
   // 任务状态提示条样式
-  .task-status-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
-    color: #fff;
-    padding: 12px 20px;
-    border-radius: 8px;
-    margin-bottom: 16px;
-    box-shadow: 0 4px 12px rgba(238, 90, 90, 0.3);
-    animation: pulse-glow 2s ease-in-out infinite;
-
-    .task-info {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex: 1;
-      flex-wrap: wrap;
-
-      .el-icon {
-        font-size: 18px;
-      }
-
-      .task-type {
-        font-weight: 600;
-        font-size: 15px;
-      }
-
-      .task-progress {
-        font-size: 14px;
-        opacity: 0.9;
-      }
-
-      .current-step {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(255, 255, 255, 0.15);
-        padding: 4px 12px;
-        border-radius: 16px;
-        font-size: 13px;
-        margin-left: 8px;
-
-        .el-icon {
-          font-size: 14px;
-        }
-
-        .step-message {
-          &.step-done {
-            color: #a5f3a5;
-          }
-          &.step-error {
-            color: #ffc1c1;
-          }
-        }
-      }
-    }
-
-    .task-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .el-button {
-      background: rgba(255, 255, 255, 0.2);
-      border-color: rgba(255, 255, 255, 0.3);
-      color: #fff;
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.3);
-        border-color: rgba(255, 255, 255, 0.5);
-      }
-    }
-  }
 
   // 步骤历史样式
-  .steps-history {
-    max-height: 400px;
-    overflow-y: auto;
-
-    .steps-title {
-      font-weight: 600;
-      font-size: 14px;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid #eee;
-      color: #303133;
-    }
-
-    .step-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      margin-bottom: 4px;
-      border-radius: 6px;
-      background: #f5f7fa;
-      font-size: 13px;
-
-      &.step-running {
-        background: #fdf6ec;
-        .step-text {
-          color: #e6a23c;
-        }
-      }
-
-      &.step-done {
-        background: #f0f9eb;
-        .step-text {
-          color: #67c23a;
-        }
-      }
-
-      &.step-error {
-        background: #fef0f0;
-        .step-text {
-          color: #f56c6c;
-        }
-      }
-
-      .step-text {
-        flex: 1;
-        color: #606266;
-      }
-
-      .step-duration {
-        font-size: 12px;
-        color: #909399;
-        margin-right: 8px;
-      }
-    }
-  }
-
-  @keyframes pulse-glow {
-    0%, 100% {
-      box-shadow: 0 4px 12px rgba(238, 90, 90, 0.3);
-    }
-    50% {
-      box-shadow: 0 4px 20px rgba(238, 90, 90, 0.5);
-    }
-  }
 
   // 非运行状态的任务状态条样式（用于任务完成/取消后短暂显示）
   &.is-completed {
@@ -6580,559 +5396,21 @@ watch(() => project.value, (newVal) => {
     animation: none;
   }
 
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-
-      .project-title {
-        font-size: 20px;
-        font-weight: 600;
-        margin: 0;
-      }
-    }
-
-    .header-actions {
-      display: flex;
-      gap: 8px;
-    }
-  }
-
   .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
 
-  .outline-upload-area {
-    padding: 40px;
-    text-align: center;
-  }
-
-  .outline-info {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    background: #f5f7fa;
-    border-radius: 8px;
-    margin-bottom: 16px;
-
-    .outline-status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
-      span {
-        font-weight: 500;
-      }
-    }
-  }
-
-  .chapter-setup-area {
-    padding: 16px;
-    background: #fdf6ec;
-    border-radius: 8px;
-    margin-bottom: 16px;
-
-    .setup-content {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-
-      .setup-info {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #606266;
-
-        strong {
-          color: #E6A23C;
-          font-size: 18px;
-        }
-      }
-
-      .setup-actions {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-    }
-  }
-
   // 单元概述上传区域样式
-  .unit-summaries-upload-area {
-    padding: 16px;
-    background: #f0f9ff;
-    border-radius: 8px;
-    margin-bottom: 16px;
-
-    .unit-summaries-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-
-      .info-text {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #606266;
-      }
-    }
-  }
 
   // 已有单元概述信息区域样式
-  .unit-summaries-info-area {
-    padding: 16px;
-    background: #f0f9ff;
-    border-radius: 8px;
-    margin-bottom: 16px;
-
-    .unit-summaries-status {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-
-      .status-info {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #606266;
-
-        strong {
-          color: #67c23a;
-          font-size: 18px;
-        }
-      }
-    }
-  }
 
   // 分集详细大纲区域样式
-  .episode-outline-area {
-    padding: 16px;
-    background: #ecf5ff;
-    border-radius: 8px;
-    margin-bottom: 16px;
-
-    .episode-outline-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 12px;
-
-      .outline-stats {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #606266;
-
-        strong {
-          color: #409EFC;
-          font-size: 18px;
-        }
-      }
-
-      .outline-actions {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-    }
-
-    .episode-outline-list {
-      max-height: 250px;
-      overflow-y: auto;
-      border: 1px solid #e4e7ed;
-      border-radius: 4px;
-      padding: 8px;
-      background: #fff;
-
-      .episode-outline-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 12px;
-        border-bottom: 1px solid #ebeef5;
-        gap: 16px;
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        &:hover {
-          background: #f5f7fa;
-        }
-
-        &.has-outline {
-          background: #f0f9eb;
-        }
-
-        &.has-content {
-          background: #fdf6ec;
-          border-left: 3px solid #E6A23C;
-        }
-
-        &.is-generating {
-          background: #fdf6ec;
-          border-left: 3px solid #E6A23C;
-          animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        // 左侧标题区域
-        .outline-left {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex: 1;
-          min-width: 0;
-          overflow: hidden;
-
-          .episode-num {
-            font-weight: 600;
-            color: #303133;
-            white-space: nowrap;
-            flex-shrink: 0;
-          }
-
-          .episode-title {
-            color: #606266;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            
-            &.editable {
-              cursor: pointer;
-              padding: 2px 6px;
-              border-radius: 4px;
-              transition: background 0.2s;
-              
-              &:hover {
-                background: #e6e8eb;
-              }
-            }
-          }
-        }
-
-        // 右侧状态和操作区域
-        .outline-right {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 6px;
-          flex-shrink: 0;
-
-          .status-tags {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-          }
-
-          .action-buttons {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            flex-wrap: nowrap;
-          }
-        }
-
-        .generating-tag {
-          .el-icon {
-            margin-right: 4px;
-          }
-        }
-      }
-    }
-  }
   
   // 章节大纲区域样式（小说专用）
-  .chapter-outline-area {
-    padding: 16px;
-    background: #f0f9eb;
-    border-radius: 8px;
-    margin-bottom: 16px;
-
-    .chapter-outline-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 12px;
-
-      .outline-stats {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #606266;
-
-        strong {
-          color: #67c23a;
-          font-size: 18px;
-        }
-      }
-
-      .outline-actions {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-    }
-
-    .chapter-outline-list {
-      max-height: 250px;
-      overflow-y: auto;
-      border: 1px solid #e4e7ed;
-      border-radius: 4px;
-      padding: 8px;
-      background: #fff;
-
-      .chapter-outline-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 12px;
-        border-bottom: 1px solid #ebeef5;
-        gap: 16px;
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        &:hover {
-          background: #f5f7fa;
-        }
-
-        &.has-outline {
-          background: #f0f9eb;
-        }
-
-        &.has-content {
-          background: #fdf6ec;
-          border-left: 3px solid #E6A23C;
-        }
-
-        &.is-generating {
-          background: #fdf6ec;
-          border-left: 3px solid #E6A23C;
-          animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        // 左侧标题区域
-        .outline-left {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex: 1;
-          min-width: 0; // 允许收缩
-          overflow: hidden;
-
-          .chapter-num {
-            font-weight: 600;
-            color: #303133;
-            white-space: nowrap;
-            flex-shrink: 0;
-          }
-
-          .chapter-title-text {
-            color: #606266;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            
-            &.editable {
-              cursor: pointer;
-              padding: 2px 6px;
-              border-radius: 4px;
-              transition: background 0.2s;
-              
-              &:hover {
-                background: #e6e8eb;
-              }
-            }
-          }
-        }
-
-        // 右侧状态和操作区域
-        .outline-right {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 6px;
-          flex-shrink: 0;
-
-          .status-tags {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-          }
-
-          .action-buttons {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            flex-wrap: nowrap;
-          }
-        }
-
-        .generating-tag {
-          .el-icon {
-            margin-right: 4px;
-          }
-        }
-      }
-    }
-  }
   
   // 场景大纲区域样式（电影剧本专用）
-  .scene-outline-area {
-    padding: 16px;
-    background: #fef0f0;
-    border-radius: 8px;
-    margin-bottom: 16px;
-
-    .scene-outline-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 12px;
-
-      .outline-stats {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #606266;
-
-        strong {
-          color: #f56c6c;
-          font-size: 18px;
-        }
-      }
-
-      .outline-actions {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-    }
-
-    .scene-outline-list {
-      max-height: 250px;
-      overflow-y: auto;
-      border: 1px solid #e4e7ed;
-      border-radius: 4px;
-      padding: 8px;
-      background: #fff;
-
-      .scene-outline-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 12px;
-        border-bottom: 1px solid #ebeef5;
-        gap: 16px;
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        &:hover {
-          background: #f5f7fa;
-        }
-
-        &.has-outline {
-          background: #f0f9eb;
-        }
-
-        &.has-content {
-          background: #fdf6ec;
-          border-left: 3px solid #E6A23C;
-        }
-
-        &.is-generating {
-          background: #fdf6ec;
-          border-left: 3px solid #E6A23C;
-          animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        // 左侧标题区域
-        .outline-left {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex: 1;
-          min-width: 0;
-          overflow: hidden;
-
-          .scene-num {
-            font-weight: 600;
-            color: #303133;
-            white-space: nowrap;
-            flex-shrink: 0;
-          }
-
-          .scene-title-text {
-            color: #606266;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            
-            &.editable {
-              cursor: pointer;
-              padding: 2px 6px;
-              border-radius: 4px;
-              transition: background 0.2s;
-              
-              &:hover {
-                background: #e6e8eb;
-              }
-            }
-          }
-        }
-
-        // 右侧状态和操作区域
-        .outline-right {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 6px;
-          flex-shrink: 0;
-
-          .status-tags {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-          }
-
-          .action-buttons {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            flex-wrap: nowrap;
-          }
-        }
-
-        .generating-tag {
-          .el-icon {
-            margin-right: 4px;
-          }
-        }
-      }
-    }
-  }
   
   // 大纲详情内容样式
   .outline-detail-content {
@@ -7213,94 +5491,7 @@ watch(() => project.value, (newVal) => {
     }
   }
 
-  .chapter-list {
-    max-height: 320px;
-    overflow-y: auto;
-
-    .chapter-actions-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
-      margin-bottom: 8px;
-      border-bottom: 1px solid #ebeef5;
-      
-      .action-buttons {
-        display: flex;
-        gap: 8px;
-      }
-    }
-
-    .chapter-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.3s;
-
-      &:hover {
-        background: #f5f7fa;
-      }
-
-      &.active {
-        background: #ecf5ff;
-      }
-
-      .chapter-info {
-        .chapter-number {
-          font-weight: 500;
-          margin-right: 8px;
-        }
-
-        .chapter-title {
-          color: #606266;
-          
-          &.editable {
-            cursor: pointer;
-            padding: 2px 6px;
-            border-radius: 4px;
-            transition: background 0.2s;
-            
-            &:hover {
-              background: #e6e8eb;
-            }
-          }
-        }
-      }
-
-      .chapter-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-
-        .word-count {
-          font-size: 12px;
-          color: #909399;
-        }
-      }
-    }
-  }
-
-  .chapter-content {
-    :deep(.el-textarea__inner) {
-      font-family: inherit;
-      line-height: 1.8;
-      font-size: 14px;
-    }
-  }
-
   // 正文编辑器卡片样式优化
-  .content-card {
-    :deep(.el-card__body) {
-      padding: 16px;
-    }
-    
-    .chapter-content {
-      min-height: 500px;
-    }
-  }
 
   .status-card, .config-card, .stats-card {
     margin-bottom: 12px;
@@ -7329,67 +5520,10 @@ watch(() => project.value, (newVal) => {
   }
 
   // 紧凑卡片样式
-  .compact-card {
-    :deep(.el-card__header) {
-      padding: 12px 16px;
-      font-size: 14px;
-    }
-    
-    :deep(.el-card__body) {
-      padding: 12px 16px;
-    }
-  }
 
   // 状态网格布局
-  .status-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    
-    .status-item-compact {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      
-      .label {
-        font-size: 12px;
-        color: #909399;
-      }
-      
-      .value {
-        font-weight: 500;
-        font-size: 14px;
-      }
-    }
-  }
 
   // 统计网格布局
-  .stats-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    
-    .stats-item-compact {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      
-      .label {
-        font-size: 12px;
-        color: #909399;
-      }
-      
-      .value {
-        font-weight: 500;
-        font-size: 13px;
-        
-        &.small {
-          font-size: 12px;
-          color: #606266;
-        }
-      }
-    }
-  }
 
   .form-tip {
     font-size: 12px;
@@ -7597,79 +5731,6 @@ watch(() => project.value, (newVal) => {
   
   &.warn {
     color: #e6a23c;
-  }
-}
-
-.knowledge-base-card {
-  .card-header-flex {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .kb-status-pending {
-    .kb-hint {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: 12px;
-      color: #e6a23c;
-      font-size: 13px;
-    }
-  }
-
-  .kb-status-building {
-    .kb-progress {
-      margin-bottom: 16px;
-      
-      .kb-message {
-        margin-top: 8px;
-        font-size: 13px;
-        color: #606266;
-        text-align: center;
-      }
-    }
-  }
-
-  .kb-status-ready {
-    .kb-stats-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-      margin-bottom: 16px;
-
-      .kb-stat-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        background: #f5f7fa;
-        border-radius: 6px;
-
-        .kb-stat-label {
-          font-size: 12px;
-          color: #909399;
-        }
-
-        .kb-stat-value {
-          font-size: 14px;
-          font-weight: 600;
-          color: #303133;
-        }
-      }
-    }
-
-    .kb-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-  }
-
-  .kb-status-failed {
-    .el-alert {
-      margin-bottom: 12px;
-    }
   }
 }
 
@@ -8223,10 +6284,4 @@ watch(() => project.value, (newVal) => {
 }
 
 // 章节卡片合规问题样式
-.chapter-item {
-  &.has-compliance-issue {
-    border-left: 3px solid #f56c6c;
-    background: linear-gradient(to right, rgba(245, 108, 108, 0.05), transparent);
-  }
-}
 </style>

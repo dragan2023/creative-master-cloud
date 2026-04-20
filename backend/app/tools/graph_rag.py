@@ -1030,10 +1030,20 @@ class LLMEntityExtractor:
                 prompt = self._get_prompt(text)
                 # 使用模型支持的最大输出token数，避免截断
                 max_output_tokens = self.llm_provider.get_max_output_tokens()
+
+                # 知识图谱提取需要大量token，确保设置为最大值
+                # 如果模型支持超过30000，使用模型的最大值；否则使用30000
+                safe_max_tokens = max(max_output_tokens, 30000)
+
+                self.logger.debug(
+                    f"知识图谱提取 - 模型最大token: {max_output_tokens}, "
+                    f"实际使用: {safe_max_tokens}"
+                )
+
                 response = await self.llm_provider.generate(
                     prompt=prompt,
                     temperature=0.1,
-                    max_tokens=max_output_tokens
+                    max_tokens=safe_max_tokens
                 )
 
                 # 调试：打印 LLM 原始响应（增加输出长度）
@@ -1296,23 +1306,20 @@ class LLMEntityExtractor:
         """尝试修复常见的JSON格式问题，特别是被截断的JSON"""
         import re
 
-        # 1. 移除控制字符
+        # 1. 移除控制字符（但保留换行和制表符）
         json_str = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json_str)
 
-        # 2. 尝试修复未闭合的字符串
-        quote_count = json_str.count('"')
-        if quote_count % 2 == 1:
-            # 找到最后一个未闭合的字符串位置
-            last_quote = json_str.rfind('"')
-            if last_quote > 0:
-                # 检查是否在键或值中间被截断
-                # 简单处理：添加闭合引号
-                json_str += '"'
+        # 2. 关键修复：处理在字符串值中间被截断的情况
+        # 检测最后一个实体是否完整，如果不完整则删除
+        json_str = self._remove_incomplete_last_entity(json_str)
 
         # 3. 移除末尾的逗号（在对象或数组末尾）
         json_str = json_str.rstrip()
         if json_str.endswith(','):
             json_str = json_str[:-1]
+
+        # 4. 再次移除可能产生的控制字符
+        json_str = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json_str)
 
         # 4. 检查是否缺少闭合括号
         open_braces = json_str.count('{')
@@ -1396,6 +1403,91 @@ class LLMEntityExtractor:
                 json_str += '}' * (open_braces - close_braces)
             if open_brackets > close_brackets:
                 json_str += ']' * (open_brackets - close_brackets)
+
+        return json_str
+
+    def _remove_incomplete_last_entity(self, json_str: str) -> str:
+        """
+        移除最后一个不完整的实体对象
+
+        当LLM响应在字符串值中间被截断时（如 {"text": "），
+        需要删除这个不完整的实体，保留前面完整的实体。
+
+        Args:
+            json_str: JSON字符串
+
+        Returns:
+            修复后的JSON字符串
+        """
+        # 查找 entities 数组
+        entities_match = re.search(r'"entities"\s*:\s*\[', json_str)
+        if not entities_match:
+            return json_str
+
+        entities_array_start = entities_match.end() - 1  # '[' 的位置
+
+        # 从 entities 数组开始位置解析，找到最后一个完整的实体对象
+        depth = 0
+        in_string = False
+        escape_next = False
+        last_complete_entity_end = -1
+        entity_start = -1
+        has_incomplete_entity = False  # 标记是否有不完整的实体
+
+        for i in range(entities_array_start, len(json_str)):
+            char = json_str[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+
+            if not in_string:
+                if char == '{':
+                    if depth == 1:  # 实体对象开始
+                        entity_start = i
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 1 and entity_start >= 0:  # 实体对象结束
+                        last_complete_entity_end = i
+                        entity_start = -1
+                elif char == ']' and depth == 0:  # 数组正常结束
+                    return json_str  # JSON完整，无需修复
+
+        # 如果遍历结束后仍在字符串内或depth > 0，说明有不完整的实体
+        if in_string or depth > 0:
+            has_incomplete_entity = True
+
+        # 如果有不完整的实体，截断到最后一个完整实体
+        if has_incomplete_entity:
+            if last_complete_entity_end > entities_array_start:
+                # 有完整的实体，截断到最后一个完整实体
+                self.logger.info(
+                    f"检测到不完整的实体对象，截断到位置 {last_complete_entity_end}"
+                )
+                truncated = json_str[:last_complete_entity_end + 1]
+
+                # 查找 relations 数组，如果存在且完整则保留
+                relations_match = re.search(r'"relations"\s*:\s*\[', json_str)
+                if relations_match:
+                    relations_array_start = relations_match.end() - 1
+                    relations_result = self._extract_complete_array(
+                        json_str, relations_array_start
+                    )
+                    truncated += ', "relations": ' + relations_result
+
+                truncated += ']}'  # 闭合 entities 数组和根对象
+                return truncated
+            else:
+                # 没有完整的实体，返回空数组
+                self.logger.warning("LLM响应被严重截断，没有完整实体，返回空数组")
+                return '{"entities": [], "relations": []}'
 
         return json_str
 

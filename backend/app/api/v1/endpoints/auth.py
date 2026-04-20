@@ -53,12 +53,22 @@ class ProxyConfigResponse(BaseModel):
 class PreprocessorConfig(BaseModel):
     """文档预处理配置"""
     doc_preprocessor_enabled: bool = Field(True, description="是否启用文档预处理")
+    marker_enabled: bool = Field(True, description="是否启用Marker转换")
+    semantic_chunk_enabled: bool = Field(True, description="是否启用语义切片")
+    semantic_chunk_size: int = Field(1024, description="语义切片大小(Token数)")
+    semantic_threshold: float = Field(0.7, description="语义相似度阈值")
+    summarization_enabled: bool = Field(False, description="是否启用摘要压缩")
     graphrag_enabled: bool = Field(True, description="是否启用GraphRAG知识图谱")
 
 
 class PreprocessorConfigResponse(BaseModel):
     """文档预处理配置响应"""
     doc_preprocessor_enabled: bool = True
+    marker_enabled: bool = True
+    semantic_chunk_enabled: bool = True
+    semantic_chunk_size: int = 1024
+    semantic_threshold: float = 0.7
+    summarization_enabled: bool = False
     graphrag_enabled: bool = True
 
 
@@ -919,6 +929,16 @@ async def get_user_preprocessor_config(
             data = json.loads(config.config_value)
             default_config.doc_preprocessor_enabled = data.get(
                 "doc_preprocessor_enabled", True)
+            default_config.marker_enabled = data.get(
+                "marker_enabled", True)
+            default_config.semantic_chunk_enabled = data.get(
+                "semantic_chunk_enabled", True)
+            default_config.semantic_chunk_size = data.get(
+                "semantic_chunk_size", 1024)
+            default_config.semantic_threshold = data.get(
+                "semantic_threshold", 0.7)
+            default_config.summarization_enabled = data.get(
+                "summarization_enabled", False)
             default_config.graphrag_enabled = data.get(
                 "graphrag_enabled", True)
         except (json.JSONDecodeError, KeyError) as e:
@@ -947,6 +967,11 @@ async def set_user_preprocessor_config(
 
     config_value = json.dumps({
         "doc_preprocessor_enabled": config_data.doc_preprocessor_enabled,
+        "marker_enabled": config_data.marker_enabled,
+        "semantic_chunk_enabled": config_data.semantic_chunk_enabled,
+        "semantic_chunk_size": config_data.semantic_chunk_size,
+        "semantic_threshold": config_data.semantic_threshold,
+        "summarization_enabled": config_data.summarization_enabled,
         "graphrag_enabled": config_data.graphrag_enabled
     })
 

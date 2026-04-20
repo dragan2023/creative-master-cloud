@@ -7,7 +7,7 @@ import { ElMessage } from 'element-plus'
 import { generateApi } from '@/api'
 import { API_BASE_URL } from '@/config'
 
-export function useStreamHandler(type, form, globalOutlineContent, generatedContent, workflowSteps, handleWorkflowEvent, currentEventSource) {
+export function useStreamHandler(type, form, globalOutlineContent, generatedContent, workflowSteps, handleWorkflowEvent, currentEventSource, titleStyleData = { styleId: '', styleName: '' }) {
   // 生成状态
   const generating = ref(false)
   const showResult = ref(false)
@@ -143,7 +143,7 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
   }
 
   // 开始两阶段生成（第一阶段：全局大纲）
-  const handleTwoStageGenerate = async (apiKeyStore, router) => {
+  const handleTwoStageGenerate = async (apiKeyStore, router, kbParams = {}) => {
     // API Key 检查逻辑需要在主组件中处理
     const workflowComplete = ref(false)
     
@@ -182,13 +182,21 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
         }
       }, 1000)
       
+      // 获取知识库参数（默认enable_knowledge为false，由用户主动控制）
+      const enableKnowledge = kbParams.enableKnowledge || false
+      
+      // 获取自动质控参数（默认false，由用户主动控制）
+      const enableAutoQC = kbParams.enableAutoQC || false
+      
       const result = await generateApi.generateGlobalOutlineStream(
         {
           content_type: type.value,
           input_params: inputParams,
           provider: null,
           model: null,
-          temperature: 0.7
+          temperature: 0.7,
+          enable_knowledge: enableKnowledge,  // 传递用户选择的知识库修正选项
+          enable_auto_qc: enableAutoQC  // 传递用户选择的自动质控选项
         },
         (chunk, fullContent) => {
           globalOutlineContent.value = fullContent
@@ -233,6 +241,43 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
     return workflowComplete.value
   }
 
+  // 从全局大纲中解析章节数（辅助函数）
+  const parseChapterCountFromOutline = (outlineContent) => {
+    if (!outlineContent) return null
+    
+    const patterns = [
+      /共(\d+)章/,
+      /总计(\d+)章/,
+      /(\d+)章.*全书/,
+      /全书.*?(\d+)章/,
+      /章节总数[：:]\s*(\d+)/,
+      /总章节数[：:]\s*(\d+)/,
+    ]
+    
+    for (const pattern of patterns) {
+      const match = outlineContent.match(pattern)
+      if (match) {
+        const count = parseInt(match[1])
+        if (count > 0 && count <= 1000) {
+          return count
+        }
+      }
+    }
+    
+    // 尝试找最大的章节号
+    const chapterPattern = /第(\d+)章/g
+    let maxChapter = 0
+    let match
+    while ((match = chapterPattern.exec(outlineContent)) !== null) {
+      const chapterNum = parseInt(match[1])
+      if (chapterNum > maxChapter) {
+        maxChapter = chapterNum
+      }
+    }
+    
+    return maxChapter > 0 ? maxChapter : null
+  }
+
   // 开始第二阶段：生成单元概述
   const handleGenerateUnitSummaries = async () => {
     if (!globalOutlineContent.value) {
@@ -240,9 +285,17 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
       return
     }
     
-    const unitCount = type.value === 'novel' 
-      ? parseInt(form.value.chapter_count) || 50
-      : parseInt(form.value.episode_count) || 24
+    // 智能获取章节数：优先使用表单值，其次从全局大纲中解析
+    const formChapterCount = type.value === 'novel' 
+      ? parseInt(form.value.chapter_count) || null
+      : parseInt(form.value.episode_count) || null
+    
+    const outlineChapterCount = formChapterCount ? null : parseChapterCountFromOutline(globalOutlineContent.value)
+    
+    // 默认值：表单未填写且大纲未解析到时使用默认值
+    const unitCount = formChapterCount || outlineChapterCount || (type.value === 'novel' ? 50 : 24)
+    
+    console.log(`[useStreamHandler] 章节数计算: 表单=${formChapterCount || '未填写'}, 大纲=${outlineChapterCount || '未找到'}, 最终=${unitCount}`)
     
     currentSessionId.value = `unit_summaries_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     
@@ -262,7 +315,11 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
             : null,
           provider: null,
           model: null,
-          temperature: 0.7
+          temperature: 0.7,
+          enable_quality_control: true,  // 启用3维质量管控
+          // 标题风格参数（新增）
+          title_style: titleStyleData.styleId || null,
+          title_style_name: titleStyleData.styleName || null
         },
         (chunk, fullContent) => {
           generatedContent.value = fullContent
@@ -282,7 +339,7 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
       
       if (result && !result.cancelled) {
         unitSummaries.value = parseUnitSummariesFromContent(result.content)
-        await performLogicCheck()
+        // 质量管控已在流式生成过程中自动执行，无需再次调用
         outlineStage.value = 4
         ElMessage.success('单元概述生成完成')
       } else if (result && result.cancelled) {
@@ -340,12 +397,28 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
             }
             ElMessage.success(`逻辑检测完成，已修正 ${Object.keys(revisedUnits).length} 个单元的问题`)
           } else {
-            ElMessage.warning(`逻辑检测发现 ${response.data.issues?.length || 0} 个潜在问题`)
+            ElMessage.warning(`逻辑检测发现 ${response.data.issues?.length || 0} 个潜在问题，但未自动修正`)
           }
+        } else {
+          ElMessage.success('逻辑检测通过，未发现严重问题')
         }
       }
     } catch (error) {
       console.error('逻辑检测失败:', error)
+      
+      // 区分超时和其他错误
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        ElMessage.warning('逻辑检测超时，跳过此步骤。您可以稍后手动执行逻辑检测。')
+      } else {
+        ElMessage.warning('逻辑检测失败，跳过此步骤。您可以稍后手动执行逻辑检测。')
+      }
+      
+      // 不阻断流程，继续后续步骤
+      logicCheckResult.value = {
+        has_issues: false,
+        issues: [],
+        error: error.message
+      }
     } finally {
       logicChecking.value = false
     }
@@ -526,9 +599,13 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
       return
     }
     
-    const unitCount = type.value === 'novel'
+    // 智能获取章节数
+    const outlineChapterCount = parseChapterCountFromOutline(globalOutlineContent.value)
+    const formChapterCount = type.value === 'novel'
       ? parseInt(form.value.chapter_count) || 50
       : parseInt(form.value.episode_count) || 24
+    
+    const unitCount = outlineChapterCount || formChapterCount
     
     if (startFromUnit.value < 1 || startFromUnit.value > unitCount) {
       ElMessage.warning(`请输入有效的单元编号（1-${unitCount}）`)
@@ -557,7 +634,7 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
         {
           content_type: type.value,
           global_outline: modifiedOutline,
-          unit_count: unitCount - startFromUnit.value + 1,
+          unit_count: unitCount,  // 传递总章节数，后端会计算需要生成的数量
           series_type: type.value === 'script' ? form.value.series_type : null,
           episode_duration_range: type.value === 'script'
             ? `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟`
@@ -565,7 +642,15 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
           script_mode: type.value === 'script' ? (form.value.script_mode || 'real') : null,
           provider: null,
           model: null,
-          temperature: 0.7
+          temperature: 0.7,
+          enable_quality_control: true,  // 启用3维质量管控
+          // 续生成参数
+          existing_content: generatedContent.value || '',
+          existing_parsed: unitSummaries.value,
+          start_from_unit: startFromUnit.value,
+          // 标题风格参数（新增）
+          title_style: titleStyleData.styleId || null,
+          title_style_name: titleStyleData.styleName || null
         },
         (chunk, fullContent) => {
           generatedContent.value = fullContent

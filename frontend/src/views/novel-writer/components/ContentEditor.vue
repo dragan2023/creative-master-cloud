@@ -80,38 +80,6 @@
 
       <!-- 架构优化：移除生成模式选择器，固定使用direct模式 -->
 
-      <!-- AI文风消除配置 -->
-      <div class="ai-elimination-config">
-        <div class="config-header">
-          <span class="header-title">
-            <el-icon><MagicStick /></el-icon>
-            AI文风消除
-          </span>
-          <el-switch
-            :model-value="taskForm.ai_elimination_enabled"
-            @change="$emit('ai-elimination-change', $event)"
-          />
-        </div>
-        <div class="config-content" v-if="taskForm.ai_elimination_enabled">
-          <div class="threshold-row">
-            <span class="threshold-label">消除强度</span>
-            <el-slider
-              :model-value="taskForm.ai_elimination_threshold"
-              :min="0"
-              :max="100"
-              :step="10"
-              :format-tooltip="(val) => `${val}%`"
-              style="flex: 1; margin: 0 16px"
-              @change="$emit('threshold-change', $event)"
-            />
-            <span class="threshold-value">{{ taskForm.ai_elimination_threshold }}%</span>
-          </div>
-          <el-text type="info" size="small">
-            消除AI生成文本的机械感，使内容更接近自然人类写作风格
-          </el-text>
-        </div>
-      </div>
-
       <!-- 基本参数 -->
       <el-form :model="taskForm" label-width="80px" class="task-form">
         <el-row :gutter="20">
@@ -493,8 +461,6 @@ const emit = defineEmits([
   'create-task',
   'show-agent-config',
   // 架构优化：移除 'mode-change'
-  'ai-elimination-change',
-  'threshold-change',
   'update:taskForm'
   // 架构优化：移除 'generate-chapter-outlines', 'interrupt-chapter-outlines', 'continue-from-breakpoint', 'view-outline-list', 'upload-unit-summaries'
 ])
@@ -593,59 +559,6 @@ function updateTaskForm(field, value) {
     font-size: 12px;
     color: #909399;
     margin-left: 8px;
-  }
-}
-
-.ai-elimination-config {
-  margin-top: 16px;
-  padding: 14px 16px;
-  background: linear-gradient(135deg, #f0f9eb 0%, #fff 100%);
-  border-radius: 8px;
-  border: 1px solid rgba(103, 194, 58, 0.2);
-
-  .config-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-
-    .header-title {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 14px;
-      font-weight: 500;
-      color: #303133;
-
-      .el-icon {
-        color: #67c23a;
-      }
-    }
-  }
-
-  .config-content {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px dashed #e4e7ed;
-
-    .threshold-row {
-      display: flex;
-      align-items: center;
-      margin-bottom: 8px;
-
-      .threshold-label {
-        font-size: 13px;
-        color: #606266;
-        min-width: 70px;
-      }
-
-      .threshold-value {
-        font-size: 13px;
-        font-weight: 500;
-        color: #67c23a;
-        min-width: 40px;
-        text-align: right;
-      }
-    }
   }
 }
 

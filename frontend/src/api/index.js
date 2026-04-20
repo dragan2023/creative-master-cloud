@@ -115,24 +115,56 @@ export const generateApi = {
   // 生成全局大纲（第一阶段）
   generateGlobalOutline: (data) => api.post('/api/v1/generate/outline/global', data),
 
-  // 流式生成全局大纲（第一阶段）
-  generateGlobalOutlineStream: (data, onMessage, onStreamStart, onWorkflow, onReplaceContent) => {
-    return streamGenerateSimple('/api/v1/generate/outline/global/stream', data, onMessage, onStreamStart, null, onWorkflow, onReplaceContent)
+  // 流式生成全局大纲（第一阶段）- v2.3新增质控回调
+  generateGlobalOutlineStream: (data, onMessage, onStreamStart, onWorkflow, onReplaceContent, onQCReport) => {
+    return streamGenerateSimple('/api/v1/generate/outline/global/stream', data, onMessage, onStreamStart, null, onWorkflow, onReplaceContent, onQCReport)
   },
+
+  // 对全局大纲执行知识库修正（用户确认后调用）
+  reviseGlobalOutlineWithKnowledge: (data) => api.post('/api/v1/generate/outline/global/revise', data),
+
+  // 流式修订全局大纲（多轮对话）
+  reviseGlobalOutlineStream: (data, onMessage, onDone, onError) => {
+    // streamGenerate的参数: (endpoint, data, onMessage, onWorkflow, onStreamStart, sessionId)
+    return new Promise((resolve, reject) => {
+      streamGenerate(
+        '/api/v1/generate/outline/global/revise-stream',
+        data,
+        onMessage,
+        () => {},  // onWorkflow - 修订不需要
+        () => {},  // onStreamStart - 修订不需要
+        null       // sessionId - 修订不需要
+      ).then(resolve).catch(reject)
+    })
+  },
+
+  // 获取最近的生成记录(用于恢复)
+  getLatestGeneration: (module) => api.get(`/api/v1/generate/latest/${module}`),
+  
+  // 恢复指定的生成记录
+  restoreGeneration: (generationId) => api.get(`/api/v1/generate/${generationId}/restore`),
 
   // 生成单元概述（第二阶段）
   generateUnitSummaries: (data) => api.post('/api/v1/generate/outline/units', data),
 
-  // 流式生成单元概述（第二阶段）
-  generateUnitSummariesStream: (data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent) => {
-    return streamGenerateSimple('/api/v1/generate/outline/units/stream', data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent)
+  // 流式生成单元概述(第二阶段) - v2.3新增质控回调
+  generateUnitSummariesStream: (data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent, onQCReport) => {
+    return streamGenerateSimple('/api/v1/generate/outline/units/stream', data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent, onQCReport)
   },
-
+    
+  // 接续生成单元概述(新增) - 用于处理截断内容
+  continueUnitSummaries: (data, onMessage, onStreamStart, sessionId, onWorkflow) => {
+    return streamGenerateSimple('/api/v1/generate/outline/units/continue', data, onMessage, onStreamStart, sessionId, onWorkflow)
+  },
+  
   // 取消生成任务
   cancelGeneration: (sessionId) => api.post(`/api/v1/generate/cancel/${sessionId}`),
 
-  // 逻辑检测（独立API）
-  checkOutlineLogic: (data) => api.post('/api/v1/generate/outline/logic-check', data),
+  // 获取单元概述断点续生成信息
+  getUnitSummariesResumeInfo: (projectId) => api.get(`/api/v1/generate/outline/units/resume-info/${projectId}`),
+
+  // 逻辑检测（独立API，需要较长超时时间）
+  checkOutlineLogic: (data) => api.post('/api/v1/generate/outline/logic-check', data, { timeout: 120000 }),
 
 
   // 下载大纲文件
@@ -346,8 +378,8 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
 }
 
 // 简化版SSE流式生成（用于两阶段大纲生成）
-// 支持 workflow 事件和 replace_content 事件
-function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent) {
+// 支持 workflow 事件、replace_content 事件、qc_report 事件
+function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, sessionId, onWorkflow, onReplaceContent, onQCReport) {
   return new Promise((resolve, reject) => {
     let url = `${API_BASE_URL}${endpoint}`
     if (sessionId) {
@@ -406,8 +438,13 @@ function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, sessionI
                   const eventData = JSON.parse(jsonStr)
                   if (currentEventType === 'workflow' && onWorkflow) onWorkflow(eventData)
                   if (currentEventType === 'replace_content' && onReplaceContent) {
-                    fullContent = eventData.text || ''
-                    onReplaceContent(eventData.text, eventData.message)
+                    fullContent = eventData.content || ''
+                    // v2.3新增：传递质控相关字段
+                    onReplaceContent(eventData.content, eventData.message, eventData)
+                  }
+                  // v2.3新增：处理qc_report事件
+                  if (currentEventType === 'qc_report' && onQCReport) {
+                    onQCReport(eventData)
                   }
                   if (currentEventType === 'content' && eventData.text) {
                     fullContent += eventData.text
@@ -549,6 +586,11 @@ export const novelWriterApi = {
   // 单元概述文件上传
   uploadUnitSummariesFile: (id, formData) => api.post(`/api/v1/novel-writer/projects/${id}/upload-unit-summaries-file`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+
+  // 单元概述质控检测
+  triggerUnitSummariesQualityControl: (id, data = {}) => api.post(`/api/v1/novel-writer/projects/${id}/unit-summaries/quality-control`, data, {
+    timeout: 600000  // 10分钟超时 - 质控检测可能需要较长时间
   }),
 
   // 目录生成
@@ -755,6 +797,25 @@ export const novelWriterApi = {
   updateStyleDocumentSettings: (projectId, data) =>
     api.put(`/api/v1/novel-writer/projects/${projectId}/style-document`, data),
 
+  // ==================== 文风知识库 API ====================
+
+  // 获取文风知识库列表
+  getStyleLibrary: (category = null) => {
+    const params = category ? { category } : {}
+    return api.get('/api/v1/novel-writer/style-library', { params })
+  },
+
+  // 获取单个文风详情
+  getStyleDetail: (styleId) =>
+    api.get(`/api/v1/novel-writer/style-library/${styleId}`),
+
+  // 融合多个文风
+  blendStyles: (styleIds, intensity = 0.7) =>
+    api.post('/api/v1/novel-writer/style-library/blend', {
+      style_ids: styleIds,
+      intensity
+    }),
+
   // ==================== 项目专属知识库 API ====================
 
   // 获取知识库状态
@@ -826,6 +887,71 @@ export const novelWriterApi = {
     return api.post(`/api/v1/novel-writer/projects/${projectId}/check-content-consistency`, null, { params })
   }
 
+}
+
+// 修订相关API
+export const revisionApi = {
+  // 提交修订请求(流式)
+  revise: (generationId, data, onMessage, onDone, onError) => {
+    return streamGenerate(
+      `/api/v1/generate/revision/${generationId}/stream`,
+      data,
+      onMessage,
+      null,  // onWorkflow
+      null,  // onStreamStart
+      null   // sessionId
+    )
+  },
+  
+  // 最终确认
+  finalize: (generationId, data) => 
+    api.post(`/api/v1/generate/finalize/${generationId}`, data),
+  
+  // 获取修订历史
+  getHistory: (generationId) => 
+    api.get(`/api/v1/generate/revision/${generationId}/history`)
+}
+
+// 质量管控 v2.0 API
+export const qualityControlApi = {
+  // 应用自动修正
+  applyFix: (data) => api.post('/api/v1/novel-writer/quality-control/apply-fix', data, { timeout: 300000 }),
+  
+  // 提交用户反馈
+  submitFeedback: (data) => api.post('/api/v1/novel-writer/quality-control/feedback', data),
+  
+  // v2.1新增: LLM生成修正方案（需要较长超时，因为LLM调用可能很慢）
+  generateFix: (data) => api.post('/api/v1/novel-writer/quality-control/generate-fix', data, { timeout: 300000 }),
+  
+  // v2.1新增: 重新分析质量
+  reAnalyze: (data) => api.post('/api/v1/novel-writer/quality-control/re-analyze', data, { timeout: 300000 })
+}
+
+// 全局大纲质控 API (v1.0新增)
+// 注意: 全局大纲内容较长(10000-20000字),LLM分析需要10-20分钟
+export const globalOutlineQCApi = {
+  // 质量检测 - 超时1200000ms(20分钟)
+  analyze: (projectId, data) => api.post(`/api/v1/novel-writer/quality-control/global-outline/${projectId}`, data, {
+    timeout: 1200000  // 20分钟超时 - 避免LLM长耗时导致超时
+  }),
+  
+  // 修正大纲 - 超时1200000ms(20分钟)
+  revise: (projectId, data) => api.post(`/api/v1/novel-writer/quality-control/global-outline/${projectId}/revise`, data, {
+    timeout: 1200000  // 20分钟超时 - 避免LLM长耗时导致超时
+  }),
+  
+  // v2.3新增: 导入大纲自动质控修正 - 超时1200000ms(20分钟)
+  autoReviseImported: (data) => api.post('/api/v1/novel-writer/quality-control/imported-outline/auto-revise', data, {
+    timeout: 1200000  // 20分钟超时 - 避免LLM长耗时导致超时
+  })
+}
+
+// 单元概述质控 API (手动触发)
+export const unitSummariesQCApi = {
+  // 质量检测与修正 - 超时600000ms(10分钟)
+  analyzeAndRevise: (data) => api.post('/api/v1/generate/outline/units/quality-control', data, {
+    timeout: 600000  // 10分钟超时
+  })
 }
 
 export default api

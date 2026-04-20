@@ -241,7 +241,25 @@ WRITER_PROMPTS = {
 
     "write_scene_novel": CHARACTER_STATE_PROMPTS["novel_writer_user"],
 
-    "write_scene_script": CHARACTER_STATE_PROMPTS["script_writer_user"]
+    "write_scene_script": CHARACTER_STATE_PROMPTS["script_writer_user"],
+
+    "style_guided_write": """## 文风要求（核心指令，**必须严格遵循**）
+
+你正在使用 **{style_name}** 风格进行创作。
+
+### 风格特征
+{style_features_formatted}
+
+### 写作指导
+{style_writing_guide}
+
+### 必须避免的模式
+{avoid_patterns}
+
+### 代表作品参考
+{style_examples}
+
+请在创作中充分体现上述风格特征，让读者能清晰感受到文风的独特性。"""
 }
 
 

@@ -302,7 +302,55 @@ export const useWritingTaskStore = defineStore('writingTask', () => {
   async function fetchUnits(taskId) {
     try {
       const res = await writingTaskApi.getTaskUnits(taskId)
-      units.value = res.data
+      // 保留已有单元的quality_control数据（API返回的数据不包含质控信息）
+      const existingQCMap = new Map()
+      units.value.forEach(u => {
+        if (u.quality_control) {
+          existingQCMap.set(u.unit_index, u.quality_control)
+        }
+      })
+      
+      units.value = res.data.map(unit => {
+        // 将后端返回的质控字段映射为quality_control对象
+        let qcData = existingQCMap.get(unit.unit_index) || unit.quality_control || null
+        
+        // 如果后端返回了质控数据且比现有数据新，优先使用后端数据
+        if (unit.quality_control_status && unit.quality_control_status !== 'pending') {
+          // 从report中提取问题列表
+          const reportIssues = unit.quality_control_report?.issues || []
+          
+          const backendQC = {
+            status: unit.quality_control_status,
+            score: unit.quality_control_score || 0,
+            // 修复：issues_count应该从issues数组的长度计算，而不是查找不存在的issues_count字段
+            issues_count: reportIssues.length,
+            fixed_count: unit.quality_control_fixes?.length || 0,
+            message: unit.quality_control_status === 'completed' 
+                     ? `质控完成: 得分${unit.quality_control_score || 0}, 发现${reportIssues.length}个问题`
+                     : unit.quality_control_status === 'running' ? '质控检测中...'
+                     : unit.quality_control_status === 'failed' ? '质控失败'
+                     : '',
+            report: unit.quality_control_report || null,
+            issues: reportIssues,
+            fixes_applied: unit.quality_control_fixes || [],
+            // 修正前/修正后内容对比
+            original_content: unit.original_content_before_fix || null,
+            fixed_content: unit.final_content || null,
+            updated_at: unit.updated_at ? new Date(unit.updated_at).getTime() : Date.now()
+          }
+          // 后端数据优先（除非前端有更新的WebSocket数据）
+          if (!qcData || !qcData._from_ws) {
+            qcData = backendQC
+          }
+        }
+        
+        return {
+          ...unit,
+          quality_control: qcData
+        }
+      })
+      
+      console.log('[WritingTask Store] fetchUnits完成, 单元数:', units.value.length, '有QC数据的:', units.value.filter(u => u.quality_control).length)
       return res.data
     } catch (error) {
       console.error('[WritingTask Store] 获取单元失败:', error)
@@ -639,6 +687,74 @@ export const useWritingTaskStore = defineStore('writingTask', () => {
               currentTask.value.status = 'interrupted'
             }
           }
+        }
+        break
+        
+      case 'unit_quality_control':
+        // 单元质控状态更新（v2.0新增 - 实时质控）
+        console.log('[WritingTask Store] 收到unit_quality_control消息:', JSON.stringify(msg.data).substring(0, 200))
+        
+        if (msg.data) {
+          const unitIndex = msg.data.unit_index
+          const qcData = msg.data
+          
+          // 更新单元的质控信息
+          const unitIdx = units.value.findIndex(u => u.unit_index === unitIndex)
+          console.log('[WritingTask Store] 查找单元:', unitIndex, '找到索引:', unitIdx)
+          
+          if (unitIdx !== -1) {
+            // 使用splice替换整个对象，确保Vue响应式系统能可靠检测到变化
+            const oldUnit = units.value[unitIdx]
+            const updatedUnit = {
+              ...oldUnit,
+              quality_control: {
+                status: qcData.status,
+                score: qcData.score || 0,
+                issues_count: qcData.issues_count || 0,
+                fixed_count: qcData.fixed_count || 0,
+                message: qcData.message || '',
+                report: qcData.report || null,
+                issues: qcData.issues || [],
+                fixes_applied: qcData.fixes_applied || [],
+                original_content: qcData.original_content || null,
+                fixed_content: qcData.fixed_content || null,
+                updated_at: Date.now(),
+                _from_ws: true  // 标记数据来自WebSocket，优先级高于API数据
+              }
+            }
+            units.value.splice(unitIdx, 1, updatedUnit)
+            console.log('[WritingTask Store] 单元质控信息已更新(splice):', updatedUnit.quality_control)
+          } else {
+            // 单元尚未在列表中(可能unit_progress消息还未到达)，创建一个带质控信息的单元
+            console.log('[WritingTask Store] 单元未找到，创建带质控信息的新单元:', unitIndex)
+            units.value.push({
+              unit_index: unitIndex,
+              unit_title: qcData.unit_title || `第${unitIndex}章`,
+              status: qcData.status === 'running' ? 'processing' : 'completed',
+              progress: qcData.status === 'running' ? 0 : 100,
+              word_count: 0,
+              quality_control: {
+                status: qcData.status,
+                score: qcData.score || 0,
+                issues_count: qcData.issues_count || 0,
+                fixed_count: qcData.fixed_count || 0,
+                message: qcData.message || '',
+                report: qcData.report || null,
+                issues: qcData.issues || [],
+                fixes_applied: qcData.fixes_applied || [],
+                original_content: qcData.original_content || null,
+                fixed_content: qcData.fixed_content || null,
+                updated_at: Date.now(),
+                _from_ws: true  // 标记数据来自WebSocket
+              }
+            })
+          }
+          
+          console.log(
+            `[WritingTask Store] 单元质控更新完成: unit=${unitIndex}, ` +
+            `status=${qcData.status}, score=${qcData.score || 0}, ` +
+            `units总数=${units.value.length}`
+          )
         }
         break
         

@@ -653,6 +653,37 @@ class WritingPipeline:
             logger.info(
                 f"[上下文构建] AI文风消除: enabled={ai_elimination_enabled}, threshold={ai_elimination_threshold}")
 
+        # 兜底加载 style_library_guide：如果 task_config 中没有，尝试从项目元数据重建
+        style_guide = task_config.get("style_guide", {})
+        if not isinstance(style_guide, dict):
+            style_guide = {}
+
+        if not style_guide.get("style_library_guide") and project:
+            style_ids = style_guide.get("writing_styles") or []
+            intensity = style_guide.get("style_intensity", 0.7)
+
+            # 从项目 generation_config 中获取
+            if not style_ids and project.generation_config and isinstance(project.generation_config, dict):
+                style_ids = project.generation_config.get("writing_styles", [])
+                intensity = project.generation_config.get(
+                    "style_intensity", 0.7)
+
+            # 从项目 novel_config 中获取
+            if not style_ids and project.novel_config and isinstance(project.novel_config, dict):
+                style_ids = project.novel_config.get("writing_styles", [])
+                intensity = project.novel_config.get("style_intensity", 0.7)
+
+            if style_ids:
+                try:
+                    from app.tools.style_library import build_style_guide
+                    rebuilt_guide = build_style_guide(style_ids, intensity)
+                    if rebuilt_guide:
+                        style_guide["style_library_guide"] = rebuilt_guide
+                        logger.info(
+                            f"[上下文构建] 兜底重建 style_library_guide, style_ids={style_ids}, intensity={intensity}")
+                except Exception as e:
+                    logger.warning(f"[上下文构建] 兜底重建 style_library_guide 失败: {e}")
+
         # 如果使用了临时会话，需要关闭
         if temp_session:
             await db_session.close()
@@ -667,7 +698,7 @@ class WritingPipeline:
             global_context=task_config.get("global_context", ""),
             character_profiles=character_profiles,
             world_settings=world_settings,
-            style_guide=task_config.get("style_guide", {}),
+            style_guide=style_guide,
             config={
                 "total_units": self.task.total_units,
                 "start_from": self.task.start_from,

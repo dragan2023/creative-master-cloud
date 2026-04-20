@@ -30,14 +30,17 @@ from datetime import datetime
 class WritingTaskCreate(BaseModel):
     """创建写作任务请求"""
     project_id: int = Field(..., description="关联项目ID")
-    config: Dict[str, Any] = Field(default_factory=dict, description="任务配置JSON")
+    config: Dict[str, Any] = Field(
+        default_factory=dict, description="任务配置JSON")
     start_from: int = Field(default=1, ge=1, description="起始单元序号")
-    unit_count: Optional[int] = Field(default=None, ge=1, description="生成单元数(None=全部)")
+    unit_count: Optional[int] = Field(
+        default=None, ge=1, description="生成单元数(None=全部)")
 
 
 class WritingTaskUpdate(BaseModel):
     """更新写作任务请求"""
-    config: Optional[Dict[str, Any]] = Field(default=None, description="任务配置JSON")
+    config: Optional[Dict[str, Any]] = Field(
+        default=None, description="任务配置JSON")
 
 
 class WritingTaskControl(BaseModel):
@@ -84,6 +87,19 @@ class WritingUnitResponse(BaseModel):
     word_count: int = Field(default=0, description="字数统计")
     token_count: int = Field(default=0, description="Token消耗")
     duration_ms: int = Field(default=0, description="生成耗时(毫秒)")
+    # 质控相关字段 (v2.0新增)
+    quality_control_status: Optional[str] = Field(
+        default=None, description="质控状态")
+    quality_control_score: Optional[float] = Field(
+        default=None, description="质控得分")
+    quality_control_report: Optional[Dict[str, Any]] = Field(
+        default=None, description="质控报告")
+    quality_control_fixes: Optional[list] = Field(
+        default=None, description="应用的修正列表")
+    original_content_before_fix: Optional[str] = Field(
+        default=None, description="修正前的原始内容")
+    final_content: Optional[str] = Field(
+        default=None, description="最终内容(修正后)")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 
@@ -96,7 +112,8 @@ class WritingSceneResponse(BaseModel):
     unit_id: int = Field(..., description="关联单元ID")
     scene_index: int = Field(..., description="场景序号")
     scene_title: Optional[str] = Field(default=None, description="场景标题")
-    scene_outline: Dict[str, Any] = Field(default_factory=dict, description="场景大纲")
+    scene_outline: Dict[str, Any] = Field(
+        default_factory=dict, description="场景大纲")
     status: str = Field(..., description="场景状态")
     final_content: Optional[str] = Field(default=None, description="最终内容")
     word_count: int = Field(default=0, description="字数统计")
@@ -110,16 +127,22 @@ class WritingSceneResponse(BaseModel):
 
 class WritingSceneDetailResponse(WritingSceneResponse):
     """写作场景详细响应（包含Agent结果）"""
-    writer_result: Optional[Dict[str, Any]] = Field(default=None, description="写手Agent输出")
-    editor_result: Optional[Dict[str, Any]] = Field(default=None, description="逻辑编辑Agent输出")
-    stylist_result: Optional[Dict[str, Any]] = Field(default=None, description="风格润色Agent输出")
-    compliance_result: Optional[Dict[str, Any]] = Field(default=None, description="合规审查Agent输出")
+    writer_result: Optional[Dict[str, Any]] = Field(
+        default=None, description="写手Agent输出")
+    editor_result: Optional[Dict[str, Any]] = Field(
+        default=None, description="逻辑编辑Agent输出")
+    stylist_result: Optional[Dict[str, Any]] = Field(
+        default=None, description="风格润色Agent输出")
+    compliance_result: Optional[Dict[str, Any]] = Field(
+        default=None, description="合规审查Agent输出")
 
 
 class WritingUnitDetailResponse(WritingUnitResponse):
     """写作单元详细响应（包含场景列表）"""
-    scenes_data: List[Dict[str, Any]] = Field(default_factory=list, description="场景数据列表")
-    scenes: List[WritingSceneResponse] = Field(default_factory=list, description="场景列表")
+    scenes_data: List[Dict[str, Any]] = Field(
+        default_factory=list, description="场景数据列表")
+    scenes: List[WritingSceneResponse] = Field(
+        default_factory=list, description="场景列表")
     final_content: Optional[str] = Field(default=None, description="最终合成内容")
 
 
@@ -127,20 +150,24 @@ class WritingStatsResponse(BaseModel):
     """写作统计响应"""
     total_tokens: int = Field(default=0, description="总token数")
     total_cost: float = Field(default=0.0, description="总费用")
-    by_agent: Dict[str, Any] = Field(default_factory=dict, description="按Agent统计")
+    by_agent: Dict[str, Any] = Field(
+        default_factory=dict, description="按Agent统计")
 
     model_config = {"from_attributes": True}
 
 
 class WritingTaskDetailResponse(WritingTaskResponse):
     """写作任务详细响应（包含单元列表和统计）"""
-    units: List[WritingUnitResponse] = Field(default_factory=list, description="单元列表")
-    stats_summary: Optional[WritingStatsResponse] = Field(default=None, description="统计摘要")
+    units: List[WritingUnitResponse] = Field(
+        default_factory=list, description="单元列表")
+    stats_summary: Optional[WritingStatsResponse] = Field(
+        default=None, description="统计摘要")
 
 
 class WritingTaskListResponse(BaseModel):
     """写作任务列表响应"""
-    items: List[WritingTaskResponse] = Field(default_factory=list, description="任务列表")
+    items: List[WritingTaskResponse] = Field(
+        default_factory=list, description="任务列表")
     total: int = Field(..., description="总数")
     page: int = Field(..., description="当前页")
     page_size: int = Field(..., description="每页大小")
@@ -186,7 +213,7 @@ class WSCompleteData(BaseModel):
 
 class WSProgressMessage(BaseModel):
     """WebSocket进度消息
-    
+
     消息类型(type)合法值:
     - status_change: 任务状态变更
     - task_progress: 整体任务进度
@@ -200,7 +227,8 @@ class WSProgressMessage(BaseModel):
     type: str = Field(..., description="消息类型")
     task_id: str = Field(..., description="任务UUID")
     data: Dict[str, Any] = Field(default_factory=dict, description="消息数据")
-    timestamp: datetime = Field(default_factory=datetime.now, description="时间戳")
+    timestamp: datetime = Field(
+        default_factory=datetime.now, description="时间戳")
 
     model_config = {"from_attributes": True}
 
@@ -212,9 +240,11 @@ class WritingCheckpointResponse(BaseModel):
     id: int = Field(..., description="检查点ID")
     task_id: int = Field(..., description="关联任务ID")
     last_completed_unit: int = Field(default=0, description="最后完成的单元序号")
-    last_completed_scene_id: Optional[int] = Field(default=None, description="最后完成的场景ID")
+    last_completed_scene_id: Optional[int] = Field(
+        default=None, description="最后完成的场景ID")
     last_operation: Optional[str] = Field(default=None, description="最后执行的操作")
-    agent_states: Dict[str, Any] = Field(default_factory=dict, description="Agent状态")
+    agent_states: Dict[str, Any] = Field(
+        default_factory=dict, description="Agent状态")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 
@@ -238,7 +268,8 @@ class WritingTaskStatsDetailResponse(BaseModel):
     task_id: int = Field(..., description="任务ID")
     total_tokens: int = Field(default=0, description="总token数")
     total_cost: float = Field(default=0.0, description="总费用")
-    by_agent: List[AgentStatItem] = Field(default_factory=list, description="按Agent统计")
+    by_agent: List[AgentStatItem] = Field(
+        default_factory=list, description="按Agent统计")
     by_scene: Dict[str, Any] = Field(default_factory=dict, description="按场景统计")
 
     model_config = {"from_attributes": True}

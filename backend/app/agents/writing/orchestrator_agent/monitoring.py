@@ -391,10 +391,16 @@ class MonitoringMixin:
         安全地发送WebSocket消息，失败不影响主流程。
 
         Args:
-            msg_type: 消息类型（task_progress/unit_progress/scene_progress/statistics/workflow_step）
+            msg_type: 消息类型（task_progress/unit_progress/scene_progress/statistics/workflow_step/unit_quality_control）
             data: 消息数据
         """
-        if not self._ws_manager or not self._current_task:
+        if not self._ws_manager:
+            self.logger.warning(
+                f"[WS消息] 发送失败: _ws_manager未设置, msg_type={msg_type}")
+            return
+        if not self._current_task:
+            self.logger.warning(
+                f"[WS消息] 发送失败: _current_task未设置, msg_type={msg_type}")
             return
 
         try:
@@ -440,6 +446,18 @@ class MonitoringMixin:
                     scene_index=data.get("scene_index"),
                     icon=data.get("icon"),
                     data=data.get("extra_data")
+                )
+            elif msg_type == "unit_quality_control":
+                # v2.0新增: 单元质控状态推送
+                result = await self._ws_manager.send_custom_message(
+                    task_id=task_id,
+                    msg_type="unit_quality_control",
+                    data=data
+                )
+                self.logger.info(
+                    f"[WS消息] unit_quality_control已发送: "
+                    f"task_id={task_id}, unit_index={data.get('unit_index')}, "
+                    f"status={data.get('status')}, 连接数={result}"
                 )
         except Exception as e:
             # 推送失败不影响主流程，只记录警告

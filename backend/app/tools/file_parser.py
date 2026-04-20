@@ -36,11 +36,15 @@ class FileParser:
         self.use_preprocessor = use_preprocessor
         self._preprocessor = None
 
-    def _get_preprocessor(self):
+    def _get_preprocessor(self, config=None):
         """延迟加载预处理器"""
         if self._preprocessor is None and self.use_preprocessor:
             from app.tools.doc_preprocessor import DocumentPreprocessor
-            self._preprocessor = DocumentPreprocessor(self.settings)
+            self._preprocessor = DocumentPreprocessor(
+                self.settings, config=config)
+        elif config and self._preprocessor:
+            # 更新配置
+            self._preprocessor.config = config
         return self._preprocessor
 
     def is_supported(self, file_path: str) -> bool:
@@ -254,7 +258,8 @@ class FileParser:
         chunk_size: int = 1000,
         overlap: int = 100,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
-        llm_provider=None
+        llm_provider=None,
+        config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         解析文件并分割成块
@@ -265,12 +270,13 @@ class FileParser:
             overlap: 重叠大小（仅在未启用预处理器时使用）
             progress_callback: 进度回调函数 (step_name, progress, step_index)
             llm_provider: LLM提供者（用于摘要压缩）
+            config: 用户预处理配置字典
 
         Returns:
             包含文本块和元数据的结果
         """
         # 优先使用预处理流水线
-        preprocessor = self._get_preprocessor()
+        preprocessor = self._get_preprocessor(config)
         if preprocessor:
             return await preprocessor.process(file_path, progress_callback, llm_provider)
 
@@ -297,3 +303,40 @@ file_parser = FileParser()
 def get_file_parser() -> FileParser:
     """获取文件解析器实例"""
     return file_parser
+
+
+async def parse_document_file(filename: str, content: bytes) -> str:
+    """
+    解析文档文件内容（从字节数据）
+
+    Args:
+        filename: 文件名
+        content: 文件字节内容
+
+    Returns:
+        解析后的文本内容
+    """
+    import tempfile
+    import os
+
+    # 获取文件扩展名
+    ext = Path(filename).suffix.lower()
+
+    # 创建临时文件
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
+        tmp_file.write(content)
+        tmp_path = tmp_file.name
+
+    try:
+        # 使用 FileParser 解析
+        parser = FileParser()
+        result = await parser.parse(tmp_path)
+
+        if "error" in result:
+            raise Exception(result["error"])
+
+        return result.get("content", "")
+    finally:
+        # 删除临时文件
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)

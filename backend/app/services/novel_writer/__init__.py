@@ -8,6 +8,7 @@
 """
 from app.services.novel_writer.context_manager import ContextWindowManager
 from app.services.novel_writer.consistency import ConsistencyManager
+from app.services.novel_writer.semantic_compressor import SemanticCompressor
 from app.services.novel_writer.vector_store import ProjectVectorStore
 from app.services.novel_writer.project_knowledge_base import ProjectKnowledgeBase
 from app.services.novel_writer.prompt_templates import (
@@ -26,6 +27,7 @@ from app.services.novel_writer.exporter import NovelExporter
 __all__ = [
     "ContextWindowManager",
     "ConsistencyManager",
+    "SemanticCompressor",
     "ProjectVectorStore",
     "ProjectKnowledgeBase",
     "NovelExporter",

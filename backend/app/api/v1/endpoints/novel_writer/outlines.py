@@ -38,6 +38,25 @@ from app.schemas.novel_writer import (
 from .utils import router, logger, get_project_data_dir
 
 
+# ==================== 单元概述质控请求/响应模型 ====================
+
+class UnitSummariesQualityControlRequest(BaseModel):
+    """单元概述质控请求"""
+    enable_auto_revision: bool = Field(
+        default=True,
+        description="是否启用自动修正严重问题"
+    )
+
+
+class UnitSummariesQualityControlResponse(BaseModel):
+    """单元概述质控响应"""
+    success: bool
+    quality_report: Dict[str, Any]
+    revision_summary: List[Dict[str, Any]]
+    revised_count: int
+    message: str
+
+
 # ==================== 单元概述上传请求模型 ====================
 
 class UnitSummariesUploadRequest(BaseModel):
@@ -369,7 +388,8 @@ async def upload_unit_summaries_file(
             logger.info(f"[单元概述上传] Word文件解析成功，长度: {len(file_content)}字")
 
         else:
-            raise ValidationException(f"不支持的文件格式: {file_ext}，支持 .txt, .md, .docx, .doc")
+            raise ValidationException(
+                f"不支持的文件格式: {file_ext}，支持 .txt, .md, .docx, .doc")
 
         if not file_content or not file_content.strip():
             raise ValidationException("文件内容为空")
@@ -446,7 +466,8 @@ def parse_unit_summaries_from_content(content: str, content_type: str) -> Dict[s
     result = {}
 
     # 记录解析过程
-    logger.info(f"[单元概述解析] 开始解析, content_type={content_type}, 内容长度={len(content)}")
+    logger.info(
+        f"[单元概述解析] 开始解析, content_type={content_type}, 内容长度={len(content)}")
 
     if content_type == "movie_script":
         # 电影剧本：匹配多种格式的场景标题
@@ -548,7 +569,8 @@ def parse_unit_summaries_from_content(content: str, content_type: str) -> Dict[s
                     "status": "completed"
                 }
 
-        logger.info(f"[单元概述解析] {'小说' if content_type == 'novel' else '剧集'}解析完成, 匹配到 {len(result)} 个单元")
+        logger.info(
+            f"[单元概述解析] {'小说' if content_type == 'novel' else '剧集'}解析完成, 匹配到 {len(result)} 个单元")
 
     if not result:
         logger.warning(f"[单元概述解析] 未能解析出任何单元，content_type={content_type}")
@@ -1027,16 +1049,16 @@ async def generate_chapter_outlines(
 ):
     """
     生成章节详细大纲（小说专用）
-    
+
     基于项目的全局大纲和单元概述，为指定章节生成详细的章节大纲。
-    
+
     支持三种生成模式：
     1. 指定章节列表：通过 chapter_numbers 参数指定
     2. 范围生成：通过 start_unit 和 unit_count 参数指定起始和数量
     3. 全量生成：不指定参数时自动生成所有未生成的章节
-    
+
     断点续传：当 skip_existing=True 时，会自动跳过已生成的章节
-    
+
     Args:
         project_id: 项目ID
         request: 生成请求，包含：
@@ -1045,7 +1067,7 @@ async def generate_chapter_outlines(
             - unit_count: 生成数量（范围模式）
             - stop_on_error: 出错时是否停止
             - skip_existing: 是否跳过已生成的章节（断点续传）
-    
+
     Returns:
         生成结果，包含成功和失败的章节列表
     """
@@ -1057,26 +1079,26 @@ async def generate_chapter_outlines(
         )
         result = await db.execute(query)
         project = result.scalar_one_or_none()
-        
+
         if not project:
             raise ResourceNotFoundException("项目不存在")
-        
+
         # 检查是否为小说类型
         if project.content_type and project.content_type != "novel":
             raise ValidationException("此功能仅适用于小说类型项目")
-        
+
         # 获取全局大纲
         global_outline = project.outline_content or ""
-        
+
         # 获取单元概述
         unit_summaries = project.unit_summaries or {}
         if not unit_summaries:
             raise ValidationException("请先生成单元概述（第二阶段大纲）")
-        
+
         # 确定要生成的章节
         total_chapters = project.total_chapters or len(unit_summaries)
         existing_outlines = project.chapter_outlines or {}
-        
+
         if request.chapter_numbers:
             # 指定章节列表
             chapters_to_generate = request.chapter_numbers
@@ -1088,7 +1110,7 @@ async def generate_chapter_outlines(
             else:
                 end = total_chapters
             chapters_to_generate = list(range(start, end + 1))
-                    
+
             # 如果启用了断点续传，过滤掉已生成的章节
             if request.skip_existing:
                 chapters_to_generate = [
@@ -1101,9 +1123,9 @@ async def generate_chapter_outlines(
             chapters_to_generate = [
                 i for i in range(1, total_chapters + 1)
                 if str(i) not in existing_outlines or
-                   existing_outlines[str(i)].get("status") == "pending"
+                existing_outlines[str(i)].get("status") == "pending"
             ]
-        
+
         if not chapters_to_generate:
             return ResponseModel(
                 success=True,
@@ -1115,20 +1137,20 @@ async def generate_chapter_outlines(
                     "generated_count": len(existing_outlines)
                 }
             )
-        
+
         # 获取LLM配置
         from app.agents.llm_manager import get_llm_manager
         from app.models.writing_model_config import WritingModelConfig
         from app.models.api_key import UserAPIKey
         from app.core.security import api_key_encryption
         from app.core.config import PRESET_MODELS
-        
+
         llm_manager = get_llm_manager()
         provider_name = None
         model_name = None
         api_key = None
         api_base = None
-        
+
         # 优先级1：从 WritingModelConfig 获取
         wmc_stmt = select(WritingModelConfig).where(
             WritingModelConfig.user_id == current_user.id,
@@ -1136,21 +1158,23 @@ async def generate_chapter_outlines(
         ).order_by(WritingModelConfig.updated_at.desc())
         wmc_result = await db.execute(wmc_stmt)
         wmc_config = wmc_result.scalar_one_or_none()
-        
+
         if wmc_config:
             provider_name = wmc_config.provider
             model_name = wmc_config.model_id
             api_base = wmc_config.api_base
             try:
                 api_key = api_key_encryption.decrypt(wmc_config.encrypted_key)
-                logger.info(f"使用 WritingModelConfig: provider={provider_name}, model={model_name}")
+                logger.info(
+                    f"使用 WritingModelConfig: provider={provider_name}, model={model_name}")
             except Exception as decrypt_error:
-                logger.warning(f"WritingModelConfig API密钥解密失败，可能SECRET_KEY已变更: {decrypt_error}")
+                logger.warning(
+                    f"WritingModelConfig API密钥解密失败，可能SECRET_KEY已变更: {decrypt_error}")
                 provider_name = None
                 model_name = None
                 api_key = None
                 api_base = None
-        
+
         # 优先级2：从 UserAPIKey 获取
         if not provider_name:
             api_key_stmt = select(UserAPIKey).where(
@@ -1159,28 +1183,30 @@ async def generate_chapter_outlines(
             ).order_by(UserAPIKey.is_default.desc())
             api_key_result = await db.execute(api_key_stmt)
             api_key_record = api_key_result.scalar_one_or_none()
-            
+
             if api_key_record:
                 provider_name = api_key_record.provider
                 model_name = api_key_record.model_name
                 api_base = api_key_record.api_base
                 try:
-                    api_key = api_key_encryption.decrypt(api_key_record.encrypted_key)
+                    api_key = api_key_encryption.decrypt(
+                        api_key_record.encrypted_key)
                 except Exception as decrypt_error:
                     logger.warning(f"UserAPIKey 解密失败: {decrypt_error}")
                     api_key_record.is_valid = False
                     await db.commit()
-                    raise ValidationException("API密钥解密失败，SECRET_KEY可能已变更，请重新配置API密钥")
-                
+                    raise ValidationException(
+                        "API密钥解密失败，SECRET_KEY可能已变更，请重新配置API密钥")
+
                 preset = PRESET_MODELS.get(provider_name, {})
                 if not model_name:
                     model_name = preset.get("default_model")
                 if not api_base:
                     api_base = preset.get("api_base")
-        
+
         if not provider_name or not api_key:
             raise ValidationException("请先配置API密钥")
-        
+
         # 创建Provider
         try:
             provider = llm_manager.create_provider(
@@ -1191,15 +1217,16 @@ async def generate_chapter_outlines(
             )
         except ValueError as e:
             raise ValidationException(str(e))
-        
+
         # 准备全局大纲摘要（取前3000字）
-        global_outline_summary = global_outline[:3000] if len(global_outline) > 3000 else global_outline
-        
+        global_outline_summary = global_outline[:3000] if len(
+            global_outline) > 3000 else global_outline
+
         # 生成各章节详细大纲
         generated = []
         failed = []
         updated_outlines = dict(existing_outlines)
-        
+
         for chapter_num in chapters_to_generate:
             try:
                 # 获取章节简要概述
@@ -1207,11 +1234,11 @@ async def generate_chapter_outlines(
                 unit_data = unit_summaries.get(unit_key, {})
                 chapter_title = unit_data.get("title", f"第{chapter_num}章")
                 chapter_summary = unit_data.get("summary", "")
-                
+
                 if not chapter_summary:
                     logger.warning(f"章节 {chapter_num} 没有简要概述，跳过")
                     continue
-                
+
                 # 构建提示词
                 novel_config = project.novel_config or {}
                 prompt = CHAPTER_OUTLINE_GENERATE_PROMPT.format(
@@ -1223,7 +1250,7 @@ async def generate_chapter_outlines(
                     chapter_title=chapter_title,
                     chapter_summary=chapter_summary
                 )
-                
+
                 # 调用LLM生成
                 response = await provider.generate(
                     prompt=prompt,
@@ -1232,26 +1259,26 @@ async def generate_chapter_outlines(
                     max_tokens=2000
                 )
                 response_text = response.content.strip()
-                
+
                 # 解析JSON响应
                 if response_text.startswith("```"):
                     response_text = re.sub(r'^```\w*\n?', '', response_text)
                     response_text = re.sub(r'\n?```$', '', response_text)
-                
+
                 outline_data = json.loads(response_text)
-                
+
                 # 添加元数据
                 outline_data["chapter_number"] = chapter_num
                 outline_data["status"] = "generated"
                 outline_data["created_at"] = datetime.now().isoformat()
                 outline_data["updated_at"] = datetime.now().isoformat()
-                
+
                 # 保存到字典
                 updated_outlines[str(chapter_num)] = outline_data
                 generated.append(chapter_num)
-                
+
                 logger.info(f"章节 {chapter_num} 详细大纲生成成功")
-                
+
             except json.JSONDecodeError as e:
                 logger.error(f"章节 {chapter_num} JSON解析失败: {str(e)}")
                 failed.append({"chapter": chapter_num, "error": "JSON解析失败"})
@@ -1262,13 +1289,13 @@ async def generate_chapter_outlines(
                 failed.append({"chapter": chapter_num, "error": str(e)})
                 if request.stop_on_error:
                     break
-        
+
         # 保存到数据库
         if generated:
             project.chapter_outlines = updated_outlines
             flag_modified(project, 'chapter_outlines')
             await db.commit()
-        
+
         return ResponseModel(
             success=len(generated) > 0,
             message=f"成功生成 {len(generated)} 个章节详细大纲",
@@ -1279,7 +1306,7 @@ async def generate_chapter_outlines(
                 "generated_count": len(updated_outlines)
             }
         )
-        
+
     except AppException:
         raise
     except Exception as e:
@@ -1310,3 +1337,221 @@ def _clear_chapter_outline_task(project_id: int):
     if project_id in _chapter_outline_tasks:
         del _chapter_outline_tasks[project_id]
 
+
+# ==================== 单元概述质控触发 API ====================
+
+@router.post("/projects/{project_id}/unit-summaries/quality-control",
+             response_model=ResponseModel[UnitSummariesQualityControlResponse])
+async def trigger_unit_summaries_quality_control(
+    project_id: int,
+    request: UnitSummariesQualityControlRequest = UnitSummariesQualityControlRequest(),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    手动触发单元概述质控检测
+
+    流程:
+    1. 获取项目的单元概述数据
+    2. 执行五维度质控检测(unit_structure, unit_character, unit_consistency, unit_timeline_space, unit_ooc)
+    3. 自动修正严重问题(如果enable_auto_revision=True)
+    4. 返回质控报告和修改对比
+
+    质控维度:
+    - unit_structure: 单元结构层(章节标题、梗概完整性)
+    - unit_character: 人物发展层(人物成长轨迹、性格变化)
+    - unit_consistency: 一致性层(与全局大纲的偏离度)
+    """
+    try:
+        from app.services.outline_generator import OutlineGenerator
+        from app.services.quality_control import QualityControlService
+        from app.agents.llm_manager import get_llm_manager
+
+        # 1. 获取项目数据和单元概述
+        query = select(NovelProject).where(
+            NovelProject.id == project_id,
+            NovelProject.user_id == current_user.id
+        )
+        result = await db.execute(query)
+        project = result.scalar_one_or_none()
+
+        if not project:
+            raise ResourceNotFoundException("项目不存在")
+
+        # 并发控制: 检查是否已有质控在运行
+        if project.unit_summaries_status == 'quality_control_running':
+            raise ValidationException("质控检测正在进行中,请勿重复触发")
+
+        unit_summaries = project.unit_summaries or {}
+        # 兼容两种全局大纲存储位置: global_outline_content(两阶段生成) 或 outline_content(上传)
+        global_outline = project.global_outline_content or project.outline_content or ""
+        content_type = project.content_type or "novel"
+
+        if not unit_summaries:
+            raise ValidationException("项目暂无单元概述数据")
+
+        logger.info(
+            f"[单元概述质控] 开始质控检测: "
+            f"project_id={project_id}, units={len(unit_summaries)}, "
+            f"content_type={content_type}"
+        )
+
+        # 标记质控开始
+        original_status = project.unit_summaries_status
+        project.unit_summaries_status = 'quality_control_running'
+        await db.commit()
+
+        try:
+            # 2. 构建质控数据
+            chapters_data = []
+            for unit_num, unit_data in unit_summaries.items():
+                chapters_data.append({
+                    "id": int(unit_num),
+                    "unit_id": unit_data.get("unit_id", f"unit-{unit_num}"),
+                    "chapter_number": int(unit_num),
+                    "content": unit_data.get("full_content", "") or unit_data.get("summary", ""),
+                    "summary": unit_data.get("summary", ""),
+                    "full_content": unit_data.get("full_content", ""),
+                    "title": unit_data.get("title", ""),
+                    "status": "completed"
+                })
+
+            # 3. 执行质控分析
+            qc_service = QualityControlService(db=db)
+            outline_generator = OutlineGenerator(db=db)
+
+            quality_report = await outline_generator._analyze_unit_summaries_quality(
+                qc_service=qc_service,
+                chapters_data=chapters_data,
+                dimensions=["unit_structure",
+                            "unit_character", "unit_consistency",
+                            "unit_timeline_space", "unit_ooc"],
+                depth="deep",
+                global_outline=global_outline,
+                user_id=current_user.id
+            )
+
+            logger.info(
+                f"[单元概述质控] 质控分析完成: "
+                f"发现{len(quality_report.get('issues', []))}个问题"
+            )
+
+            # 4. 自动修正严重问题
+            revision_summary = []
+            revised_count = 0
+
+            if request.enable_auto_revision:
+                critical_issues = [
+                    issue for issue in quality_report.get("issues", [])
+                    if issue.get("severity") == "critical"
+                ]
+
+                if critical_issues:
+                    logger.info(
+                        f"[单元概述质控] 发现{len(critical_issues)}个严重问题,开始自动修正"
+                    )
+
+                    # 构建修正提示词
+                    revision_prompt = outline_generator._build_quality_revision_prompt(
+                        unit_summaries=unit_summaries,
+                        quality_report_dict=quality_report,
+                        global_outline=global_outline,
+                        content_type=content_type
+                    )
+
+                    # 获取LLM提供商
+                    llm_manager = get_llm_manager()
+                    llm_provider = await llm_manager.get_provider_from_db(
+                        db, current_user.id
+                    )
+
+                    if llm_provider:
+                        # 调用LLM修正
+                        revision_response = await llm_provider.generate(
+                            prompt=revision_prompt,
+                            temperature=0.7
+                        )
+
+                        # 解析修正结果
+                        revised_parsed = outline_generator._parse_quality_revision_result(
+                            revision_response.content, unit_summaries
+                        )
+
+                        # 生成修改对比
+                        if revised_parsed:
+                            for unit_num, revised_data in revised_parsed.items():
+                                if unit_num in unit_summaries:
+                                    original = unit_summaries[unit_num].get(
+                                        "summary", "")
+                                    revised = revised_data.get(
+                                        "summary", original)
+
+                                    if original != revised:
+                                        revision_summary.append({
+                                            "unit_number": int(unit_num),
+                                            "unit_title": unit_summaries[unit_num].get("title", ""),
+                                            "original_summary": original,
+                                            "revised_summary": revised,
+                                            "revision_reason": revised_data.get("revision_reason", "")
+                                        })
+
+                            # 保存修正后的数据到数据库
+                            updated_summaries = {**unit_summaries}
+                            for unit_num, revised_data in revised_parsed.items():
+                                if unit_num in updated_summaries:
+                                    # 保留原始数据的所有字段,仅更新修正字段
+                                    original_unit = updated_summaries[unit_num]
+                                    updated_summaries[unit_num] = {
+                                        **original_unit,  # 保留所有原始字段
+                                        "summary": revised_data.get("summary", original_unit.get("summary", "")),
+                                        "quality_revised": True,
+                                        "revision_reason": revised_data.get("revision_reason", ""),
+                                        "revised_at": datetime.now().isoformat()  # 添加修正时间戳
+                                    }
+
+                            project.unit_summaries = updated_summaries
+                            flag_modified(project, 'unit_summaries')
+                            await db.commit()
+
+                            revised_count = len(revision_summary)
+                            logger.info(
+                                f"[单元概述质控] 自动修正完成: 修正{revised_count}个单元"
+                            )
+                    else:
+                        logger.warning("[单元概述质控] 无法获取LLM提供商,跳过自动修正")
+                else:
+                    logger.info("[单元概述质控] 无严重问题,无需修正")
+            else:
+                logger.info("[单元概述质控] 用户禁用自动修正")
+
+            # 5. 返回结果
+            message = f"质控完成,发现{len(quality_report.get('issues', []))}个问题"
+            if revised_count > 0:
+                message += f",自动修正{revised_count}个单元"
+
+            return ResponseModel(
+                success=True,
+                data=UnitSummariesQualityControlResponse(
+                    success=True,
+                    quality_report=quality_report,
+                    revision_summary=revision_summary,
+                    revised_count=revised_count,
+                    message=message
+                )
+            )
+
+        finally:
+            # 恢复原始状态
+            project.unit_summaries_status = original_status if original_status != 'quality_control_running' else 'completed'
+            await db.commit()
+
+    except ResourceNotFoundException:
+        raise
+    except ValidationException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = str(e) if str(e) else repr(e)
+        logger.error(
+            f"[单元概述质控] 质控检测失败: {error_detail}\n{traceback.format_exc()}")
+        raise AppException(ErrorCode.INTERNAL_ERROR, f"质控检测失败: {error_detail}")

@@ -87,6 +87,7 @@
     <!-- ========== 小说模块 ========== -->
     <template v-if="type === 'novel'">
       <NovelFields
+        ref="novelFieldsRef"
         :form="form"
         :upload-url="uploadUrl"
         :upload-headers="uploadHeaders"
@@ -97,6 +98,8 @@
         @outline-upload-error="$emit('outline-upload-error', $event)"
         @outline-progress="$emit('outline-progress', $event)"
         @remove-outline="$emit('remove-outline')"
+        @update:style-data="handleStyleDataUpdate"
+        @update:title-style-data="$emit('update:titleStyleData', $event)"
       />
     </template>
     
@@ -144,6 +147,7 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import ShortVideoFields from './ShortVideoFields.vue'
 import ScriptFields from './ScriptFields.vue'
 import NovelFields from './NovelFields.vue'
@@ -151,7 +155,36 @@ import PrintAdFields from './PrintAdFields.vue'
 import TvcFields from './TvcFields.vue'
 import OriginalIpFields from './OriginalIpFields.vue'
 
-defineProps({
+// NovelFields组件引用
+const novelFieldsRef = ref(null)
+
+const emit = defineEmits([
+  'update:form',
+  'update:imageUrlInput',
+  'update:styleData',  // 文风数据
+  'update:titleStyleData',  // 标题风格数据
+  'optimize',
+  'series-type-change',
+  'outline-upload-success',
+  'outline-upload-error',
+  'outline-progress',
+  'remove-outline',
+  'reference-upload-success',
+  'reference-upload-error',
+  'remove-reference-file',
+  'image-upload-success',
+  'image-upload-error',
+  'parse-image-urls'
+])
+
+// 文风数据更新处理
+function handleStyleDataUpdate(styleData) {
+  console.log('[FormFieldsSection] 文风数据更新:', styleData)
+  // 向上传递到GenerateForm
+  emit('update:styleData', styleData)
+}
+
+const props = defineProps({
   form: {
     type: Object,
     required: true
@@ -205,23 +238,6 @@ defineProps({
     default: ''
   }
 })
-
-defineEmits([
-  'update:form',
-  'update:imageUrlInput',
-  'optimize',
-  'series-type-change',
-  'outline-upload-success',
-  'outline-upload-error',
-  'outline-progress',
-  'remove-outline',
-  'reference-upload-success',
-  'reference-upload-error',
-  'remove-reference-file',
-  'image-upload-success',
-  'image-upload-error',
-  'parse-image-urls'
-])
 </script>
 
 <style lang="scss" scoped>

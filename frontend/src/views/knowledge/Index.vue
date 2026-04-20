@@ -185,27 +185,41 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="预处理" width="100">
+        <el-table-column label="预处理" width="120">
           <template #default="{ row }">
-            <el-tooltip v-if="row.status === 'ready' && row.preprocessor_metadata" placement="top">
+            <!-- 处理中状态 -->
+            <el-tag v-if="row.status === 'processing'" type="warning" size="small">
+              <el-icon><Loading /></el-icon>
+              处理中
+            </el-tag>
+            
+            <!-- 就绪状态 - 显示预处理详情 -->
+            <el-tooltip v-else-if="row.status === 'ready' && row.preprocessor_metadata" placement="top" effect="dark">
               <template #content>
                 <div class="preprocessor-tooltip">
                   <p><strong>预处理流水线：</strong></p>
-                  <p>• 文档转换: {{ row.preprocessor_metadata.marker_used ? 'Marker' : '基本解析' }}</p>
-                  <p>• 语义切片: {{ row.preprocessor_metadata.semantic_chunk_used ? 'Chonkie' : '固定大小' }}</p>
-                  <p>• 摘要压缩: {{ row.preprocessor_metadata.summarization_used ? '已启用' : '未启用' }}</p>
-                  <p v-if="row.preprocessor_metadata.original_size">
-                    <strong>压缩效果:</strong> {{ formatSize(row.preprocessor_metadata.original_size) }} → {{ formatSize(row.preprocessor_metadata.filtered_size) }}
+                  <p>• 文档转换: {{ row.preprocessor_metadata.marker_used ? '✓ Marker高质量转换' : '○ 基本解析' }}</p>
+                  <p>• 语义切片: {{ row.preprocessor_metadata.semantic_chunk_used ? '✓ 智能语义分块' : '○ 固定大小切片' }}</p>
+                  <p>• 摘要压缩: {{ row.preprocessor_metadata.summarization_used ? '✓ LLM摘要压缩' : '○ 未启用' }}</p>
+                  <p v-if="row.preprocessor_metadata.original_size" style="margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px;">
+                    <strong>处理效果:</strong><br/>
+                    原始: {{ formatSize(row.preprocessor_metadata.original_size) }}<br/>
+                    过滤: {{ formatSize(row.preprocessor_metadata.filtered_size) }}<br/>
+                    切片: {{ row.preprocessor_metadata.chunk_count }} 个
                   </p>
                 </div>
               </template>
-              <el-tag type="success" size="small">
-                <el-icon><Check /></el-icon>
+              <el-tag :type="getPreprocessType(row.preprocessor_metadata)" size="small">
+                {{ getPreprocessLabel(row.preprocessor_metadata) }}
               </el-tag>
             </el-tooltip>
-            <el-tooltip v-else-if="row.status === 'ready'" content="基本处理" placement="top">
-              <el-tag type="info" size="small">基本</el-tag>
+            
+            <!-- 就绪状态 - 无预处理元数据（旧数据） -->
+            <el-tooltip v-else-if="row.status === 'ready'" content="旧版本知识库，无预处理信息" placement="top">
+              <el-tag type="info" size="small">基本处理</el-tag>
             </el-tooltip>
+            
+            <!-- 其他状态 -->
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -438,7 +452,7 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { knowledgeApi } from '@/api'
 import { Graph } from '@antv/g6'
-import { Share, Edit, Delete } from '@element-plus/icons-vue'
+import { Share, Edit, Delete, Loading } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const uploading = ref(false)
@@ -905,6 +919,46 @@ function formatSize(bytes) {
     i++
   }
   return `${bytes.toFixed(1)} ${units[i]}`
+}
+
+/**
+ * 根据预处理元数据获取标签类型
+ */
+function getPreprocessType(metadata) {
+  if (!metadata) return 'info'
+  
+  // 如果启用了语义切片，显示为高级处理
+  if (metadata.semantic_chunk_used) {
+    return 'success'  // 绿色 - 智能语义分块
+  }
+  
+  // 如果只使用了Marker转换
+  if (metadata.marker_used) {
+    return 'primary'  // 蓝色 - Marker高质量转换
+  }
+  
+  // 基本处理
+  return 'info'  // 灰色 - 固定大小切片
+}
+
+/**
+ * 根据预处理元数据获取标签文本
+ */
+function getPreprocessLabel(metadata) {
+  if (!metadata) return '基本处理'
+  
+  // 如果启用了语义切片，显示为高级处理
+  if (metadata.semantic_chunk_used) {
+    return '语义切片'  // 智能语义分块
+  }
+  
+  // 如果只使用了Marker转换
+  if (metadata.marker_used) {
+    return 'Marker转换'  // Marker高质量转换
+  }
+  
+  // 基本处理
+  return '基本处理'  // 固定大小切片
 }
 
 function formatDate(dateStr) {

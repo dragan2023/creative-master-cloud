@@ -193,7 +193,7 @@ echo.
 REM 启动后端服务
 echo [后端] 正在启动后端服务...
 cd /d "%BACKEND_DIR%"
-start "Creative-Master-Backend" cmd /c "call venv\Scripts\activate.bat && python -m uvicorn app.main:app --host 0.0.0.0 --port 7000 --reload"
+start "Creative-Master-Backend" cmd /c "call venv\Scripts\activate.bat && python -m uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload"
 cd /d "%PROJECT_ROOT%"
 
 REM 等待后端启动
@@ -201,7 +201,7 @@ echo [等待] 正在等待后端服务就绪...
 set WAIT_COUNT=0
 :wait_backend
 set /a WAIT_COUNT+=1
-curl -s http://localhost:7000/health >nul 2>&1
+curl -s http://localhost:8002/health >nul 2>&1
 if not errorlevel 1 (
     echo [就绪] 后端服务已就绪 ^(等待 %WAIT_COUNT% 秒^)
     goto :start_frontend
@@ -211,7 +211,7 @@ if %WAIT_COUNT% GEQ 45 (
     echo.
     echo 可能的原因:
     echo   1. Python 依赖未正确安装
-    echo   2. 端口 7000 被其他程序占用
+    echo   2. 端口 8002 被其他程序占用
     echo   3. 数据库文件损坏
     echo.
     pause
@@ -290,9 +290,9 @@ echo ========================================
 echo.
 echo   访问地址:
 echo   - 前端开发服务器: http://localhost:!FRONTEND_PORT!
-echo   - 后端 API:       http://localhost:7000
-echo   - API 文档:       http://localhost:7000/docs
-echo   - API 文档(ReDoc): http://localhost:7000/redoc
+echo   - 后端 API:       http://localhost:8002
+echo   - API 文档:       http://localhost:8002/docs
+echo   - API 文档(ReDoc): http://localhost:8002/redoc
 echo.
 echo ========================================
 echo   热更新说明
@@ -353,8 +353,8 @@ REM ==================== 停止服务 ====================
 echo [停止] 正在停止开发服务...
 echo.
 
-REM 关闭后端进程（查找占用7000端口的进程）
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":7000.*LISTENING"') do (
+REM 关闭后端进程（查找占用8002端口的进程）
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8002.*LISTENING"') do (
     echo [停止] 正在停止后端进程 (PID: %%a^)
     taskkill /F /PID %%a >nul 2>&1
 )
@@ -387,9 +387,9 @@ echo ========================================
 echo.
 
 REM 检查后端状态
-curl -s http://localhost:7000/health >nul 2>&1
+curl -s http://localhost:8002/health >nul 2>&1
 if not errorlevel 1 (
-    echo [运行中] 后端服务 - http://localhost:7000
+    echo [运行中] 后端服务 - http://localhost:8002
 ) else (
     echo [已停止] 后端服务
 )

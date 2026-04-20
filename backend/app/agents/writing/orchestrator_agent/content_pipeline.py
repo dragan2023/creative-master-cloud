@@ -199,7 +199,8 @@ class ContentPipelineMixin:
             # 更新项目状态和完成章节数
             try:
                 project_result = await self.db.execute(
-                    select(NovelProject).where(NovelProject.id == context.project_id)
+                    select(NovelProject).where(
+                        NovelProject.id == context.project_id)
                 )
                 project = project_result.scalar_one_or_none()
                 if project:
@@ -207,7 +208,8 @@ class ContentPipelineMixin:
                     project.completed_chapters = completed_units
                     project.current_chapter = total_units
                     await self.db.commit()
-                    self.logger.info(f"项目状态已更新: project_id={context.project_id}, status=completed, completed_chapters={completed_units}")
+                    self.logger.info(
+                        f"项目状态已更新: project_id={context.project_id}, status=completed, completed_chapters={completed_units}")
             except Exception as e:
                 self.logger.warning(f"更新项目状态失败: {e}")
 
@@ -443,6 +445,43 @@ class ContentPipelineMixin:
             unit.duration_ms = int((time.time() - unit_start_time) * 1000)
             await self.db.commit()
 
+            # 7. 同步触发实时质控（v2.0修改：改为同步等待，确保知识图谱使用修正后的内容）
+            # 等待质控完成后再提取知识图谱，保证知识图谱基于修正后的内容
+            import asyncio
+            from app.agents.writing.orchestrator_agent.quality_control_trigger import trigger_unit_quality_control
+
+            # 获取project_id和user_id
+            project_id = None
+            user_id = None
+            if self._current_task:
+                project_id = self._current_task.project_id
+                user_id = self._current_task.user_id
+
+            qc_completed = False
+            if project_id and final_content:
+                try:
+                    # 同步执行质控(等待完成后再继续)
+                    # 使用信号量控制并发数,避免大量质控任务同时执行
+                    if not hasattr(self, '_qc_semaphore'):
+                        self._qc_semaphore = asyncio.Semaphore(2)
+
+                    async with self._qc_semaphore:
+                        self.logger.info(
+                            f"[质控] 开始质控: unit={unit_index}, 等待完成后再提取知识图谱")
+                        await trigger_unit_quality_control(
+                            project_id=project_id,
+                            unit_index=unit_index,
+                            content=final_content,
+                            user_id=user_id,
+                            ws_send_func=self._send_ws_message
+                        )
+                        qc_completed = True
+                        self.logger.info(f"[质控] 质控完成: unit={unit_index}")
+                except Exception as qc_error:
+                    self.logger.warning(
+                        f"[质控] 质控失败: unit={unit_index}, error={qc_error}，继续执行知识图谱提取")
+                    qc_completed = False
+
             # 发送单元进度推送（完成）
             await self._send_ws_message("unit_progress", {
                 "unit_index": unit_index,
@@ -471,12 +510,43 @@ class ContentPipelineMixin:
                         except Exception as e:
                             self.logger.warning(f"更新统计数据失败: {e}")
 
-            # 7. 保存检查点
+            # 8. 保存检查点
             await self._save_checkpoint(context.task_id, unit_index, None, "unit_completed")
 
-            # 8. 更新人物状态追踪（集成知识图谱）
+            # 9. 更新人物状态追踪（集成知识图谱）
+            # v3.0.1修复：使用质控修正后的内容提取知识图谱
             if self._character_tracker and final_content:
                 try:
+                    # 如果质控完成，从数据库读取修正后的内容
+                    content_for_kg = final_content
+                    if qc_completed:
+                        try:
+                            from sqlalchemy import select
+                            from app.models.writing_unit import WritingUnit
+
+                            # 刷新当前会话，确保能看到质控触发器在其他会话中的更新
+                            await self.db.flush()
+
+                            # 重新查询单元，获取修正后的内容
+                            unit_query = select(WritingUnit).where(
+                                WritingUnit.id == unit.id
+                            )
+                            unit_result = await self.db.execute(unit_query)
+                            refreshed_unit = unit_result.scalar_one_or_none()
+
+                            if refreshed_unit and refreshed_unit.quality_control_status == 'completed' and refreshed_unit.final_content:
+                                content_for_kg = refreshed_unit.final_content
+                                self.logger.info(
+                                    f"[知识图谱] 使用质控修正后的内容: unit={unit_index}, 原文{len(final_content)}字符 -> 修正后{len(content_for_kg)}字符")
+                            else:
+                                self.logger.info(
+                                    f"[知识图谱] 质控状态: {refreshed_unit.quality_control_status if refreshed_unit else 'None'}, final_content长度: {len(refreshed_unit.final_content) if refreshed_unit and refreshed_unit.final_content else 0}")
+                                self.logger.info(
+                                    f"[知识图谱] 质控未完成或无修正，使用原始内容: unit={unit_index}")
+                        except Exception as db_error:
+                            self.logger.warning(
+                                f"[知识图谱] 读取修正后内容失败: {db_error}，使用原始内容")
+
                     # 获取LLM提供者用于提取人物状态实体
                     llm_provider = None
                     if hasattr(context, 'extra') and context.extra:
@@ -485,7 +555,7 @@ class ContentPipelineMixin:
                     await self._update_character_states(
                         chapter_num=unit_index,
                         chapter_title=unit.unit_title,
-                        content=final_content,
+                        content=content_for_kg,  # 使用修正后的内容
                         project_id=context.project_id,
                         llm_provider=llm_provider
                     )
@@ -682,6 +752,41 @@ class ContentPipelineMixin:
             self.db.add(scene)
             await self.db.commit()
 
+            # 同步触发实时质控（v3.0.1修改：改为同步等待，确保知识图谱使用修正后的内容）
+            import asyncio
+            from app.agents.writing.orchestrator_agent.quality_control_trigger import trigger_unit_quality_control
+
+            # 获取project_id和user_id
+            project_id = None
+            user_id = None
+            if self._current_task:
+                project_id = self._current_task.project_id
+                user_id = self._current_task.user_id
+
+            qc_completed = False
+            if project_id and final_content:
+                try:
+                    # 同步执行质控(等待完成后再继续)
+                    if not hasattr(self, '_qc_semaphore'):
+                        self._qc_semaphore = asyncio.Semaphore(2)
+
+                    async with self._qc_semaphore:
+                        self.logger.info(
+                            f"[整章生成-质控] 开始质控: unit={unit_index}, 等待完成后再提取知识图谱")
+                        await trigger_unit_quality_control(
+                            project_id=project_id,
+                            unit_index=unit_index,
+                            content=final_content,
+                            user_id=user_id,
+                            ws_send_func=self._send_ws_message
+                        )
+                        qc_completed = True
+                        self.logger.info(f"[整章生成-质控] 质控完成: unit={unit_index}")
+                except Exception as qc_error:
+                    self.logger.warning(
+                        f"[整章生成-质控] 质控失败: unit={unit_index}, error={qc_error}，继续执行知识图谱提取")
+                    qc_completed = False
+
             # 发送单元进度推送（完成）
             await self._send_ws_message("unit_progress", {
                 "unit_index": unit_index,
@@ -722,9 +827,39 @@ class ContentPipelineMixin:
             # 4. 保存检查点
             await self._save_checkpoint(context.task_id, unit_index, None, "unit_completed")
 
-            # 5. 更新人物状态追踪
+            # 5. 更新人物状态追踪（v3.0.1修复：使用质控修正后的内容提取知识图谱）
             if self._character_tracker and final_content:
                 try:
+                    # 如果质控完成，从数据库读取修正后的内容
+                    content_for_kg = final_content
+                    if qc_completed:
+                        try:
+                            from sqlalchemy import select
+                            from app.models.writing_unit import WritingUnit
+
+                            # 刷新当前会话，确保能看到质控触发器在其他会话中的更新
+                            await self.db.flush()
+
+                            # 重新查询单元，获取修正后的内容
+                            unit_query = select(WritingUnit).where(
+                                WritingUnit.id == unit.id
+                            )
+                            unit_result = await self.db.execute(unit_query)
+                            refreshed_unit = unit_result.scalar_one_or_none()
+
+                            if refreshed_unit and refreshed_unit.quality_control_status == 'completed' and refreshed_unit.final_content:
+                                content_for_kg = refreshed_unit.final_content
+                                self.logger.info(
+                                    f"[整章生成-知识图谱] 使用质控修正后的内容: unit={unit_index}, 原文{len(final_content)}字符 -> 修正后{len(content_for_kg)}字符")
+                            else:
+                                self.logger.info(
+                                    f"[整章生成-知识图谱] 质控状态: {refreshed_unit.quality_control_status if refreshed_unit else 'None'}, final_content长度: {len(refreshed_unit.final_content) if refreshed_unit and refreshed_unit.final_content else 0}")
+                                self.logger.info(
+                                    f"[整章生成-知识图谱] 质控未完成或无修正，使用原始内容: unit={unit_index}")
+                        except Exception as db_error:
+                            self.logger.warning(
+                                f"[整章生成-知识图谱] 读取修正后内容失败: {db_error}，使用原始内容")
+
                     llm_provider = None
                     if hasattr(context, 'extra') and context.extra:
                         llm_provider = context.extra.get('llm_provider')
@@ -732,7 +867,7 @@ class ContentPipelineMixin:
                     await self._update_character_states(
                         chapter_num=unit_index,
                         chapter_title=unit.unit_title,
-                        content=final_content,
+                        content=content_for_kg,  # 使用修正后的内容
                         project_id=context.project_id,
                         llm_provider=llm_provider
                     )

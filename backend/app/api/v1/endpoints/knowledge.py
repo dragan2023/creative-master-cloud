@@ -457,6 +457,7 @@ async def process_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
 
         # 获取用户的 GraphRAG 配置
         graphrag_enabled = True  # 默认启用
+        user_preprocessor_config = {}  # 用户预处理配置
         try:
             from app.models import SystemConfig
             import json
@@ -467,7 +468,16 @@ async def process_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
             if config_record and config_record.config_value:
                 config_data = json.loads(config_record.config_value)
                 graphrag_enabled = config_data.get("graphrag_enabled", True)
-            logger.info(f"用户 {user_id} GraphRAG 配置: {graphrag_enabled}")
+                # 提取所有预处理配置
+                user_preprocessor_config = {
+                    "semantic_chunk_enabled": config_data.get("semantic_chunk_enabled", True),
+                    "semantic_chunk_size": config_data.get("semantic_chunk_size", 1024),
+                    "semantic_threshold": config_data.get("semantic_threshold", 0.7),
+                    "marker_enabled": config_data.get("marker_enabled", True),
+                    "summarization_enabled": config_data.get("summarization_enabled", False),
+                }
+            logger.info(
+                f"用户 {user_id} GraphRAG 配置: {graphrag_enabled}, 预处理配置: {user_preprocessor_config}")
         except Exception as e:
             logger.warning(f"获取 GraphRAG 配置失败: {str(e)}")
 
@@ -478,7 +488,8 @@ async def process_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
             chunk_size=1000,
             overlap=100,
             progress_callback=progress_callback,
-            llm_provider=llm_provider
+            llm_provider=llm_provider,
+            config=user_preprocessor_config  # 传递用户配置
         )
 
         if "error" in parse_result:

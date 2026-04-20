@@ -117,6 +117,12 @@ htmlcov/
 .tox/
 .nox/
 
+# ===== 工作文档 =====
+docs/
+*.md
+!README.md
+!CHANGELOG.md
+
 # ===== 备份和打包文件 =====
 *.backup
 *.bak

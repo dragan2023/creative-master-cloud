@@ -146,7 +146,7 @@ class Settings(BaseSettings):
         description="图片最大上传大小（字节）"
     )
     MAX_DOC_SIZE: int = Field(
-        default=50 * 1024 * 1024,  # 50MB
+        default=100 * 1024 * 1024,  # 100MB
         description="文档最大上传大小（字节）"
     )
     ALLOWED_EXTENSIONS: set = {".pdf", ".docx", ".doc", ".txt", ".md"}
