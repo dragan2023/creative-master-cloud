@@ -5,6 +5,11 @@
 
 @date: 2026-04-02
 @version: v3.0.0
+# S-04: 本文件1106行超过500行阈值80%(400行)，建议拆分为 chapters/ 包：
+#   - chapters/crud.py (基本CRUD)
+#   - chapters/content.py (正文/导出)
+#   - chapters/outline.py (分集大纲)
+
 @author: 周金磊
 @contact: QQ：7527149（添加时请说明来意）
 """

@@ -252,9 +252,11 @@ function streamGenerate(endpoint, data, onMessage, onWorkflow, onStreamStart, se
     }
     
     // 调试日志：输出完整的请求参数
-    console.log('[API] Request URL:', url)
-    console.log('[API] Query Params:', Object.fromEntries(params))
-    console.log('[API] Request Body:', requestBody)
+    if (import.meta.env.DEV) {
+      console.log('[API] Request URL:', url)
+      console.log('[API] Query Params:', Object.fromEntries(params))
+      console.log('[API] Request Body:', requestBody)
+    }
     
     // 获取认证 token
     const token = localStorage.getItem('token')

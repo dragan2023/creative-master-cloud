@@ -16,6 +16,9 @@ from functools import lru_cache
 from app.core.config import get_settings
 from app.core.logger import get_logger
 
+# 模块级日志
+logger = get_logger("proxy_router")
+
 # 国内AI服务商域名列表（直连）
 DOMESTIC_PROVIDERS = {
     # 阿里云/通义千问
@@ -179,7 +182,6 @@ def is_domestic_provider(url: str) -> bool:
         logger.debug(f"解析URL失败: {e}")
         domain = url.lower()
 
-    logger = get_logger("proxy_router")
     logger.debug(f"检查域名: {domain}")
 
     # 优先检查国外服务商列表（更精确匹配）
@@ -216,8 +218,6 @@ async def test_url_connectivity(url: str, timeout: float = 5.0, use_cache: bool 
         (是否可达, 状态信息, 建议使用的代理)
         状态信息: "direct" | "proxy" | "failed" | "need_proxy"
     """
-    logger = get_logger("proxy_router")
-
     # 提取域名用于缓存
     try:
         parsed = urlparse(url)
@@ -305,7 +305,7 @@ def get_smart_proxy(provider: str = None, url: str = None) -> Tuple[Optional[str
                 elif cached["status"] == "proxy":
                     return cached["proxy"], "proxy"
         except Exception:
-            pass
+            logger.debug(f"解析URL缓存失败: {url}")
 
     # 根据硬编码列表判断
     if url and is_domestic_provider(url):

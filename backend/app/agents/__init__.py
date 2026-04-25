@@ -19,7 +19,7 @@ from app.agents.doubao_provider import DoubaoProvider
 from app.agents.llm_manager import LLMManager, get_llm_manager, llm_manager
 from app.agents.memory_manager import MemoryManager, get_memory_manager, memory_manager
 from app.agents.prompt_manager import PromptManager, get_prompt_manager, prompt_manager
-from app.agents.orchestrator import AgentOrchestrator, get_agent_orchestrator, agent_orchestrator
+from app.agents.orchestrator import AgentOrchestrator, get_agent_orchestrator
 
 __all__ = [
     "BaseLLMProvider",
@@ -41,5 +41,4 @@ __all__ = [
     "prompt_manager",
     "AgentOrchestrator",
     "get_agent_orchestrator",
-    "agent_orchestrator",
 ]

@@ -24,6 +24,7 @@ from app.models.writing_model_config import WritingModelConfig
 
 # 质量管控模块模型
 from app.models.quality_report import QualityReport, AnalysisScope, AnalysisStatus
+from app.models.unit_outline import UnitOutline
 
 __all__ = [
     "BaseModel",
@@ -71,4 +72,5 @@ __all__ = [
     "QualityReport",
     "AnalysisScope",
     "AnalysisStatus",
+    "UnitOutline",
 ]

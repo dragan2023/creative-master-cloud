@@ -207,8 +207,9 @@ class ExperienceAnalyzer:
                     })
 
                 # 调用LLM分析金句
-                prompt = QUALITY_PROMPTS.get("golden_quotes_analysis", "").format(
-                    chapters="\n\n".join([
+                # 模板键名为 "highlight_extraction"，占位符为 {chapter_content}
+                prompt = QUALITY_PROMPTS.get("highlight_extraction", "").format(
+                    chapter_content="\n\n".join([
                         f"第{ch['chapter']}章 {ch['title']}\n{ch['excerpt']}"
                         for ch in chapter_excerpts
                     ])
@@ -238,7 +239,9 @@ class ExperienceAnalyzer:
                     })
 
         except Exception as e:
-            # LLM分析失败不影响整体结果
-            pass
+            # LLM分析失败不影响整体结果，但必须记录日志便于排查
+            import logging
+            _logger = logging.getLogger("quality_control.experience_analyzer")
+            _logger.warning(f"金句密度LLM分析失败: {e}", exc_info=True)
 
         return issues

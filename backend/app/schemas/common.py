@@ -24,8 +24,8 @@ class PaginationModel(BaseModel, Generic[T]):
     pages: int = Field(default=0, description="总页数")
 
 
-class ErrorResponse(BaseModel):
-    """错误响应"""
+class SimpleErrorResponse(BaseModel):
+    """简单错误响应（用于API端点内联返回），与 core.error_responses.ErrorResponse 区分"""
     code: int
     message: str
     detail: Optional[str] = None

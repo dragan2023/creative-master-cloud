@@ -678,7 +678,8 @@ class LogicEditorAgent(BaseWritingAgent):
         if not isinstance(content, str):
             try:
                 content = str(content)
-            except Exception:
+            except Exception as e:
+                self.logger.debug(f"内容转换字符串失败: {e!r}")
                 return None
         
         content = content.strip()
@@ -715,7 +716,8 @@ class LogicEditorAgent(BaseWritingAgent):
         if not isinstance(content, str):
             try:
                 content = str(content)
-            except Exception:
+            except Exception as e:
+                self.logger.debug(f"内容转换字符串失败: {e!r}")
                 return None
         
         content = content.strip()
@@ -837,7 +839,8 @@ class LogicEditorAgent(BaseWritingAgent):
             self.logger.warning(f"LLM返回内容类型异常: {type(content)}，尝试转换")
             try:
                 content = str(content)
-            except Exception:
+            except Exception as e:
+                self.logger.warning(f"LLM返回内容转换失败: {e!r}")
                 return self._default_result()
         
         
@@ -855,7 +858,7 @@ class LogicEditorAgent(BaseWritingAgent):
             if isinstance(result, dict) and "issues" in result:
                 return result
         except json.JSONDecodeError:
-            pass
+            logger.debug("直接JSON解析失败，尝试从Markdown代码块提取")
         
         # 尝试从Markdown代码块中提取
         import re
@@ -868,8 +871,9 @@ class LogicEditorAgent(BaseWritingAgent):
                 if isinstance(result, dict) and "issues" in result:
                     return result
             except json.JSONDecodeError:
+                logger.debug(f"Markdown代码块JSON解析失败，跳过: {match.strip()[:100]}")
                 continue
-        
+
         # 尝试查找完整的JSON对象（使用更精确的正则表达式）
         # 匹配从 { 开始到 } 结束的完整 JSON 对象
         json_pattern2 = r'\{[^{}]*"issues"[^{}]*\}'
@@ -881,9 +885,9 @@ class LogicEditorAgent(BaseWritingAgent):
                 if isinstance(result, dict) and "issues" in result:
                     return result
             except json.JSONDecodeError:
+                logger.debug(f"精确正则JSON解析失败，跳过: {match[:100]}")
                 continue
-        
-        
+
         # 尝试使用更宽松的方法：找到第一个 { 和最后一个 }
         start_idx = content.find('{')
         end_idx = content.rfind('}')

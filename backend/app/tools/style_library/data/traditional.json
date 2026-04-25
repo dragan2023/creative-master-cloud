@@ -1,0 +1,626 @@
+{
+  "name": "传统文学流派",
+  "description": "经典文学流派的写作风格",
+  "styles": [
+    {
+      "id": "realism",
+      "name": "现实主义",
+      "description": "忠实描绘社会现实，关注普通人生活与社会矛盾",
+      "features": {
+        "vocabulary": {
+          "word_preference": "朴实、精确、贴近生活的词汇",
+          "avoid": [
+            "过度华丽的辞藻",
+            "空洞的抒情词"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "陈述句",
+            "细节描写句",
+            "对话句"
+          ],
+          "avg_length": "中等，20-40字"
+        },
+        "narrative_style": {
+          "perspective": "第三人称全知或限知视角",
+          "focus": "社会环境、人物心理、日常细节"
+        },
+        "description_style": "具体、客观、有质感的细节描写",
+        "dialogue_style": "口语化、符合人物身份，揭示性格",
+        "emotional_expression": "克制、通过行动和细节传达情感"
+      },
+      "examples": [
+        "托尔斯泰",
+        "巴尔扎克",
+        "老舍",
+        "路遥"
+      ],
+      "writing_guide": "以真实的社会生活为素材，通过典型人物和典型环境的塑造，反映社会本质。注重细节的真实性，避免主观臆造。人物性格应当复杂立体，行为有其社会根源。场景描写要有质感，让读者如临其境。对话要符合人物的社会地位、教育背景和性格特征。情感表达含蓄，通过行动和选择来体现人物内心世界。",
+      "avoid_patterns": [
+        "脱离现实的浪漫化处理",
+        "主观说教",
+        "人物脸谱化",
+        "情节过于巧合"
+      ]
+    },
+    {
+      "id": "romanticism",
+      "name": "浪漫主义",
+      "description": "强调情感、想象和个性，追求理想与自由",
+      "features": {
+        "vocabulary": {
+          "word_preference": "富于情感色彩、充满想象力的词汇",
+          "signature_words": [
+            "自由",
+            "激情",
+            "灵魂",
+            "永恒",
+            "命运"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "感叹句",
+            "排比句",
+            "抒情长句"
+          ],
+          "avg_length": "较长，30-60字"
+        },
+        "narrative_style": {
+          "perspective": "第一人称或亲密第三人称",
+          "focus": "内心情感、理想追求、自然意象"
+        },
+        "description_style": "充满激情、色彩鲜明的意象描写",
+        "dialogue_style": "充满情感张力，表达内心渴望",
+        "emotional_expression": "直接、热烈、毫不掩饰的情感爆发"
+      },
+      "examples": [
+        "雨果",
+        "拜伦",
+        "郭沫若",
+        "徐志摩"
+      ],
+      "writing_guide": "释放情感，不受理性约束，追求理想的极致表达。大量运用比喻、拟人等修辞手法，将自然景物与人物情感融为一体。人物往往具有强烈的个性和崇高的理想，敢于挑战命运。语言富于音乐感和节奏感，多用排比和感叹。不回避激烈的情感冲突和戏剧性场面。",
+      "avoid_patterns": [
+        "过于平淡的叙述",
+        "冷静客观的分析",
+        "琐碎的日常细节",
+        "理性压制情感"
+      ]
+    },
+    {
+      "id": "magic_realism",
+      "name": "魔幻现实主义",
+      "description": "将奇幻元素与现实生活自然融合，神奇与平凡并置",
+      "features": {
+        "vocabulary": {
+          "word_preference": "日常词汇与奇幻描述的混合",
+          "signature_words": [
+            "仿佛",
+            "突然",
+            "从来如此",
+            "理所当然"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "平静陈述超自然事件",
+            "细节描写魔幻场景"
+          ],
+          "avg_length": "中等，保持平静的叙事节奏"
+        },
+        "narrative_style": {
+          "perspective": "叙述者以平常心对待魔幻事件",
+          "focus": "时间的非线性、家族命运、历史与神话交织"
+        },
+        "description_style": "以写实笔法描写超自然现象，不加解释",
+        "dialogue_style": "自然口语，人物对魔幻事件习以为常",
+        "emotional_expression": "平静接受不可思议之事，情感深埋于叙述中"
+      },
+      "examples": [
+        "马尔克斯",
+        "略萨",
+        "莫言",
+        "陈忠实"
+      ],
+      "writing_guide": "关键在于'以平常心叙述非常之事'。奇幻元素不需要解释，人物和叙述者都将其视为日常。将现实的贫困、暴力、历史创伤与奇异的想象并置，揭示更深层的真实。时间可以循环、压缩或延伸。家族、土地、历史是常见的宏大主题。叙述语调始终保持平静，越是荒诞的事件越要用平淡语气描写。",
+      "avoid_patterns": [
+        "解释魔幻现象",
+        "表现惊讶或不适",
+        "逻辑上自圆其说",
+        "明确区分现实与幻想"
+      ]
+    },
+    {
+      "id": "modernism",
+      "name": "现代主义",
+      "description": "意识流、内心独白、非线性叙事，探索人的内在世界",
+      "features": {
+        "vocabulary": {
+          "word_preference": "感官意象、意识碎片、象征性词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "意识流长句",
+            "不完整的句子",
+            "意象并置"
+          ],
+          "avg_length": "长短不一，跟随意识流动"
+        },
+        "narrative_style": {
+          "perspective": "深度内视，多重视角",
+          "focus": "内心意识、时间感知、存在困境"
+        },
+        "description_style": "感官与意识交织，主客观界限模糊",
+        "dialogue_style": "内心独白为主，对话常被意识打断",
+        "emotional_expression": "通过意识流动间接呈现，非直接表达"
+      },
+      "examples": [
+        "乔伊斯",
+        "伍尔夫",
+        "福克纳",
+        "王蒙"
+      ],
+      "writing_guide": "打破线性时间，跟随人物意识自由流动。句子可以很长，思维跳跃，从一个联想到另一个联想。大量使用感官意象，把外部感知与内部情感混为一谈。对话不必符合社交逻辑，而是内心思维的外化。刻意制造叙事的破碎感和不确定性，让读者自行拼接。",
+      "avoid_patterns": [
+        "线性因果叙事",
+        "全知视角的客观描述",
+        "逻辑连贯的对话",
+        "清晰的情节结构"
+      ]
+    },
+    {
+      "id": "naturalism",
+      "name": "自然主义",
+      "description": "科学客观地描绘人类行为，强调遗传与环境的决定性影响",
+      "features": {
+        "vocabulary": {
+          "word_preference": "精确、科学、不加美化的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "客观陈述",
+            "细致观察式描写"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "冷静旁观的第三人称",
+          "focus": "本能、欲望、社会环境对人的塑造"
+        },
+        "description_style": "不加粉饰、揭示丑陋真相的直接描写",
+        "dialogue_style": "粗粝、真实，反映底层生活",
+        "emotional_expression": "极度克制，以现象代替评判"
+      },
+      "examples": [
+        "左拉",
+        "莫泊桑",
+        "德莱赛"
+      ],
+      "writing_guide": "像科学家一样观察人类社会，不加道德评判。关注底层人物受环境和本能驱动的行为。毫不回避丑陋、堕落、绝望的现实。叙述者保持冷静客观，不介入也不评价。通过积累细节来揭示真相，而非直接说明。",
+      "avoid_patterns": [
+        "道德说教",
+        "美化现实",
+        "英雄主义",
+        "浪漫化苦难"
+      ]
+    },
+    {
+      "id": "existentialism",
+      "name": "存在主义",
+      "description": "探索人的存在意义、荒诞处境和自由选择",
+      "features": {
+        "vocabulary": {
+          "word_preference": "存在、虚无、荒诞、自由、责任、选择"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "简短有力的陈述",
+            "哲学性的追问",
+            "重复强调"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第一人称，内省式",
+          "focus": "自我意识、死亡意识、选择的重量"
+        },
+        "description_style": "冷静、抽离、有时荒诞的场景描写",
+        "dialogue_style": "充满哲理思辨，揭示人物的精神困境",
+        "emotional_expression": "疏离感、压抑感、以及偶发的强烈情绪冲击"
+      },
+      "examples": [
+        "加缪",
+        "萨特",
+        "卡夫卡",
+        "余华早期"
+      ],
+      "writing_guide": "人物面对荒诞的世界，试图寻找或创造意义。叙述语调往往疏离甚至冷漠，与事件的严重性形成反差。重点不在情节的起伏，而在人物的内心挣扎和哲学思考。死亡、偶然、他人的凝视是常见主题。人物最终必须在没有外部依据的情况下做出选择。",
+      "avoid_patterns": [
+        "轻松解决困境",
+        "道德上的确定性",
+        "神意或命运的安排",
+        "圆满结局"
+      ]
+    },
+    {
+      "id": "gothic",
+      "name": "哥特式",
+      "description": "黑暗美学、神秘恐怖、衰败与死亡的文学氛围",
+      "features": {
+        "vocabulary": {
+          "word_preference": "阴暗、腐朽、神秘、恐惧相关词汇",
+          "signature_words": [
+            "黑暗",
+            "阴影",
+            "腐朽",
+            "幽灵",
+            "诅咒",
+            "秘密"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "悬念堆叠",
+            "气氛渲染的长句",
+            "不安的停顿"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "受困于黑暗力量的视角",
+          "focus": "恐惧、死亡、禁忌、超自然力量"
+        },
+        "description_style": "浓重阴郁的氛围渲染，感官上的不适与恐惧",
+        "dialogue_style": "充满隐藏信息，预示厄运",
+        "emotional_expression": "恐惧、不安、迷恋与厌恶并存"
+      },
+      "examples": [
+        "爱伦·坡",
+        "布莱克伍德",
+        "安妮·赖斯"
+      ],
+      "writing_guide": "营造压抑、阴暗的氛围是首要任务。古老的建筑、腐朽的花园、永夜的景色都是标志性场景。人物往往被黑暗力量吸引而无法自拔。语言要有节奏的张力，在平静叙述与恐惧爆发之间交替。死亡不是结束而是变化，爱与死往往纠缠在一起。",
+      "avoid_patterns": [
+        "明亮轻松的场景",
+        "快速解决的冲突",
+        "理性驱散恐惧",
+        "平凡的日常"
+      ]
+    },
+    {
+      "id": "surrealism",
+      "name": "超现实主义",
+      "description": "梦境逻辑、潜意识释放、打破理性边界",
+      "features": {
+        "vocabulary": {
+          "word_preference": "奇异组合、出人意料的意象并置"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "梦境式联想",
+            "不合逻辑但感官真实的描写"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "梦境视角，因果关系失效",
+          "focus": "潜意识、梦境、欲望的直接呈现"
+        },
+        "description_style": "将不相关事物并置，产生奇异的感官效果",
+        "dialogue_style": "非逻辑对话，遵循潜意识规律",
+        "emotional_expression": "原始欲望和恐惧的直接投射"
+      },
+      "examples": [
+        "布勒东",
+        "达利小说化",
+        "博尔赫斯部分作品"
+      ],
+      "writing_guide": "放弃理性控制，让潜意识自由流淌。事物之间的联系基于情感和意象而非逻辑。时间和空间可以任意变形。将日常物品赋予异样的意义，将异样的事物描写得如此正常。创造陌生感和奇异感是核心目标。",
+      "avoid_patterns": [
+        "逻辑因果",
+        "合理解释",
+        "日常叙事节奏",
+        "可预测的情节"
+      ]
+    },
+    {
+      "id": "postmodernism",
+      "name": "后现代主义",
+      "description": "元叙事、戏仿、碎片化结构，质疑叙事本身",
+      "features": {
+        "vocabulary": {
+          "word_preference": "自我指涉、互文性引用、多层次语言游戏"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "元叙事（叙述者谈论写作行为）",
+            "戏仿既有文类",
+            "碎片拼贴"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "不可靠叙述者，叙事本身成为主题",
+          "focus": "叙事的建构性、真相的不确定性"
+        },
+        "description_style": "戏谑、反讽、自我解构",
+        "dialogue_style": "引用、戏仿、反讽为主",
+        "emotional_expression": "疏离的幽默，或深层的绝望"
+      },
+      "examples": [
+        "博尔赫斯",
+        "纳博科夫",
+        "卡尔维诺"
+      ],
+      "writing_guide": "打破第四堵墙，叙述者承认自己在写小说。混用不同文类、风格和时代的写法。意义是多元的、开放的，拒绝单一解读。互文引用、致敬、戏仿是常用手法。结构本身就是意义的一部分——碎片就是碎片，不需要整合。",
+      "avoid_patterns": [
+        "单一权威叙事",
+        "真相的确定性",
+        "严肃的宏大主题",
+        "线性完整情节"
+      ]
+    },
+    {
+      "id": "minimalism_lit",
+      "name": "极简主义文学",
+      "description": "省略胜于表达，留白创造张力，克制中蕴含深度",
+      "features": {
+        "vocabulary": {
+          "word_preference": "简单、日常、精准的词汇",
+          "avoid": [
+            "形容词堆叠",
+            "复杂比喻",
+            "说教性语言"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "短句",
+            "简单句",
+            "对话"
+          ],
+          "avg_length": "短，10-20字"
+        },
+        "narrative_style": {
+          "perspective": "冷静旁观",
+          "focus": "表面之下的深层张力"
+        },
+        "description_style": "冰山原则：只写可见部分，意义在水面以下",
+        "dialogue_style": "简短、有时不完整，充满未说出的含义",
+        "emotional_expression": "完全不直接表达，通过场景和行动暗示"
+      },
+      "examples": [
+        "海明威",
+        "卡佛",
+        "村上春树部分作品"
+      ],
+      "writing_guide": "删去一切可以删去的词。永远不要解释情感，让场景和行动说话。对话要简短，说出来的往往不是真正想说的。背景信息降到最低。句子要有力量感，避免任何多余的修饰。读者需要主动参与填补空白——这就是你留下的空间。",
+      "avoid_patterns": [
+        "情感说明",
+        "心理分析",
+        "冗余细节",
+        "过度修饰"
+      ]
+    },
+    {
+      "id": "stream_of_consciousness",
+      "name": "意识流",
+      "description": "跟随人物内心意识的自由流动，时间与空间任意穿梭",
+      "features": {
+        "vocabulary": {
+          "word_preference": "感官词、联想词、情绪词的混合流动"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "长句绵延",
+            "思维跳跃不加过渡",
+            "标点不规则"
+          ],
+          "avg_length": "极长或极短，跟随意识节奏"
+        },
+        "narrative_style": {
+          "perspective": "深度内视，时间错乱",
+          "focus": "当下感知、记忆闪回、无意识联想"
+        },
+        "description_style": "内外感知融合，无明确边界",
+        "dialogue_style": "内心独白与外部对话混杂",
+        "emotional_expression": "情绪直接嵌入意识流中，无需标注"
+      },
+      "examples": [
+        "乔伊斯《尤利西斯》",
+        "伍尔夫《到灯塔去》"
+      ],
+      "writing_guide": "让思维自由流动，不受时间和空间限制。一个感官刺激可以触发跨越多年的记忆。思维可以从眼前的现实跳到遥远的过去再回到当下。不需要'他想到……'这样的过渡，直接进入思维内容。标点可以非常规，长句不断延伸直到意识耗尽。",
+      "avoid_patterns": [
+        "清晰的时间线",
+        "逻辑过渡",
+        "全知叙述者",
+        "客观场景描述"
+      ]
+    },
+    {
+      "id": "satirical",
+      "name": "讽刺文学",
+      "description": "以幽默或讽刺揭露社会弊病、人性弱点",
+      "features": {
+        "vocabulary": {
+          "word_preference": "反讽词汇、夸张对比、故意错置的庄重用语"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "反讽式陈述",
+            "夸张对比",
+            "反高潮"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "表面天真或过于正经的叙述者",
+          "focus": "社会制度、人类愚蠢、权力滥用"
+        },
+        "description_style": "用严肃笔调描写荒谬，夸大现实以揭示本质",
+        "dialogue_style": "充满言外之意，人物往往自我揭示",
+        "emotional_expression": "表面轻松，底层愤慨或悲悯"
+      },
+      "examples": [
+        "斯威夫特",
+        "奥威尔",
+        "钱钟书"
+      ],
+      "writing_guide": "用最严肃的语气讲最荒诞的事。讽刺效果来自预期与实际的落差——越是正经地描写荒唐，越有讽刺力量。让人物自己说出揭穿自己的话，而叙述者保持表面的尊重或赞许。夸大但不失真，放大现实的某一方面直到荒谬显形。",
+      "avoid_patterns": [
+        "直接批评",
+        "明显的道德说教",
+        "人物自我意识到讽刺",
+        "过度温情"
+      ]
+    },
+    {
+      "id": "fable_allegory",
+      "name": "寓言/象征主义",
+      "description": "通过故事传达道德或哲学寓意，象征贯穿全文",
+      "features": {
+        "vocabulary": {
+          "word_preference": "具有象征意涵的词汇，每个意象都有深层含义"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "简洁明了的叙述",
+            "有意重复的象征元素"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "全知视角或简明旁观",
+          "focus": "象征体系的构建与发展"
+        },
+        "description_style": "每个场景细节都服务于寓意",
+        "dialogue_style": "富含隐喻，人物言行代表抽象概念",
+        "emotional_expression": "节制，情感服从于寓意的传达"
+      },
+      "examples": [
+        "《动物农场》",
+        "《小王子》",
+        "《老人与海》"
+      ],
+      "writing_guide": "故事的每个元素都在两个层面上运作：字面层和象征层。建立清晰的象征体系，并在全文中保持一致。情节要独立成立，寓意不应强加给读者，而应从故事中自然浮现。",
+      "avoid_patterns": [
+        "直白说出寓意",
+        "象征体系不一致",
+        "过于复杂的情节",
+        "寓意凌驾于故事之上"
+      ]
+    },
+    {
+      "id": "detective_classic",
+      "name": "古典侦探小说",
+      "description": "以逻辑推理为核心，谜题设置与揭秘的智识游戏",
+      "features": {
+        "vocabulary": {
+          "word_preference": "精确、分析性、线索相关词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "逻辑推导",
+            "证据列举",
+            "悬念累积"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第一人称助手视角或第三人称有限视角",
+          "focus": "谜题、线索、推理过程"
+        },
+        "description_style": "细节精准，每个描写都可能是线索",
+        "dialogue_style": "信息量大，隐藏与揭示并行",
+        "emotional_expression": "智识的满足感，紧张感控制"
+      },
+      "examples": [
+        "阿加莎·克里斯蒂",
+        "柯南·道尔",
+        "东野圭吾"
+      ],
+      "writing_guide": "公平游戏原则：线索都在文中，但经过伪装。叙述者（如果是侦探的助手）必须真实，不能主动隐瞒。节奏控制至关重要：谜题设置→调查→错误方向→正确方向→揭晓。每个人都有嫌疑，每个细节都可能相关。",
+      "avoid_patterns": [
+        "事后才引入关键信息",
+        "超自然解释",
+        "偶然解决谜题",
+        "忽视逻辑"
+      ]
+    },
+    {
+      "id": "epic_heroic",
+      "name": "史诗/英雄叙事",
+      "description": "宏大格局、英雄征途、命运与荣耀的史诗叙述",
+      "features": {
+        "vocabulary": {
+          "word_preference": "宏大、庄严、充满历史感的词汇",
+          "signature_words": [
+            "命运",
+            "荣耀",
+            "征途",
+            "传说",
+            "不朽"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "宏大叙事的长句",
+            "排比渲染气势",
+            "史诗式开篇"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "全知视角，宏观俯视",
+          "focus": "英雄成长、命运抗争、文明兴衰"
+        },
+        "description_style": "宏大壮阔的战场、山川、时代描写",
+        "dialogue_style": "庄严有力，体现人物的英雄气概",
+        "emotional_expression": "崇高感、悲壮感、宏大的历史情怀"
+      },
+      "examples": [
+        "荷马史诗",
+        "《三国演义》",
+        "《指环王》"
+      ],
+      "writing_guide": "以宏大视角俯视人物命运。英雄的个人故事与时代、民族、命运交织。语言要有庄严的力量感，每个词都要有分量。战斗、旅程、考验是叙事骨架。英雄并非完美，但有超凡的意志和使命感。",
+      "avoid_patterns": [
+        "琐碎的日常细节",
+        "过于现代的语言",
+        "英雄的平庸化",
+        "缺乏宏大背景"
+      ]
+    },
+    {
+      "id": "pastoral",
+      "name": "田园/乡土文学",
+      "description": "描绘自然乡土之美，乡村生活与城市文明的对照",
+      "features": {
+        "vocabulary": {
+          "word_preference": "自然景物、农村生活、地方方言词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "舒缓的自然描写",
+            "生活化的叙述",
+            "方言融入"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "亲切的本地人或归乡者视角",
+          "focus": "自然节律、乡土人情、传统与变迁"
+        },
+        "description_style": "细腻、温暖的自然和生活场景",
+        "dialogue_style": "地方口语，生动真实",
+        "emotional_expression": "对土地的眷恋，对逝去的乡土的哀愁"
+      },
+      "examples": [
+        "沈从文",
+        "汪曾祺",
+        "陈忠实",
+        "莫言部分"
+      ],
+      "writing_guide": "让土地有生命，让自然景物成为情感的容器。方言和地方特色是宝贵资产，不要抹去。人与土地的关系是核心主题。节奏要跟随乡村生活的节律，不急促。即使写贫苦也要有温度，乡土不是落后而是根。",
+      "avoid_patterns": [
+        "城市化的快节奏",
+        "标准普通话式的单一语言",
+        "对乡村的俯视",
+        "刻意的苦难渲染"
+      ]
+    }
+  ]
+}

@@ -248,7 +248,8 @@ class KnowledgeRetrievalTool:
                 "collection_name": collection_name,
                 "document_count": count
             }
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"获取集合文档计数失败: collection={collection_name}, error={e!r}")
             return {
                 "collection_name": collection_name,
                 "document_count": 0,

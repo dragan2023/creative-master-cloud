@@ -1,0 +1,292 @@
+{
+  "name": "语言叙事特色",
+  "description": "独特的语言风格和叙事技巧",
+  "styles": [
+    {
+      "id": "poetic_prose",
+      "name": "诗化/散文化",
+      "description": "语言具有诗歌的节奏和意象，叙事与抒情融合",
+      "features": {
+        "vocabulary": {
+          "word_preference": "意象丰富、音韵和谐的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "跨行的意象延伸",
+            "音韵节奏的控制",
+            "意象并置"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "抒情性的叙述者",
+          "focus": "感官体验、内心感受、时间与记忆"
+        },
+        "description_style": "意象叠加，制造诗意效果",
+        "dialogue_style": "少，且具有诗意",
+        "emotional_expression": "通过意象和节奏传达，非直接表达"
+      },
+      "examples": [
+        "《呼兰河传》",
+        "《湖光山色》",
+        "川端康成"
+      ],
+      "writing_guide": "每个句子都要有节奏感，读出来像诗。意象要精准而独特，避免陈词滥调。情感通过意象传达，不直接说喜悦或悲伤。段落之间要有呼吸的空间。",
+      "avoid_patterns": [
+        "直白的情感叙述",
+        "信息性的功能语言",
+        "快节奏情节",
+        "缺乏意象"
+      ]
+    },
+    {
+      "id": "dramatic",
+      "name": "戏剧化",
+      "description": "强烈的冲突、高潮迭起、场景感极强",
+      "features": {
+        "vocabulary": {
+          "word_preference": "动作性强、情绪强烈的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "行动句",
+            "对话推动",
+            "高潮堆叠"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "戏剧化的全知视角",
+          "focus": "冲突、转折、情感爆发"
+        },
+        "description_style": "场景如舞台，有强烈的视觉感",
+        "dialogue_style": "充满冲突和情绪张力",
+        "emotional_expression": "直接、强烈、不加掩饰"
+      },
+      "examples": [
+        "狄更斯",
+        "雨果",
+        "大仲马"
+      ],
+      "writing_guide": "每个场景都要有戏剧性的高点。对话推动冲突，每句话都让情况变化。情感要强烈，读者要能感受到人物的激情。转折要出人意料但在情理之中。",
+      "avoid_patterns": [
+        "平淡叙事",
+        "缺乏冲突",
+        "情绪平稳",
+        "节奏拖沓"
+      ]
+    },
+    {
+      "id": "humorous",
+      "name": "幽默风趣",
+      "description": "以轻松幽默的方式讲故事，笑中有泪有思考",
+      "features": {
+        "vocabulary": {
+          "word_preference": "轻松活泼、带有幽默感的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "意外的转折",
+            "自嘲式叙述",
+            "荒诞的类比"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "亲切有趣的第一或第三人称",
+          "focus": "生活的荒诞，人性的可爱与可笑"
+        },
+        "description_style": "以轻松笔调写严肃事，反差制造幽默",
+        "dialogue_style": "机智、出人意料、有包袱",
+        "emotional_expression": "轻盈，但深处有温情或思考"
+      },
+      "examples": [
+        "钱钟书",
+        "汪曾祺部分",
+        "王朔",
+        "周星驰式"
+      ],
+      "writing_guide": "幽默要有智识含量，不只是搞笑。反差是幽默的来源：用严肃写荒诞，用轻巧写沉重。不要解释笑点，如果需要解释就不好笑了。自嘲比嘲人更有力量。",
+      "avoid_patterns": [
+        "解释笑点",
+        "用力过猛",
+        "低俗笑点",
+        "全程搞笑无深度"
+      ]
+    },
+    {
+      "id": "suspense_thriller",
+      "name": "悬疑惊悚",
+      "description": "节奏紧张、悬念迭出、恐惧与不安的叙事氛围",
+      "features": {
+        "vocabulary": {
+          "word_preference": "紧张感词汇、感官刺激描写、不安的预兆"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "短句制造紧张",
+            "悬念段落末尾",
+            "信息的逐步揭示"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "不可靠叙述者，或信息不完整的受害者视角",
+          "focus": "谜题、危险、心理压力"
+        },
+        "description_style": "感官细节强化恐惧，环境映射心理",
+        "dialogue_style": "充满张力，信息不对等",
+        "emotional_expression": "恐惧、偏执、紧迫感"
+      },
+      "examples": [
+        "希区柯克式叙事",
+        "斯蒂芬·金",
+        "东野圭吾"
+      ],
+      "writing_guide": "紧张感靠节奏控制。短句加快心跳。每章结尾要有悬念。恐惧的来源要清晰，但揭示要缓慢。不可靠叙述者让读者质疑一切。",
+      "avoid_patterns": [
+        "过早揭示谜底",
+        "节奏松弛",
+        "平淡场景",
+        "突然的解决"
+      ]
+    },
+    {
+      "id": "lyrical_realism",
+      "name": "抒情现实主义",
+      "description": "现实题材与抒情笔法结合，有温度的社会书写",
+      "features": {
+        "vocabulary": {
+          "word_preference": "生活化但有温度的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "细节描写与情感融合",
+            "回忆与现在穿插"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "亲近的叙述者，有情感立场但不失客观",
+          "focus": "普通人的生活、情感、命运"
+        },
+        "description_style": "有温度的生活场景，细节承载情感",
+        "dialogue_style": "生活化，揭示人物性格和关系",
+        "emotional_expression": "克制而深情，在日常中蕴含深情"
+      },
+      "examples": [
+        "《平凡的世界》",
+        "《白鹿原》部分风格",
+        "铁凝"
+      ],
+      "writing_guide": "现实是骨架，抒情是血肉。用细节传达温情，用普通人的挣扎揭示时代。不回避困境，但要有人性的温暖。语言要有质感，接地气又不失诗意。",
+      "avoid_patterns": [
+        "过于冷酷",
+        "过于浪漫化",
+        "脱离现实",
+        "情感廉价"
+      ]
+    },
+    {
+      "id": "epistolary",
+      "name": "书信/日记体",
+      "description": "通过书信、日记等私人文本构建叙事",
+      "features": {
+        "vocabulary": {
+          "word_preference": "私人化、有强烈个人色彩的表达"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "第一人称私密叙述",
+            "时间标注",
+            "情绪化的表达"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "写信/日记者的主观视角",
+          "focus": "内心独白、人际关系、私人事件"
+        },
+        "description_style": "像真实的私人记录，细节真实",
+        "dialogue_style": "引用对话而非呈现对话",
+        "emotional_expression": "直接、私密、毫无防御"
+      },
+      "examples": [
+        "《少年维特之烦恼》",
+        "《达洛维夫人日记》"
+      ],
+      "writing_guide": "真实感是关键，要让读者相信这是真实的私人文本。叙述者是不完全可靠的，有自我欺骗和认知局限。时间标注要有规律但也有间隔，体现生活节奏。",
+      "avoid_patterns": [
+        "过于文学化的表达",
+        "全知视角",
+        "完美的叙述",
+        "脱离私人感"
+      ]
+    },
+    {
+      "id": "multiple_perspective",
+      "name": "多视角叙事",
+      "description": "不同人物视角轮换，呈现事件的多面性",
+      "features": {
+        "vocabulary": {
+          "word_preference": "每个视角人物有自己的语言特色"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "视角切换时的风格变化",
+            "同一事件的不同呈现"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "多个第一或第三限知视角",
+          "focus": "真相的多元性、人物理解的局限"
+        },
+        "description_style": "同一场景从不同角度描写",
+        "dialogue_style": "每个人对同一对话有不同理解",
+        "emotional_expression": "每个视角人物的情感都真实但可能偏颇"
+      },
+      "examples": [
+        "《喧哗与骚动》",
+        "《了不起的盖茨比》部分",
+        "《云图》"
+      ],
+      "writing_guide": "每个视角人物要有明显不同的声音和关注点。同一事件从不同视角呈现时，要有新信息或新理解，而不只是重复。视角切换要让读者适应，可以用章节标题标注。",
+      "avoid_patterns": [
+        "所有视角声音相同",
+        "视角切换无意义",
+        "信息重复而无新意",
+        "视角人物不够立体"
+      ]
+    },
+    {
+      "id": "oral_storytelling",
+      "name": "口语化/说书体",
+      "description": "模拟口头讲述的叙事，亲切有趣，节奏生动",
+      "features": {
+        "vocabulary": {
+          "word_preference": "口语词汇，俚语，习语"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "说书腔调",
+            "直接对读者说话",
+            "口语节奏"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "说书人视角，直接与读者互动",
+          "focus": "故事的趣味性，读者的代入感"
+        },
+        "description_style": "生动活泼，有声有色",
+        "dialogue_style": "原汁原味的口语对话",
+        "emotional_expression": "直接、热情、和读者共情"
+      },
+      "examples": [
+        "《水浒传》",
+        "金庸部分章节",
+        "冯骥才"
+      ],
+      "writing_guide": "像在给朋友讲故事一样写。可以直接对读者说'话说……''且听下回分解'。节奏要有起伏，高潮处加快，舒缓处放慢。语言要活泼，不要书卷气。",
+      "avoid_patterns": [
+        "书面语过重",
+        "与读者距离感",
+        "节奏单一",
+        "缺乏临场感"
+      ]
+    }
+  ]
+}

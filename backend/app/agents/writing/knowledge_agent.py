@@ -96,8 +96,9 @@ class ContextManagerAdapter:
                 return results
             else:
                 return []
-        except Exception:
+        except Exception as e:
             # 调用失败，返回空结果
+            self.logger.warning(f"知识库检索失败: query={query}, error={e!r}")
             return []
     
     def _get_instance(self, project_id: int):
@@ -173,7 +174,8 @@ class KnowledgeBaseAdapter:
                 return results
             else:
                 return self._empty_result()
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"知识库检索失败: project_id={project_id}, error={e!r}")
             return self._empty_result()
     
     async def get_character_relations(
@@ -206,9 +208,10 @@ class KnowledgeBaseAdapter:
                 return relations
             else:
                 return []
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"获取角色关系失败: project_id={project_id}, characters={character_names}, error={e!r}")
             return []
-    
+
     async def get_plot_threads(
         self,
         project_id: int,
@@ -238,9 +241,10 @@ class KnowledgeBaseAdapter:
                 return threads
             else:
                 return []
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"获取剧情线索失败: project_id={project_id}, chapter={current_chapter}, error={e!r}")
             return []
-    
+
     def _get_instance(self, project_id: int):
         """获取知识库实例"""
         if self._kb_instance is None:

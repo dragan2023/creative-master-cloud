@@ -1,0 +1,916 @@
+{
+  "name": "网络小说风格",
+  "description": "适合网文平台的流行写作风格",
+  "styles": [
+    {
+      "id": "upgrade_flow",
+      "name": "升级流/爽文",
+      "description": "主角不断变强、打脸反派、读者获得爽感的核心逻辑",
+      "features": {
+        "vocabulary": {
+          "word_preference": "等级、境界、突破、碾压、实力等词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "实力展示",
+            "他人惊叹",
+            "等级跃升描写"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第三人称限知，紧跟主角",
+          "focus": "主角成长、实力突破、打脸反派"
+        },
+        "description_style": "战斗场面有冲击力，实力对比鲜明",
+        "dialogue_style": "反派嚣张→主角回应→反派崩溃",
+        "emotional_expression": "爽感优先，情绪简单直接"
+      },
+      "examples": [
+        "《斗破苍穹》",
+        "《完美世界》",
+        "《凡人修仙传》"
+      ],
+      "writing_guide": "每章要有爽点。主角实力提升要有节奏，不能太快也不能卡关太久。反派要足够嚣张，这样打脸才够爽。世界体系要清晰，等级要让读者一目了然。支线不要太复杂，主线要清晰。节奏要快，每章有进展。",
+      "avoid_patterns": [
+        "主角长期受挫",
+        "实力设定模糊",
+        "过多文学性描写",
+        "节奏过慢"
+      ]
+    },
+    {
+      "id": "infinite_flow",
+      "name": "无限流",
+      "description": "主角在不同世界/副本中穿越，解任务、求生存",
+      "features": {
+        "vocabulary": {
+          "word_preference": "副本、任务、积分、技能、BUG等游戏化词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "系统提示框",
+            "任务分析",
+            "危机应对"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第一人称，主角视角",
+          "focus": "解谜、生存、规则利用"
+        },
+        "description_style": "恐怖/悬疑氛围与动作场面结合",
+        "dialogue_style": "团队协作、信息分享、危机决策",
+        "emotional_expression": "紧张刺激，求生欲望"
+      },
+      "examples": [
+        "《我在末世有套房》",
+        "《地球上线》"
+      ],
+      "writing_guide": "规则是核心，要设计清晰的副本规则让读者可以自己推理。恐怖氛围和紧张感是无限流的灵魂。主角要聪明，利用规则而不是蛮力。每个副本都要有独特的核心设定。",
+      "avoid_patterns": [
+        "规则不清晰",
+        "主角纯靠运气",
+        "副本雷同",
+        "节奏拖沓"
+      ]
+    },
+    {
+      "id": "rebirth_flow",
+      "name": "重生/穿越流",
+      "description": "主角带着记忆重来，利用先知优势改变命运",
+      "features": {
+        "vocabulary": {
+          "word_preference": "前世记忆、金手指、蝴蝶效应相关词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "现在与过去对比",
+            "主角心理优势展示",
+            "布局与揭晓"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第一人称，带前世记忆的上帝视角",
+          "focus": "改变命运、报仇雪恨、抢占先机"
+        },
+        "description_style": "过去与现在的对照，主角的从容与他人的慌乱对比",
+        "dialogue_style": "主角游刃有余，暗藏机锋",
+        "emotional_expression": "复仇的快意，改变命运的决心"
+      },
+      "examples": [
+        "《庶女有毒》",
+        "《凤凰涅槃》"
+      ],
+      "writing_guide": "利用前世记忆设置伏笔，让读者和主角一起期待揭晓。对比是核心手法：前世的绝望vs今生的从容。节奏要控制好，不要太快也不要拖沓。",
+      "avoid_patterns": [
+        "金手指过于强大",
+        "主角不利用前世知识",
+        "节奏拖沓",
+        "前世设定不清晰"
+      ]
+    },
+    {
+      "id": "system_flow",
+      "name": "系统流",
+      "description": "主角获得游戏系统辅助，系统提示与现实互动",
+      "features": {
+        "vocabulary": {
+          "word_preference": "系统提示、属性面板、技能、任务等游戏术语"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "系统框弹出",
+            "属性成长",
+            "任务完成奖励"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第一人称，与系统互动",
+          "focus": "成长、任务、系统能力的发掘"
+        },
+        "description_style": "游戏界面感的文字呈现",
+        "dialogue_style": "与系统的对话，系统有独特性格",
+        "emotional_expression": "升级的满足感，任务完成的成就感"
+      },
+      "examples": [
+        "《从大学讲师到首席院士》",
+        "《我的玩家都是演技派》"
+      ],
+      "writing_guide": "系统要有自己的声音和性格，不只是工具。属性成长要有可视化的呈现。任务设计要有创意，不要太套路。系统的规则要自洽。",
+      "avoid_patterns": [
+        "系统规则前后矛盾",
+        "属性无意义",
+        "系统只是工具没有个性",
+        "任务太简单"
+      ]
+    },
+    {
+      "id": "ancient_romance",
+      "name": "古言/宫斗",
+      "description": "古代背景下的爱情与权谋，精致的古典氛围",
+      "features": {
+        "vocabulary": {
+          "word_preference": "文言词汇、宫廷用语、诗词引用"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "典雅的对话",
+            "宫斗博弈描写",
+            "情感的含蓄表达"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第一人称女主视角",
+          "focus": "爱情、权谋、生存"
+        },
+        "description_style": "古典美学的场景描绘，服饰器物精致",
+        "dialogue_style": "含蓄、有深意，博弈式对话",
+        "emotional_expression": "含蓄克制的情感，偶尔的情绪爆发"
+      },
+      "examples": [
+        "《甄嬛传》",
+        "《锦绣未央》",
+        "《芈月传》"
+      ],
+      "writing_guide": "古典美学要贯穿始终，服饰、饮食、礼仪都要有依据。宫斗逻辑要严密，动机要清晰。情感线和权谋线要并进。人物要立体，反派也有苦衷。",
+      "avoid_patterns": [
+        "宫斗逻辑不通",
+        "古典用语错误",
+        "人物扁平化",
+        "情节拖沓"
+      ]
+    },
+    {
+      "id": "urban_fantasy",
+      "name": "都市异能/玄幻",
+      "description": "现代都市中的超能力者，隐秘世界与现实交织",
+      "features": {
+        "vocabulary": {
+          "word_preference": "现代都市词汇与玄幻词汇混合"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "现实与玄幻的切换",
+            "隐秘组织的揭示",
+            "能力的展现"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "第三人称，跟随主角",
+          "focus": "隐秘世界的规则、主角的觉醒与成长"
+        },
+        "description_style": "现代场景与异能场景的对比",
+        "dialogue_style": "现代口语与玄幻语境的融合",
+        "emotional_expression": "现代人的情感逻辑"
+      },
+      "examples": [
+        "《全职高手》",
+        "《择天记》",
+        "《斗罗大陆》"
+      ],
+      "writing_guide": "现代感是关键，玄幻元素要与现代生活自然融合。世界设定要有深度，隐秘世界有自己的规则和历史。主角觉醒不要太突兀，要有铺垫。",
+      "avoid_patterns": [
+        "现代感与玄幻脱节",
+        "世界设定浅薄",
+        "节奏失控",
+        "人物动机不清"
+      ]
+    },
+    {
+      "id": "madness_literature",
+      "name": "发疯/发癫文学",
+      "description": "用荒诞对抗内耗，主角行为'不合逻辑'，带来精神宣泄的阅读快感",
+      "features": {
+        "vocabulary": {
+          "word_preference": "口语化、情绪化、网络流行语、感叹词",
+          "signature_words": [
+            "癫",
+            "疯了",
+            "不管了",
+            "随便吧",
+            "毁灭吧"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "短促爆发句",
+            "反问句",
+            "感叹句",
+            "自言自语"
+          ],
+          "avg_length": "偏短，10-25字，情绪激动时可突然变长"
+        },
+        "narrative_style": {
+          "perspective": "第一人称或亲密第三人称，紧跟主角情绪",
+          "focus": "情绪宣泄、荒诞行为、反差喜剧效果"
+        },
+        "description_style": "夸张、戏剧化、充满黑色幽默的场景描写",
+        "dialogue_style": "情绪化、出人意料、经常'语出惊人'",
+        "emotional_expression": "直接、激烈、毫不掩饰的情绪爆发，用荒诞对抗压力"
+      },
+      "examples": [
+        "《癫，都癫，癫点好啊》",
+        "《狂野寡妇，在线发癫》"
+      ],
+      "writing_guide": "核心是'用荒诞对抗现实压力'。主角行为看似不合逻辑，但背后有情感合理性。节奏要快，情绪要真，荒诞要有度。黑色幽默是关键手法，让读者在笑中获得精神宣泄。不要为疯而疯，每个'发癫'行为都要有情感触发点。反差是喜剧效果来源：严肃场景+荒诞反应。",
+      "avoid_patterns": [
+        "为疯而疯没有情感支撑",
+        "荒诞过度失去共鸣",
+        "情绪单一重复",
+        "缺乏喜剧节奏"
+      ]
+    },
+    {
+      "id": "game_theory_narrative",
+      "name": "博弈型叙事",
+      "description": "主角在有限空间与高压规则下，依靠智谋和人性洞察破局",
+      "features": {
+        "vocabulary": {
+          "word_preference": "博弈论、心理分析、策略推理词汇",
+          "signature_words": [
+            "规则",
+            "破局",
+            "筹码",
+            "心理战",
+            "人性"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "策略分析句",
+            "心理推理句",
+            "反转揭示句"
+          ],
+          "avg_length": "中等偏长，25-45字，推理过程详细"
+        },
+        "narrative_style": {
+          "perspective": "第一人称或限知第三人称，保留悬念",
+          "focus": "智谋对决、规则利用、人性博弈"
+        },
+        "description_style": "紧张压抑的氛围营造，细节暗示伏笔",
+        "dialogue_style": "博弈式对话，话中有话，心理战",
+        "emotional_expression": "高压下的冷静与紧张，反转时的震撼"
+      },
+      "examples": [
+        "《诸神愚戏》",
+        "《十日终焉》"
+      ],
+      "writing_guide": "规则设计是核心，要清晰且有漏洞可钻。主角靠智谋而非武力，每次破局都要有逻辑支撑。人性洞察是关键，利用贪婪、恐惧、信任等心理。反转要合理，前面要有伏笔。'斗兽场'氛围要压抑，让读者感受到高压。每场博弈都要有不同策略，避免重复。",
+      "avoid_patterns": [
+        "规则不清晰",
+        "主角靠运气而非智谋",
+        "反转突兀无铺垫",
+        "博弈模式重复"
+      ]
+    },
+    {
+      "id": "no_cp_female_lead",
+      "name": "无CP大女主",
+      "description": "专注女性自我成长与事业，剥离传统情感依附，展现独立意识",
+      "features": {
+        "vocabulary": {
+          "word_preference": "职业、成长、力量、独立相关词汇",
+          "signature_words": [
+            "事业",
+            "成长",
+            "力量",
+            "独立",
+            "目标"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "行动描写",
+            "内心独白",
+            "成长节点标记"
+          ],
+          "avg_length": "中等，20-35字"
+        },
+        "narrative_style": {
+          "perspective": "第一人称女主视角或亲密第三人称",
+          "focus": "自我成长、事业突破、友情与羁绊"
+        },
+        "description_style": "力量感与成长感并重，场景服务于人物发展",
+        "dialogue_style": "自信、果断、有目标感，女性间的互助与竞争",
+        "emotional_expression": "克制但坚定，成就感与自我认同优先"
+      },
+      "examples": [
+        "《游戏入侵》",
+        "《末日乐园》"
+      ],
+      "writing_guide": "核心是'女性不需要依附他人也能强大'。事业线和成长线是主线，感情线完全剥离或极度弱化。女主要有清晰的目标和强大的行动力。女性角色之间可以有竞争、有矛盾，但更要有互助和羁绊。成长过程要有挫折，但最终靠自己的力量站起来。避免'女强男弱'的简单反转，要真正展现独立。",
+      "avoid_patterns": [
+        "暗中加入感情线",
+        "女主成长靠男性帮助",
+        "为强而强缺乏真实感",
+        "女性角色脸谱化"
+      ]
+    },
+    {
+      "id": "research_based_transmigration",
+      "name": "考据式穿越",
+      "description": "将穿越文写出严谨的历史感，注重历史细节考证",
+      "features": {
+        "vocabulary": {
+          "word_preference": "历史术语、古代称谓、典章制度词汇",
+          "signature_words": [
+            "据史载",
+            "按制",
+            "古法",
+            "考据",
+            "典籍"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "历史背景说明",
+            "制度解释",
+            "细节考证"
+          ],
+          "avg_length": "中等偏长，25-50字，包含考据信息"
+        },
+        "narrative_style": {
+          "perspective": "第三人称限知，穿越者视角",
+          "focus": "历史还原、生存发展、时代逻辑"
+        },
+        "description_style": "严谨的历史细节，服饰、饮食、礼仪都有依据",
+        "dialogue_style": "符合时代特征的对话，穿越者逐渐适应古代语境",
+        "emotional_expression": "对历史的敬畏感，融入时代的成就感"
+      },
+      "examples": [
+        "《新宋》",
+        "《晚明》",
+        "《秦吏》"
+      ],
+      "writing_guide": "考据是核心竞争力，每个细节都要有历史依据。穿越者不是'万能现代人'，要受到时代限制。历史逻辑要自洽，不能用现代思维简单解决古代问题。可以适度'金手指'，但必须在合理范围内。时代氛围要浓厚，让读者感受到'真实的古代'。",
+      "avoid_patterns": [
+        "历史常识错误",
+        "穿越者过于全能",
+        "现代思维简单套用",
+        "考据堆砌影响节奏"
+      ]
+    },
+    {
+      "id": "road_trip_narrative",
+      "name": "公路文/公路求生",
+      "description": "以'在路上'的旅行为背景，融合冒险、探索与自我发现",
+      "features": {
+        "vocabulary": {
+          "word_preference": "地理、旅途、风景、生存相关词汇",
+          "signature_words": [
+            "前方",
+            "路途",
+            "未知",
+            "探索",
+            "旅程"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "场景转换",
+            "旅途见闻",
+            "内心感悟"
+          ],
+          "avg_length": "中等，20-40字"
+        },
+        "narrative_style": {
+          "perspective": "第一人称或亲密第三人称",
+          "focus": "旅途冒险、人物成长、风景与文化"
+        },
+        "description_style": "壮丽的自然景观与人文风貌，路途中的奇遇",
+        "dialogue_style": "旅途中的相遇与告别，短暂但深刻的交流",
+        "emotional_expression": "孤独与自由的交织，对未知的期待与恐惧"
+      },
+      "examples": [
+        "《迷路无人区》",
+        "《搭车去柏林》"
+      ],
+      "writing_guide": "'在路上'是核心体验，每个站点都要有独特的风景和故事。旅途是外在冒险，也是内心成长。遇到的人和事要多样化，展现不同的人生。风景描写要有感染力，让读者向往。节奏要有张有弛，紧张冒险与平静感悟交替。",
+      "avoid_patterns": [
+        "场景重复单调",
+        "只有风景没有故事",
+        "人物成长线断裂",
+        "节奏单一"
+      ]
+    },
+    {
+      "id": "rule_horror",
+      "name": "规则怪谈",
+      "description": "主角身处由'规则'定义的诡异空间，必须通过解读矛盾规则求生",
+      "features": {
+        "vocabulary": {
+          "word_preference": "规则、禁忌、异常、矛盾、推理词汇",
+          "signature_words": [
+            "规则",
+            "禁忌",
+            "违反",
+            "矛盾",
+            "解读"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "规则条文",
+            "推理分析",
+            "危机应对"
+          ],
+          "avg_length": "规则句简短有力，推理句中等，20-35字"
+        },
+        "narrative_style": {
+          "perspective": "第一人称，主角视角解谜",
+          "focus": "规则解读、矛盾发现、生存策略"
+        },
+        "description_style": "诡异压抑的氛围，规则与现实的冲突",
+        "dialogue_style": "极少或没有，主要是内心独白和规则分析",
+        "emotional_expression": "恐惧、困惑、发现真相的震撼"
+      },
+      "examples": [
+        "《第二人格[规则怪谈]》",
+        "《我加载了怪谈游戏》"
+      ],
+      "writing_guide": "规则设计是核心，要清晰、有逻辑、有矛盾点。恐怖氛围来自'未知'和'规则矛盾'，不是血腥暴力。主角要聪明，通过推理找出规则漏洞。规则要有层次，表面规则和隐藏规则。每次违反规则的后果要严重，制造紧张感。结局可以是逃离、理解或接受规则。",
+      "avoid_patterns": [
+        "规则不清晰",
+        "主角靠运气破解",
+        "恐怖靠血腥堆砌",
+        "矛盾规则无解"
+      ]
+    },
+    {
+      "id": "chinese_cthulhu",
+      "name": "中式克苏鲁",
+      "description": "西方未知恐怖与东方民俗怪谈融合，创造本土化的陌生恐怖体验",
+      "features": {
+        "vocabulary": {
+          "word_preference": "民俗术语、道教词汇、诡异描述词汇",
+          "signature_words": [
+            "诡异",
+            "不可名状",
+            "民俗",
+            "禁忌",
+            "邪祟"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "民俗描述",
+            "诡异现象",
+            "恐惧心理"
+          ],
+          "avg_length": "中等偏长，25-45字，营造压抑感"
+        },
+        "narrative_style": {
+          "perspective": "第一人称或限知第三人称",
+          "focus": "未知恐惧、民俗诡异、人性扭曲"
+        },
+        "description_style": "东方美学与恐怖融合，民俗元素营造诡异感",
+        "dialogue_style": "方言、民俗用语，增加本土恐怖感",
+        "emotional_expression": "深层恐惧，对未知的敬畏与绝望"
+      },
+      "examples": [
+        "《道诡异仙》",
+        "《诡秘之主》",
+        "《民俗调查员》"
+      ],
+      "writing_guide": "核心是'东方民俗+未知恐怖'。不要简单复制克苏鲁，要深度融合中国传统文化。民俗元素要真实，有考据支撑。恐怖来自'熟悉中的陌生'，日常事物的异化。不可名状的恐惧要通过侧面描写，不要直接描述怪物。人性在恐惧中的扭曲是重要主题。",
+      "avoid_patterns": [
+        "简单复制西方克苏鲁",
+        "民俗元素错误",
+        "恐怖靠血腥",
+        "缺乏文化底蕴"
+      ]
+    },
+    {
+      "id": "cyber_cultivation",
+      "name": "修仙2.0/赛博修仙",
+      "description": "对传统修仙题材的现代化重构，融合现代元素或科幻背景",
+      "features": {
+        "vocabulary": {
+          "word_preference": "修仙术语与现代/科幻词汇混合",
+          "signature_words": [
+            "灵根",
+            "算法",
+            "金丹",
+            "代码",
+            "渡劫",
+            "数据"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "传统修仙场景+现代解释",
+            "科技与修仙的碰撞"
+          ],
+          "avg_length": "中等，20-40字"
+        },
+        "narrative_style": {
+          "perspective": "第三人称，跟随主角",
+          "focus": "传统与现代的碰撞、修仙体系的重构"
+        },
+        "description_style": "传统仙侠美学与科幻元素的融合",
+        "dialogue_style": "现代口语与修仙语境的自然融合",
+        "emotional_expression": "对传统的解构与创新，新旧碰撞的张力"
+      },
+      "examples": [
+        "《没钱修什么仙？》",
+        "《赛博剑仙铁雨》",
+        "《修仙大学》"
+      ],
+      "writing_guide": "核心是'解构与重构'，不是简单拼贴。要思考修仙体系如果用现代逻辑会怎样。可以有金融修仙、程序员修仙等创意设定。传统修仙的核心要素（境界、功法、法宝）要保留，但表现形式要创新。现代元素的融入要自然，不要生硬。",
+      "avoid_patterns": [
+        "简单拼贴不融合",
+        "失去修仙核心",
+        "现代元素突兀",
+        "设定混乱"
+      ]
+    },
+    {
+      "id": "folk_horror",
+      "name": "民俗灵异",
+      "description": "深耕本土民间传说，营造极具代入感的中式惊悚氛围",
+      "features": {
+        "vocabulary": {
+          "word_preference": "民俗术语、地方方言、灵异描述词汇",
+          "signature_words": [
+            "捞尸",
+            "阴婚",
+            "纸人",
+            "风水",
+            "民俗"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "民俗仪式描写",
+            "灵异事件叙述",
+            "恐惧心理"
+          ],
+          "avg_length": "中等，20-40字"
+        },
+        "narrative_style": {
+          "perspective": "第一人称或限知第三人称",
+          "focus": "民俗传统、灵异事件、乡土恐怖"
+        },
+        "description_style": "浓郁的乡土气息与诡异氛围，民俗细节真实",
+        "dialogue_style": "方言对话，增加真实感和地域特色",
+        "emotional_expression": "对传统的敬畏与恐惧，乡土情怀"
+      },
+      "examples": [
+        "《捞尸人》",
+        "《民间诡闻录》",
+        "《乡村志异》"
+      ],
+      "writing_guide": "民俗是核心竞争力，要深入挖掘地方传说和民间禁忌。恐怖来自'传统中的未知'，不是西方恐怖元素。乡土气息要浓厚，让读者感受到真实的乡村。民俗仪式要详细描写，有仪式感。人物要接地气，是普通的村民、手艺人。",
+      "avoid_patterns": [
+        "民俗知识错误",
+        "西方恐怖元素混入",
+        "脱离乡土背景",
+        "恐怖靠血腥"
+      ]
+    },
+    {
+      "id": "fourth_disaster",
+      "name": "第四天灾流",
+      "description": "主角将真实世界伪装成游戏，召唤'玩家'实现目标，充满戏剧冲突",
+      "features": {
+        "vocabulary": {
+          "word_preference": "游戏术语与真实世界词汇的对比",
+          "signature_words": [
+            "玩家",
+            "NPC",
+            "版本更新",
+            "主线任务",
+            "第四天灾"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "玩家视角与真实视角的对比",
+            "搞笑互动",
+            "幕后操控"
+          ],
+          "avg_length": "中等，20-35字"
+        },
+        "narrative_style": {
+          "perspective": "双视角：幕后主角+玩家群体",
+          "focus": "幕后操控、玩家行为不可预测性、喜剧效果"
+        },
+        "description_style": "游戏界面与真实世界的反差，玩家行为的荒诞",
+        "dialogue_style": "玩家之间的沙雕对话，主角的幕后吐槽",
+        "emotional_expression": "喜剧效果为主，幕后操控的成就感"
+      },
+      "examples": [
+        "《地下城玩家》",
+        "《这游戏也太真实了》",
+        "《我的玩家都是演技派》"
+      ],
+      "writing_guide": "核心是'信息差带来的喜剧效果'。玩家不知道这是真实世界，主角在幕后操控。玩家行为要不可预测，经常'跑偏'制造笑点。游戏设定要有趣，任务设计要有创意。真实世界的NPC对玩家行为的反应是重要笑点。节奏要快，喜剧效果要密集。",
+      "avoid_patterns": [
+        "玩家行为可预测",
+        "喜剧效果单一",
+        "幕后主角无趣",
+        "游戏设定无聊"
+      ]
+    },
+    {
+      "id": "evolution_flow",
+      "name": "进化流",
+      "description": "聚焦主角通过基因解锁等方式实现生命层次的'进化'",
+      "features": {
+        "vocabulary": {
+          "word_preference": "生物学术语、进化、基因、变异相关词汇",
+          "signature_words": [
+            "基因",
+            "进化",
+            "解锁",
+            "变异",
+            "生命层次"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "进化过程描写",
+            "能力解锁",
+            "形态变化"
+          ],
+          "avg_length": "中等，20-40字"
+        },
+        "narrative_style": {
+          "perspective": "第三人称，跟随主角",
+          "focus": "生命进化、能力成长、生物多样性"
+        },
+        "description_style": "进化过程的详细描写，形态变化的震撼感",
+        "dialogue_style": "科学解释与惊叹的结合",
+        "emotional_expression": "进化的震撼与期待，对生命奥秘的敬畏"
+      },
+      "examples": [
+        "《吞噬星空》",
+        "《全球进化》",
+        "《进化之眼》"
+      ],
+      "writing_guide": "进化体系要清晰，让读者知道下一步会进化成什么。每次进化都要有代价或限制，不能无限变强。生物多样性是亮点，可以设计各种奇特的进化路线。科学依据要有一定支撑，不要完全脱离生物学。末日或危机背景能增加紧迫感。",
+      "avoid_patterns": [
+        "进化体系混乱",
+        "无限变强无代价",
+        "缺乏科学依据",
+        "进化过程单调"
+      ]
+    },
+    {
+      "id": "chat_group_flow",
+      "name": "聊天群流",
+      "description": "主角加入跨时空聊天群，与不同世界的成员互动，打破次元壁",
+      "features": {
+        "vocabulary": {
+          "word_preference": "网络聊天用语、各世界特色词汇混合",
+          "signature_words": [
+            "群聊",
+            "红包",
+            "@某人",
+            "跨世界",
+            "次元壁"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "聊天界面",
+            "群友互动",
+            "跨世界交易"
+          ],
+          "avg_length": "聊天句简短，叙事句中等，15-30字"
+        },
+        "narrative_style": {
+          "perspective": "第一人称，主角视角",
+          "focus": "群友互动、跨世界交流、资源交换"
+        },
+        "description_style": "聊天界面感的文字呈现，各世界风情展示",
+        "dialogue_style": "网络聊天风格，各角色有独特说话方式",
+        "emotional_expression": "跨世界交流的新奇感，群友间的友情"
+      },
+      "examples": [
+        "《修真聊天群》",
+        "《万界聊天群》",
+        "《我的仙界聊天群》"
+      ],
+      "writing_guide": "群友人设要鲜明，每个群友来自不同世界，有独特性格和能力。聊天内容要有趣，信息交流、资源交易、求助互动。跨世界设定要丰富，展现不同世界的风情。主角在群中要有独特价值，不是单纯的旁观者。节奏要轻松愉快，喜剧效果为主。",
+      "avoid_patterns": [
+        "群友人设扁平",
+        "聊天内容无聊",
+        "跨世界设定单一",
+        "主角无参与感"
+      ]
+    },
+    {
+      "id": "sky_screen_flow",
+      "name": "天幕文",
+      "description": "在历史时空中出现向古人直播未来影像的'天幕'，通过历史人物反应制造看点",
+      "features": {
+        "vocabulary": {
+          "word_preference": "历史术语与现代表述的对比",
+          "signature_words": [
+            "天幕",
+            "直播",
+            "古人反应",
+            "未来影像",
+            "历史改变"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "天幕内容展示",
+            "古人反应",
+            "历史影响分析"
+          ],
+          "avg_length": "中等，20-40字"
+        },
+        "narrative_style": {
+          "perspective": "双视角：天幕内容+古人反应",
+          "focus": "历史人物对未来的震惊、历史走向的改变"
+        },
+        "description_style": "古今对比的戏剧性场面，历史人物的表情与心理",
+        "dialogue_style": "古人语境下的震惊讨论，现代内容的古代解读",
+        "emotional_expression": "古今碰撞的戏剧性，历史改变的震撼"
+      },
+      "examples": [
+        "《给古人直播未来》",
+        "《天幕降临》"
+      ],
+      "writing_guide": "核心是'古今碰撞的戏剧性'。天幕内容要精心选择，能引起古人强烈反应。历史人物的反应要符合其性格和时代背景。历史改变要合理，不能过于突兀。可以展现不同朝代人物的反应，增加多样性。",
+      "avoid_patterns": [
+        "古人反应不符合历史",
+        "天幕内容无聊",
+        "历史改变不合理",
+        "缺乏戏剧冲突"
+      ]
+    },
+    {
+      "id": "anti_cliche",
+      "name": "反套路",
+      "description": "在熟悉的情节上制造陌生化走向，对过度套路化创作的集体反叛",
+      "features": {
+        "vocabulary": {
+          "word_preference": "反讽、解构、打破常规的表述",
+          "signature_words": [
+            "偏偏",
+            "然而",
+            "出乎意料",
+            "不按套路",
+            "反常"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "套路铺垫",
+            "反转打破",
+            "意外展开"
+          ],
+          "avg_length": "中等，20-40字"
+        },
+        "narrative_style": {
+          "perspective": "灵活多变，经常打破第四面墙",
+          "focus": "反套路设计、读者预期管理、创新叙事"
+        },
+        "description_style": "传统场景的非传统描写，打破读者预期",
+        "dialogue_style": "角色经常说出'不应该说的话'",
+        "emotional_expression": "意外感和新鲜感，对套路的解构乐趣"
+      },
+      "examples": [
+        "《这个地下城长蘑菇了》",
+        "《反套路修仙》"
+      ],
+      "writing_guide": "核心是'打破预期但要合理'。先建立套路预期，然后用合理的方式打破。反转不是为反而反，要有内在逻辑。可以适度打破第四面墙，与读者互动。反套路的目的是创新，不是单纯恶搞。要让读者觉得'意料之外，情理之中'。",
+      "avoid_patterns": [
+        "为反而反不合理",
+        "单纯恶搞无创新",
+        "反转过多失去重点",
+        "失去故事核心"
+      ]
+    },
+    {
+      "id": "short_zhihu_style",
+      "name": "短篇化/知乎风",
+      "description": "适应碎片化阅读，强悬念快节奏，在有限篇幅内迅速击中读者爽点",
+      "features": {
+        "vocabulary": {
+          "word_preference": "简洁有力、直击要点、悬念词汇",
+          "signature_words": [
+            "真相",
+            "反转",
+            "没想到",
+            "结局",
+            "悬念"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "短句为主",
+            "悬念设置",
+            "快速推进"
+          ],
+          "avg_length": "偏短，15-25字"
+        },
+        "narrative_style": {
+          "perspective": "第一人称或限知第三人称",
+          "focus": "悬念推进、快速反转、紧凑节奏"
+        },
+        "description_style": "简洁精准，只写关键细节",
+        "dialogue_style": "简短有力，信息密度高",
+        "emotional_expression": "紧张刺激，反转时的震撼"
+      },
+      "examples": [
+        "《鱼灯引魂记》",
+        "知乎盐言故事系列"
+      ],
+      "writing_guide": "篇幅短（通常1-3万字），节奏必须快。开篇就要有悬念或冲突，不能有冗长铺垫。每千字至少一个小反转，结尾有大反转。信息密度要高，每句话都要有价值。结尾要有余韵，让读者回味。",
+      "avoid_patterns": [
+        "节奏缓慢",
+        "铺垫过长",
+        "信息密度低",
+        "结尾无力"
+      ]
+    },
+    {
+      "id": "oriental_aesthetics",
+      "name": "东方美学叙事",
+      "description": "回归中国传统文化，深度挖掘东方古典美学、哲学思想、神话体系",
+      "features": {
+        "vocabulary": {
+          "word_preference": "古典文学词汇、哲学概念、诗意表达",
+          "signature_words": [
+            "道",
+            "气",
+            "韵",
+            "意境",
+            "天人合一"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "对仗句",
+            "排比句",
+            "诗意长句"
+          ],
+          "avg_length": "中等偏长，25-50字"
+        },
+        "narrative_style": {
+          "perspective": "第三人称全知或抒情性叙述者",
+          "focus": "东方哲学、古典美学、文化传承"
+        },
+        "description_style": "充满诗意的意象描写，中国古典美学意境",
+        "dialogue_style": "典雅含蓄，富有哲理",
+        "emotional_expression": "含蓄深远，意境悠长"
+      },
+      "examples": [
+        "《长安十二时辰》",
+        "《鹤唳华亭》",
+        "《琅琊榜》"
+      ],
+      "writing_guide": "核心是'东方美学的现代表达'。深入理解中国古典哲学和美学，不是表面堆砌。诗词歌赋要自然融入，不要生硬引用。意境营造比情节推进更重要。人物要有文人气质，行为符合传统道德。场景描写要像中国画，留白与意境并重。",
+      "avoid_patterns": [
+        "表面堆砌古典元素",
+        "理解错误的传统文化",
+        "意境空洞",
+        "与现代脱节"
+      ]
+    }
+  ]
+}

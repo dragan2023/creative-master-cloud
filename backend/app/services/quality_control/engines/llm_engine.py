@@ -257,16 +257,15 @@ class LLMAnalysisEngine:
             if json_match:
                 try:
                     return json.loads(json_match.group(1))
-                except:
-                    pass
-
+                except json.JSONDecodeError as json_err:
+                    logger.debug(f"JSON块解析失败: {json_err}")
             # 尝试查找{}块
             brace_match = re.search(r'\{[\s\S]*\}', content)
             if brace_match:
                 try:
                     return json.loads(brace_match.group())
-                except:
-                    pass
+                except json.JSONDecodeError as brace_err:
+                    logger.debug(f"大括号块JSON解析失败: {brace_err}")
 
             # 解析失败,返回原始内容
             logger.warning(f"JSON解析失败,返回原始内容: {content[:200]}")

@@ -91,6 +91,21 @@ async def lifespan(app: FastAPI):
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 
+    # 启动安全校验：SECRET_KEY 必须已正确配置
+    settings = get_settings()
+    if not settings.SECRET_KEY:
+        logger.critical(
+            "【安全告警】SECRET_KEY 未配置！"
+            "请在 .env 文件中设置 SECRET_KEY=<随机字符串>，"
+            "否则 JWT 令牌签名将使用空密钥，存在严重安全风险。"
+        )
+        raise RuntimeError("SECRET_KEY 未配置，拒绝启动以保护系统安全")
+    if len(settings.SECRET_KEY) < 32:
+        logger.warning(
+            f"【安全建议】SECRET_KEY 长度({len(settings.SECRET_KEY)}字符)不足32字符，"
+            "建议使用 'openssl rand -hex 32' 生成足够强度的密钥"
+        )
+
     # 初始化数据库表并运行迁移
     from app.core.database import init_db
     await init_db()
@@ -152,23 +167,35 @@ async def lifespan(app: FastAPI):
     # 服务器重启后，内存中的任务状态丢失，数据库中残留 running 状态的任务已无法继续
     # 将其标记为 failed，避免前端页面刷新后误认为任务仍在运行
     try:
-        from sqlalchemy import update
+        from app.repositories.novel_project import NovelProjectRepository
         from app.core.database import async_session_maker
-        from app.models.novel_project import NovelProject
+        from app.services.task_manager_constants import TASK_STATUS_RUNNING, TASK_STATUS_FAILED
         async with async_session_maker() as db:
-            result = await db.execute(
-                update(NovelProject)
-                .where(NovelProject.generation_task_status == 'running')
-                .values(generation_task_status='failed')
-            )
-            await db.commit()
-            if result.rowcount > 0:
-                logger.warning(
-                    f"清理了 {result.rowcount} 个遗留的幽灵运行任务（已标记为 failed）")
+            repo = NovelProjectRepository(db)
+            running_projects = await repo.get_by_status(TASK_STATUS_RUNNING)
+            for project in running_projects:
+                project.generation_task_status = TASK_STATUS_FAILED
+            if running_projects:
+                await db.commit()
+                logger.info(f"已清理 {len(running_projects)} 个遗留运行任务")
     except Exception as e:
-        logger.warning(f"清理幽灵任务失败（不影响启动）: {e}")
+        logger.warning(f"清理遗留运行任务失败（不影响启动）: {e}")
 
-    # ChromaDB 向量库健康检查和数据完整性验证
+    # 注入 NovelProjectRepository 到 task_manager（支持依赖倒置）
+    try:
+        from app.core.database import async_session_maker
+        from app.repositories.novel_project import NovelProjectRepository
+        from app.services.task_manager import set_novel_project_repo
+
+        # 创建独立 session（不作为 context manager，保持长连接）
+        session = async_session_maker()
+        repo = NovelProjectRepository(session)
+        set_novel_project_repo(repo)
+        logger.info("已注入 NovelProjectRepository 到 task_manager")
+    except Exception as e:
+        logger.warning(f"注入 Repository 失败（不影响启动）: {e}")
+
+    # 初始化 LLM 能力报告
     try:
         from app.core.vector_store import get_vector_store
         vector_store = get_vector_store()
@@ -240,10 +267,19 @@ app.add_middleware(RequestSizeLimitMiddleware,
 
 
 # CORS 中间件配置
+# 【修复】allow_credentials=True 时 allow_origins 不能为 ["*"]，违反 W3C CORS 规范
+# 当 CORS_ORIGINS="*" 时自动展开为开发环境常用源列表
+cors_origins = settings.get_cors_origins()
+if "*" in cors_origins:
+    # 通配符模式：不能使用 allow_credentials，否则浏览器拒绝请求
+    cors_credentials = False
+else:
+    cors_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),  # 从配置读取允许的源
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -263,7 +299,7 @@ async def add_process_time_header(request: Request, call_next):
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
     """统一应用异常处理"""
-    from datetime import datetime
+    from datetime import datetime, timezone
     logger = get_logger("system")
 
     if exc.status_code >= 500:
@@ -287,7 +323,7 @@ async def app_exception_handler(request: Request, exc: AppException):
             message=exc.message,
             trace_id=exc.trace_id,
             details=exc.details if settings.DEBUG else None,
-            timestamp=datetime.utcnow().isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat()
         ).model_dump()
     )
 
@@ -359,13 +395,13 @@ async def exit_application():
         logger.error(f"退出清理过程中发生错误: {e}")
 
     # 在后台线程中延迟退出，确保HTTP响应能够返回
-    def do_exit():
+    def _exit_with_delay():
         import time
         time.sleep(0.5)  # 等待HTTP响应发送完成
         logger.info("程序退出")
         os._exit(0)  # 强制退出，确保所有线程终止
 
-    exit_thread = threading.Thread(target=do_exit, daemon=True)
+    exit_thread = threading.Thread(target=_exit_with_delay, daemon=True)
     exit_thread.start()
 
     return {"code": 0, "message": "程序正在退出...", "success": True}
@@ -379,6 +415,8 @@ app.include_router(api_router, prefix="/api/v1")
 # [2026-03-28] 多Agent重构: 写作任务WebSocket端点
 
 
+# TODO: WebSocket 端点缺少认证，需要验证连接方身份
+# 建议在 WebSocket 握手阶段通过查询参数传递 Token 进行验证
 @app.websocket("/api/v1/writing-tasks/{task_id}/ws")
 async def writing_task_websocket(websocket: WebSocket, task_id: int):
     """

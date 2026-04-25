@@ -407,7 +407,7 @@ class FeedbackLearningManager:
 
                 # 时间衰减: 指数衰减,30天半衰期
                 weight = 2 ** (-age_seconds / thirty_days_seconds)
-            except:
+            except (ValueError, TypeError):
                 weight = 0.5  # 解析失败时使用默认权重
 
             weighted_total += weight
@@ -547,8 +547,8 @@ class FeedbackLearningManager:
                 age_seconds = current_time - feedback_time.timestamp()
                 if age_seconds < seven_days_seconds:
                     recent_feedbacks.append(feedback)
-            except:
-                pass
+            except (ValueError, TypeError) as parse_err:
+                logger.debug(f"解析反馈时间失败: {parse_err}")
 
         # 生成洞察
         insights = {

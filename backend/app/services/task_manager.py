@@ -11,125 +11,59 @@
 @contact: QQ：7527149（添加时请说明来意）
 """
 import json
-import asyncio
-from typing import Optional, Dict, Any, Set
+from typing import Optional, Dict, Any
 from datetime import datetime
-from collections import defaultdict
 
 from sqlalchemy import select
 
 from app.core.redis_client import redis_manager
 from app.core.logger import get_logger
-from app.core.database import async_session_maker
 from app.models import NovelProject
+from app.repositories.novel_project import NovelProjectRepository
+from app.services.task_manager_sse import (
+    subscribe_task_events,
+    unsubscribe_task_events,
+    notify_task_update,
+)
 
 logger = get_logger("task_manager")
 
-# SSE 订阅管理：每个项目ID对应一组订阅者队列
-_sse_subscribers: Dict[int, Set[asyncio.Queue]] = defaultdict(set)
+# 任务状态与类型常量（从独立模块导入）
+from app.services.task_manager_constants import (
+    TASK_STATUS_PENDING,
+    TASK_STATUS_RUNNING,
+    TASK_STATUS_COMPLETED,
+    TASK_STATUS_CANCELLED,
+    TASK_STATUS_FAILED,
+    TASK_TYPE_EPISODE_OUTLINE,
+    TASK_TYPE_CHAPTER_OUTLINE,
+    TASK_TYPE_SCENE_OUTLINE,
+    TASK_TYPE_EPISODE_CONTENT,
+    TASK_TYPE_CHAPTER_CONTENT,
+    TASK_TYPE_SCENE_CONTENT,
+)
 
-# 任务状态常量
-TASK_STATUS_PENDING = "pending"
-TASK_STATUS_RUNNING = "running"
-TASK_STATUS_COMPLETED = "completed"
-TASK_STATUS_CANCELLED = "cancelled"
-TASK_STATUS_FAILED = "failed"
+# 内存取消令牌（从独立模块导入）
+from app.services.task_manager_cancel import (
+    set_memory_cancel_token,
+    get_memory_cancel_token,
+    clear_memory_cancel_token,
+    trigger_memory_cancel,
+    is_memory_cancelled,
+)
 
-# 任务类型常量
-TASK_TYPE_EPISODE_OUTLINE = "episode_outline"      # 分集大纲
-TASK_TYPE_CHAPTER_OUTLINE = "chapter_outline"      # 章节大纲
-TASK_TYPE_SCENE_OUTLINE = "scene_outline"          # 场景大纲
-TASK_TYPE_EPISODE_CONTENT = "episode_content"      # 分集正文
-TASK_TYPE_CHAPTER_CONTENT = "chapter_content"      # 章节正文
-TASK_TYPE_SCENE_CONTENT = "scene_content"          # 场景正文
-
-# 内存取消令牌字典（当 Redis 不可用时使用）
-# TODO: 考虑完全迁移到Redis后移除内存级取消令牌
-_memory_cancel_tokens: Dict[int, asyncio.Event] = {}
-
-
-def set_memory_cancel_token(project_id: int) -> asyncio.Event:
-    """为项目创建内存取消令牌"""
-    event = asyncio.Event()
-    _memory_cancel_tokens[project_id] = event
-    return event
+# Repository 实例（注入方式设置，用于替代直连 async_session_maker）
+_novel_project_repo: Optional[NovelProjectRepository] = None
 
 
-def get_memory_cancel_token(project_id: int) -> Optional[asyncio.Event]:
-    """获取项目的内存取消令牌"""
-    return _memory_cancel_tokens.get(project_id)
+def set_novel_project_repo(repo: NovelProjectRepository):
+    """设置 NovelProjectRepository 实例（由启动注入）"""
+    global _novel_project_repo
+    _novel_project_repo = repo
 
 
-def clear_memory_cancel_token(project_id: int):
-    """清除项目的内存取消令牌"""
-    if project_id in _memory_cancel_tokens:
-        del _memory_cancel_tokens[project_id]
 
 
-def trigger_memory_cancel(project_id: int):
-    """触发内存取消令牌"""
-    token = _memory_cancel_tokens.get(project_id)
-    if token:
-        token.set()
-        logger.info(f"已触发内存取消令牌: project_id={project_id}")
-
-
-def is_memory_cancelled(project_id: int) -> bool:
-    """检查内存取消令牌是否被触发"""
-    token = _memory_cancel_tokens.get(project_id)
-    return token is not None and token.is_set()
-
-
-# ==================== SSE 订阅管理 ====================
-
-def subscribe_task_events(project_id: int) -> asyncio.Queue:
-    """
-    订阅项目的任务事件
-    返回一个队列，调用者可以从队列中获取任务更新事件
-    """
-    queue = asyncio.Queue()
-    _sse_subscribers[project_id].add(queue)
-    logger.debug(
-        f"SSE 订阅: project_id={project_id}, 当前订阅者数={len(_sse_subscribers[project_id])}")
-    return queue
-
-
-def unsubscribe_task_events(project_id: int, queue: asyncio.Queue):
-    """
-    取消订阅项目的任务事件
-    """
-    if project_id in _sse_subscribers:
-        _sse_subscribers[project_id].discard(queue)
-        if not _sse_subscribers[project_id]:
-            del _sse_subscribers[project_id]
-    logger.debug(f"SSE 取消订阅: project_id={project_id}")
-
-
-async def notify_task_update(project_id: int, task: Dict[str, Any]):
-    """
-    通知所有订阅者任务状态更新
-    当任务状态变化时调用此函数，将事件推送给所有 SSE 客户端
-    """
-    if project_id not in _sse_subscribers:
-        return
-
-    event_data = json.dumps(task, ensure_ascii=False)
-    dead_queues = set()
-
-    for queue in _sse_subscribers[project_id]:
-        try:
-            # 非阻塞放入，如果队列满则跳过
-            queue.put_nowait(event_data)
-        except asyncio.QueueFull:
-            logger.warning(f"SSE 队列已满，跳过: project_id={project_id}")
-        except Exception as e:
-            # 队列可能已关闭，标记为死连接
-            dead_queues.add(queue)
-            logger.debug(f"SSE 队列异常: {e}")
-
-    # 清理失效的订阅者
-    for queue in dead_queues:
-        _sse_subscribers[project_id].discard(queue)
 
 
 class TaskManager:
@@ -147,6 +81,25 @@ class TaskManager:
     async def _sync_task_to_db(project_id: int, task: Dict[str, Any]):
         """同步任务状态到数据库"""
         try:
+            if _novel_project_repo:
+                project = await _novel_project_repo.get(project_id)
+                if project:
+                    project.generation_task_type = task.get("task_type")
+                    project.generation_task_status = task.get("status")
+                    project.generation_task_total = task.get("total_count", 0)
+                    project.generation_task_completed = task.get(
+                        "completed_count", 0)
+                    project.generation_task_failed = task.get(
+                        "failed_count", 0)
+                    project.generation_task_skipped = task.get(
+                        "skipped_count", 0)
+                    project.generation_task_current = task.get("current_item")
+                    project.generation_task_started_at = task.get("started_at")
+                    project.generation_task_updated_at = task.get("updated_at")
+                    await _novel_project_repo.session.commit()
+                return
+            # Fallback: 直连 session
+            from app.core.database import async_session_maker
             async with async_session_maker() as db:
                 query = await db.execute(
                     select(NovelProject).where(NovelProject.id == project_id)
@@ -167,12 +120,33 @@ class TaskManager:
                     project.generation_task_updated_at = task.get("updated_at")
                     await db.commit()
         except Exception as e:
-            logger.warning(f"同步任务状态到数据库失败: {e}")
+            logger.error(f"同步任务状态到数据库失败: {e}", exc_info=True)
+            # 【修复 #6】抛出异常让调用方感知同步失败
+            raise
 
     @staticmethod
     async def _get_task_from_db(project_id: int) -> Optional[Dict[str, Any]]:
         """从数据库获取任务状态"""
         try:
+            if _novel_project_repo:
+                project = await _novel_project_repo.get(project_id)
+                if project and project.generation_task_status:
+                    return {
+                        "project_id": project_id,
+                        "task_type": project.generation_task_type,
+                        "status": project.generation_task_status,
+                        "total_count": project.generation_task_total or 0,
+                        "completed_count": project.generation_task_completed or 0,
+                        "failed_count": project.generation_task_failed or 0,
+                        "skipped_count": project.generation_task_skipped or 0,
+                        "current_item": project.generation_task_current,
+                        "started_at": project.generation_task_started_at,
+                        "updated_at": project.generation_task_updated_at,
+                        "metadata": {}
+                    }
+                return None
+            # Fallback: 直连 session
+            from app.core.database import async_session_maker
             async with async_session_maker() as db:
                 query = await db.execute(
                     select(NovelProject).where(NovelProject.id == project_id)
@@ -200,6 +174,22 @@ class TaskManager:
     async def _clear_task_in_db(project_id: int):
         """清除数据库中的任务状态"""
         try:
+            if _novel_project_repo:
+                project = await _novel_project_repo.get(project_id)
+                if project:
+                    project.generation_task_type = None
+                    project.generation_task_status = None
+                    project.generation_task_total = 0
+                    project.generation_task_completed = 0
+                    project.generation_task_failed = 0
+                    project.generation_task_skipped = 0
+                    project.generation_task_current = None
+                    project.generation_task_started_at = None
+                    project.generation_task_updated_at = None
+                    await _novel_project_repo.session.commit()
+                return
+            # Fallback: 直连 session
+            from app.core.database import async_session_maker
             async with async_session_maker() as db:
                 query = await db.execute(
                     select(NovelProject).where(NovelProject.id == project_id)
@@ -565,5 +555,4 @@ class TaskManager:
 
 
 # 全局任务管理器实例
-task_manager = TaskManager()
 task_manager = TaskManager()

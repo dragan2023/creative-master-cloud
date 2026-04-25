@@ -11,6 +11,11 @@
  * 
  * 创建时间: 2026-03-27
  * 最后修改: 2026-03-27
+ * S-04: 本文件880行超过500行阈值80%(400行)，建议拆分为：
+ *   - writingTask/state.js (状态管理)
+ *   - writingTask/api.js (API交互)
+ *   - writingTask/websocket.js (WebSocket连接)
+
  * 版本: 1.0.0
  * 
  * [2026-03-28] 多Agent重构: 统一WebSocket消息type处理，添加unit_progress/scene_progress/statistics分支

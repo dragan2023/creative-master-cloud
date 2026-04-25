@@ -230,9 +230,16 @@ class CharacterAnalyzer:
                     continue
 
                 # 调用LLM分析角色一致性
+                # 模板要求 profile(角色设定JSON) 和 actions(行为记录文本)
+                import json as _json
+                profile_text = _json.dumps({
+                    "name": name,
+                    "total_appearances": stats["count"],
+                    "chapter_range": f"{stats['first_chapter']}-{stats['last_chapter']}"
+                }, ensure_ascii=False)
                 prompt = QUALITY_PROMPTS.get("character_consistency", "").format(
-                    character_name=name,
-                    chapters="\n\n".join([
+                    profile=profile_text,
+                    actions="\n\n".join([
                         f"第{ch['chapter']}章 {ch['title']}\n{ch['excerpts']}"
                         for ch in sample_chapters
                     ])
@@ -261,7 +268,9 @@ class CharacterAnalyzer:
                     })
 
         except Exception as e:
-            # LLM分析失败不影响整体结果
-            pass
+            # LLM分析失败不影响整体结果，但必须记录日志便于排查
+            import logging
+            _logger = logging.getLogger("quality_control.character_analyzer")
+            _logger.warning(f"角色一致性LLM分析失败: {e}", exc_info=True)
 
         return issues

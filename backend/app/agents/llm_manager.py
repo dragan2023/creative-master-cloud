@@ -128,8 +128,9 @@ class LLMManager:
         try:
             decrypted_key = api_key_encryption.decrypt(
                 api_key_config.encrypted_key)
-        except Exception:
+        except Exception as e:
             # 解密失败（可能是 SECRET_KEY 变更），标记为无效并使用系统预置
+            self.logger.warning(f"API Key解密失败，将使用系统预置: {e!r}")
             api_key_config.is_valid = False
             await db.commit()
             # 尝试使用系统预置 API Key

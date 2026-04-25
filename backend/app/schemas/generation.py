@@ -359,3 +359,8 @@ class UnitSummariesQCRequest(BaseModel):
     unit_summaries: Dict[str, Any] = Field(..., description="单元概述字典")
     enable_auto_revise: bool = Field(default=True, description="是否启用自动修正")
     temperature: float = Field(default=0.7, description="LLM温度参数")
+    # v2.4新增：直接修正模式参数
+    issue_id: Optional[str] = Field(
+        default=None, description="问题ID（直接修正模式，不重新检测）")
+    quality_report: Optional[Dict[str, Any]] = Field(
+        default=None, description="质控报告（直接修正模式必须提供）")

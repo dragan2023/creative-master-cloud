@@ -1,0 +1,449 @@
+{
+  "name": "作家个人风格",
+  "description": "向经典作家风格致敬的写作方式",
+  "styles": [
+    {
+      "id": "hemingway_concise",
+      "name": "海明威式简洁",
+      "description": "硬汉文风，冰山理论，省略大于表达",
+      "features": {
+        "vocabulary": {
+          "word_preference": "简单动词、具体名词，避免副词和形容词",
+          "avoid": [
+            "修饰词堆叠",
+            "抽象概念",
+            "情感直接表达"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "And连接的简单句",
+            "动词主导的行动句",
+            "极短对话"
+          ],
+          "avg_length": "短，15字以内"
+        },
+        "narrative_style": {
+          "perspective": "第三人称，外部观察",
+          "focus": "行动、对话、外部细节，回避内心剖析"
+        },
+        "description_style": "只写看得见的，意义在冰山水面以下",
+        "dialogue_style": "极简，充满言外之意，男人不说软话",
+        "emotional_expression": "完全不直接写情感，通过行动和省略暗示"
+      },
+      "examples": [
+        "《老人与海》",
+        "《永别了武器》",
+        "《太阳照常升起》"
+      ],
+      "writing_guide": "每个句子只保留必要的词。用and而非逗号连接动作，产生节奏感。对话不要有'他悲伤地说'，只写说了什么。人物喝酒、钓鱼、打猎——行动代替心理。死亡和失去不直接写，只写周围人的反应和行动变化。",
+      "avoid_patterns": [
+        "心理分析",
+        "情感直白表达",
+        "复杂从句",
+        "修辞装饰",
+        "解释和说明"
+      ]
+    },
+    {
+      "id": "yu_hua_cold",
+      "name": "余华式冷峻",
+      "description": "以冷静甚至冷漠的笔调描写极端苦难，形成强烈反差",
+      "features": {
+        "vocabulary": {
+          "word_preference": "平实词汇，有时刻意使用不合时宜的冷静词"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "简短直白的事件陈述",
+            "不带情感的暴力描写"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "冷静旁观，不介入评价",
+          "focus": "苦难、死亡、命运的偶然性"
+        },
+        "description_style": "用写天气的语气写死亡，用写流水账的方式写苦难",
+        "dialogue_style": "简短，透露人物的麻木或挣扎",
+        "emotional_expression": "叙述者零情感，读者情感爆发"
+      },
+      "examples": [
+        "《活着》",
+        "《许三观卖血记》",
+        "《在细雨中呼喊》"
+      ],
+      "writing_guide": "最大的悲剧用最平静的语言写。'他死了'比'他悲惨地死去'更有力量。苦难一件接着一件，中间不加喘息，让读者被淹没。人物接受命运，不反抗，不控诉，只是活下去。叙述者像一台摄像机，记录一切，但不评价。",
+      "avoid_patterns": [
+        "煽情表达",
+        "命运的公平与正义",
+        "英雄式反抗",
+        "心理深度分析"
+      ]
+    },
+    {
+      "id": "mo_yan_surreal",
+      "name": "莫言式魔幻乡土",
+      "description": "高密东北乡的传奇，民间故事与历史混融，感官浓烈",
+      "features": {
+        "vocabulary": {
+          "word_preference": "浓烈的感官词汇，方言气息，民间俚语"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "长句连绵",
+            "感官意象堆叠",
+            "夸张与具体结合"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "半虚构的民间叙事者",
+          "focus": "历史、欲望、生死、土地"
+        },
+        "description_style": "色彩浓烈，气味、声音、触感并举",
+        "dialogue_style": "民间口语，生猛直接",
+        "emotional_expression": "浓烈、原始、毫不掩饰"
+      },
+      "examples": [
+        "《红高粱家族》",
+        "《丰乳肥臀》",
+        "《蛙》"
+      ],
+      "writing_guide": "调动所有感官，把读者浸入场景中。历史和传说可以混用，虚实边界模糊。欲望、死亡、土地是永恒主题。语言要有力量感，句子可以很长、很密、很浓。民间的生命力是最重要的东西，不要矫情。",
+      "avoid_patterns": [
+        "雅致的语言",
+        "城市化视角",
+        "道德评判",
+        "单薄的感官描写"
+      ]
+    },
+    {
+      "id": "zhang_ailing_delicate",
+      "name": "张爱玲式细腻",
+      "description": "精准的心理刻画，苍凉的人生底色，华丽而悲凉",
+      "features": {
+        "vocabulary": {
+          "word_preference": "精致的服饰器物描写，带有时代感的旧词",
+          "signature_words": [
+            "苍凉",
+            "参差",
+            "荒凉",
+            "月光",
+            "镜子"
+          ]
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "比喻精准奇特",
+            "心理分析细密",
+            "时代感的描写"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "全知但有悲悯距离的旁观",
+          "focus": "女性心理、世俗欲望、历史苍凉"
+        },
+        "description_style": "物质细节极为精确，每样东西都有象征意涵",
+        "dialogue_style": "充满心理博弈，每句话都有潜台词",
+        "emotional_expression": "悲悯而疏离，苍凉的人生感悟"
+      },
+      "examples": [
+        "《金锁记》",
+        "《倾城之恋》",
+        "《红玫瑰与白玫瑰》"
+      ],
+      "writing_guide": "用服饰、家具、气味来写人物的处境和心理。比喻要奇特精准，让读者一愣后深觉真切。女性人物的心理要细密，但不是自怜，而是清醒的算计与妥协。历史的大背景让个人的悲欢显得苍凉渺小。每句对话背后都有真正想说的话。",
+      "avoid_patterns": [
+        "简单化的人物动机",
+        "直白的情感表达",
+        "理想化的爱情",
+        "缺乏物质感的描写"
+      ]
+    },
+    {
+      "id": "lu_xun_sharp",
+      "name": "鲁迅式锋利",
+      "description": "以解剖刀般的笔触批判国民性，讽刺中带悲悯",
+      "features": {
+        "vocabulary": {
+          "word_preference": "简洁有力，讽刺意味的词汇选择"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "反讽式陈述",
+            "以小见大的细节",
+            "精准的批判性描写"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "既是局内人也是观察者，带着痛苦的清醒",
+          "focus": "国民性批判、知识分子处境、社会压迫"
+        },
+        "description_style": "以精准细节揭示人物的精神困境",
+        "dialogue_style": "充满讽刺，人物不自知地揭示自身弱点",
+        "emotional_expression": "悲悯与愤怒的交织，而非单纯的控诉"
+      },
+      "examples": [
+        "《阿Q正传》",
+        "《狂人日记》",
+        "《祝福》"
+      ],
+      "writing_guide": "批判从不离开悲悯。阿Q是可笑的，但鲁迅不仅仅是在嘲笑他。用精准的细节让读者自己看见问题，而不是直接批判。叙述者有时是痛苦的参与者，而不只是旁观者。语言简练但每字有力。",
+      "avoid_patterns": [
+        "单纯的说教",
+        "纯粹的嘲讽",
+        "脱离社会背景",
+        "过于温情的处理"
+      ]
+    },
+    {
+      "id": "marquez_style",
+      "name": "马尔克斯式魔幻",
+      "description": "将奇幻事件用新闻报道式的平静语气叙述",
+      "features": {
+        "vocabulary": {
+          "word_preference": "新闻式准确，但描述的是荒诞事件"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "从结果开始的倒叙",
+            "精确的时间地点标注",
+            "绵长的叙事句"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "全知视角，用新闻的确定性叙述不确定的事",
+          "focus": "时间循环、家族命运、政治寓言、孤独"
+        },
+        "description_style": "魔幻事件的精确描述，不加任何惊讶",
+        "dialogue_style": "人物以日常态度谈论超常之事",
+        "emotional_expression": "潜藏于平静叙述之下的深层孤独"
+      },
+      "examples": [
+        "《百年孤独》",
+        "《霍乱时期的爱情》"
+      ],
+      "writing_guide": "开篇直接进入核心，然后往回填充。用'多年以后'这样的时间跳跃建立宏大感。魔幻要用最准确的新闻语言描写，越准确越魔幻。孤独是所有人物的底色，用不同方式呈现。",
+      "avoid_patterns": [
+        "解释魔幻",
+        "惊讶反应",
+        "线性叙事",
+        "单一人物视角"
+      ]
+    },
+    {
+      "id": "kafka_absurd",
+      "name": "卡夫卡式荒诞",
+      "description": "荒诞处境中个体的异化与无力感，官僚体制的压迫",
+      "features": {
+        "vocabulary": {
+          "word_preference": "日常词汇描述非日常困境，行政和法律词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "平静描述荒诞",
+            "无尽的程序和规定",
+            "逻辑严密但前提荒唐"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "困于荒诞体制中的第一人称或紧密第三人称",
+          "focus": "无法逃脱的困境、身份的消解、权力的无所不在"
+        },
+        "description_style": "细节精确，但整体荒诞",
+        "dialogue_style": "官僚式对话，看似合理实则毫无出路",
+        "emotional_expression": "压抑的无力感，偶尔爆发的荒诞幽默"
+      },
+      "examples": [
+        "《变形记》",
+        "《审判》",
+        "《城堡》"
+      ],
+      "writing_guide": "主人公面对一个有自己逻辑的荒诞体制，试图弄清楚规则却总是失败。永远不要解释荒诞的来源——它就是存在的。叙述者用完全正式的语气描述荒诞，这种反差制造效果。没有出路，但人物仍然努力寻找——这本身就是荒诞所在。",
+      "avoid_patterns": [
+        "解释荒诞的来源",
+        "英雄式突破",
+        "温情结局",
+        "合理的解决方案"
+      ]
+    },
+    {
+      "id": "calvino_playful",
+      "name": "卡尔维诺式奇想",
+      "description": "哲学思辨与叙事游戏的结合，轻盈而深刻",
+      "features": {
+        "vocabulary": {
+          "word_preference": "精确、清晰、带哲学意味的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "哲学假设的展开",
+            "叙事实验",
+            "元叙事插入"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "游戏性的多视角，叙述者常自我指涉",
+          "focus": "可能性的探索、观察与存在的关系"
+        },
+        "description_style": "精确而轻盈，每个细节都开向无限",
+        "dialogue_style": "哲学性，但不失趣味",
+        "emotional_expression": "智识的喜悦，存在的轻盈感"
+      },
+      "examples": [
+        "《如果在冬夜，一个旅人》",
+        "《看不见的城市》"
+      ],
+      "writing_guide": "从一个奇特的假设出发，然后严格推演它的后果。叙事本身可以成为主题。轻盈不是浅薄，而是以轻盈的笔触触及沉重的主题。游戏和认真可以并存。",
+      "avoid_patterns": [
+        "沉重的说教",
+        "线性情节",
+        "单一视角",
+        "拒绝实验"
+      ]
+    },
+    {
+      "id": "shen_congwen_lyrical",
+      "name": "沈从文式抒情",
+      "description": "湘西世界的诗意书写，人性美与自然美的融合",
+      "features": {
+        "vocabulary": {
+          "word_preference": "自然清新、带有湘西地方色彩的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "散文化的抒情长句",
+            "自然与人交织的描写"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "温柔的旁观者",
+          "focus": "自然之美、人性纯真、时间流逝"
+        },
+        "description_style": "水墨画式的自然描写，清淡而深远",
+        "dialogue_style": "质朴自然，带着湘西口语的节奏",
+        "emotional_expression": "温柔、惆怅、对美好的深情凝视"
+      },
+      "examples": [
+        "《边城》",
+        "《湘西散记》",
+        "《长河》"
+      ],
+      "writing_guide": "让自然景物有呼吸、有情感。人物和自然融为一体，人的命运与水的流动同节奏。语言要有散文的节奏感，读起来像在听歌。写纯真的时候，要知道纯真终将逝去，这才是惆怅的根源。",
+      "avoid_patterns": [
+        "城市化视角",
+        "快节奏情节",
+        "过于复杂的心理分析",
+        "沉重的社会批判"
+      ]
+    },
+    {
+      "id": "wang_xiaobo_witty",
+      "name": "王小波式机智",
+      "description": "以智识幽默反抗愚昧，自由精神的文学表达",
+      "features": {
+        "vocabulary": {
+          "word_preference": "机智、反讽、带数学/逻辑气质的精确词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "逻辑推导式幽默",
+            "出人意料的类比",
+            "反讽性陈述"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "睿智而幽默的第一人称",
+          "focus": "自由与压抑、智识与愚昧、人性与规训"
+        },
+        "description_style": "以精确的语言描写荒诞，以幽默揭示荒唐",
+        "dialogue_style": "机智、有哲理，常有意外的转折",
+        "emotional_expression": "自由的快乐与压抑的愤慨，用幽默包裹"
+      },
+      "examples": [
+        "《黄金时代》",
+        "《白银时代》",
+        "《青铜时代》"
+      ],
+      "writing_guide": "用最聪明的方式讲故事。幽默不是目的，而是对抗愚昧的武器。性和自由可以并行，都是对束缚的反抗。逻辑和感性并用，让读者又笑又思考。语言要有节奏感，读起来像在和一个聪明朋友聊天。",
+      "avoid_patterns": [
+        "严肃说教",
+        "缺乏幽默感",
+        "逻辑混乱",
+        "对自由的绝望"
+      ]
+    },
+    {
+      "id": "gu_long_cold",
+      "name": "古龙式冷艳",
+      "description": "超短句切割，悬念迭起，武林的冷峻美学",
+      "features": {
+        "vocabulary": {
+          "word_preference": "简洁冷峻，带有江湖气的词汇"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "一字句、两字句",
+            "段落极短",
+            "大量留白"
+          ],
+          "avg_length": "极短，3-10字"
+        },
+        "narrative_style": {
+          "perspective": "冷眼旁观，快速切换场景",
+          "focus": "悬念、人性、江湖的孤独"
+        },
+        "description_style": "简洁到极致，用最少的词制造最强的画面感",
+        "dialogue_style": "简短有力，充满暗示和威胁",
+        "emotional_expression": "冷峻，孤独，以极少的字传达极深的情感"
+      },
+      "examples": [
+        "《绝代双骄》",
+        "《小李飞刀》",
+        "《楚留香传奇》"
+      ],
+      "writing_guide": "句子越短越有力。一个字可以是一段。删去所有不必要的连接词和过渡。悬念靠省略制造——不说的比说的更重要。江湖是孤独的，英雄是孤独的，就算有朋友和爱人。对话要简短，但要有力，每句话都可能是最后一句。",
+      "avoid_patterns": [
+        "长句复句",
+        "详细心理分析",
+        "过渡段落",
+        "啰嗦的描写"
+      ]
+    },
+    {
+      "id": "jin_yong_grand",
+      "name": "金庸式宏大",
+      "description": "家国情怀与武侠世界，历史与传奇的交织叙事",
+      "features": {
+        "vocabulary": {
+          "word_preference": "雅俗共赏，文白交融，武学典故丰富"
+        },
+        "sentence_structure": {
+          "preferred_patterns": [
+            "情节密集的推进",
+            "武打场面的细腻描写",
+            "人物群像的宏观叙述"
+          ]
+        },
+        "narrative_style": {
+          "perspective": "全知视角，兼顾宏观格局与细腻情感",
+          "focus": "侠义精神、家国情怀、人性的复杂"
+        },
+        "description_style": "武功描写有画面感，历史背景丰富真实",
+        "dialogue_style": "符合人物身份，古典气息浓厚",
+        "emotional_expression": "深沉的家国情怀，侠者的担当与牺牲"
+      },
+      "examples": [
+        "《射雕英雄传》",
+        "《鹿鼎记》",
+        "《笑傲江湖》"
+      ],
+      "writing_guide": "历史是大舞台，人物在历史中找到自己的位置。武功是性格的延伸，不同的功夫体现不同的人生哲学。情节要有起伏，悬念设置精心。人物群像要丰富，主角不能脸谱化。家国与个人情感并重，才是金庸式宏大。",
+      "avoid_patterns": [
+        "脱离历史背景",
+        "人物单薄",
+        "武打描写套路化",
+        "只有爱情没有家国"
+      ]
+    }
+  ]
+}

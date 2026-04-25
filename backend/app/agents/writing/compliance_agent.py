@@ -419,7 +419,7 @@ class ComplianceAgent(BaseWritingAgent):
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            pass
+            logger.debug("直接JSON解析失败，尝试从Markdown代码块提取")
         
         # 尝试从Markdown代码块中提取
         import re
@@ -430,8 +430,9 @@ class ComplianceAgent(BaseWritingAgent):
             try:
                 return json.loads(match.strip())
             except json.JSONDecodeError:
+                logger.debug("Markdown代码块JSON解析失败，跳过")
                 continue
-        
+
         # 尝试查找JSON对象
         json_pattern2 = r'\{[\s\S]*?"violations"[\s\S]*?\}'
         matches2 = re.findall(json_pattern2, content)
@@ -440,8 +441,9 @@ class ComplianceAgent(BaseWritingAgent):
             try:
                 return json.loads(match)
             except json.JSONDecodeError:
+                logger.debug("JSON对象正则解析失败，跳过")
                 continue
-        
+
         # 如果都失败了，返回默认结构
         self.logger.warning("无法解析LLM返回的JSON，使用默认结构")
         return {"violations": []}

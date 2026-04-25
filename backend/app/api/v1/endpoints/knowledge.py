@@ -5,6 +5,11 @@
 @version: v3.0.0
 @author: 周金磊
 @contact: QQ：7527149（添加时请说明来意）
+
+# S-04: 本文件1208行超过500行阈值80%(400行)，建议拆分为 knowledge/ 包：
+#   - knowledge/crud.py (基本CRUD)
+#   - knowledge/import_export.py (导入导出)
+#   - knowledge/search.py (搜索查询)
 """
 from app.tools.graph_rag import DualTrackGraphRAG
 import os
@@ -327,7 +332,7 @@ async def upload_knowledge_base(
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(process_knowledge_with_llm(
+            loop.run_until_complete(analyze_knowledge_with_llm(
                 kb.id,
                 file_path,
                 current_user.id,
@@ -385,7 +390,7 @@ async def upload_knowledge_base(
     ))
 
 
-async def process_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, db_session, stop_event=None):
+async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, db_session, stop_event=None):
     """
     后台处理知识库（包括预处理流水线 + 向量化 + LLM知识图谱生成）
 

@@ -1,0 +1,16 @@
+"""NovelKnowledgeGraph - Mixin模块"""
+from .load import LoadMixin
+from .save import SaveMixin
+from .add_entity import AddEntityMixin
+from .add_relation import AddRelationMixin
+from .get_entity_by_text import GetEntityByTextMixin
+from .get_entities_by_type import GetEntitiesByTypeMixin
+from .get_character_profiles import GetCharacterProfilesMixin
+from .get_world_settings import GetWorldSettingsMixin
+from .get_related_entities import GetRelatedEntitiesMixin
+from .get_character_state_entities import GetCharacterStateEntitiesMixin
+from .get_character_evolution import GetCharacterEvolutionMixin
+from .format_character_state_for_prompt import FormatCharacterStateForPromptMixin
+from .get_extended_state_entities import GetExtendedStateEntitiesMixin
+from .get_consistency_report import GetConsistencyReportMixin
+from .format_consistency_report_for_prompt import FormatConsistencyReportForPromptMixin
