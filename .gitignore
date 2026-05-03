@@ -116,6 +116,19 @@ backend/app/static/index.html
 htmlcov/
 .tox/
 .nox/
+backend/tests/
+tests/
+
+# ===== 审查差异与临时文件 =====
+*_diff*.txt
+backend_status.png
+reports/
+# 根目录诊断/清理脚本（临时用）
+/check_graph_inflation.py
+/check_unknown_nodes.py
+/quick_cleanup_graph.py
+# 前端临时修复脚本
+frontend/fix_imports.ps1
 
 # ===== 工作文档 =====
 docs/
