@@ -29,4 +29,4 @@ api_router.include_router(mcp.router)
 api_router.include_router(novel_writer.router)
 api_router.include_router(writing_tasks.router)  # 多Agent写作任务路由
 api_router.include_router(agent_config.router)  # Agent配置路由
-api_router.include_router(writing_model_config.router)  # 写作模型配置路由
+api_router.include_router(writing_model_config.router, prefix="/writing-model-configs", tags=["写作模型配置"])  # 写作模型配置路由

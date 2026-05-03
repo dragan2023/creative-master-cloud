@@ -1,0 +1,47 @@
+project:
+  name: 全能创意大师
+  type: fullstack_web
+  path: F:/python_project/全能创意大师（开发版）
+
+services:
+  backend:
+    command: F:\\python_project\\全能创意大师（开发版）\\venv\\Scripts\\python -m uvicorn app.main:app --host 0.0.0.0 --port 8002
+    health_check: http://localhost:8002/health
+    port: 8002
+    
+  frontend:
+    command: npm run dev
+    health_check: http://localhost:3000
+    port: 3000
+
+test_account:
+  env_vars:
+    username: TEST_USERNAME
+    password: TEST_PASSWORD
+  login_page: /login
+  login_selectors:
+    username_input: 'input[placeholder="用户名"]'
+    password_input: 'input[placeholder="密码"]'
+    submit_button: 'button[type="submit"]'
+
+test_modules:
+  - name: 认证模块
+    path: /login
+  - name: 创意生成
+    path: /generate
+  - name: 小说写作
+    path: /novel-writer
+  - name: 知识库
+    path: /knowledge
+  - name: API Key管理
+    path: /api-keys
+
+logging:
+  backend_log_path: F:/python_project/全能创意大师（开发版）/backend/logs
+  capture_console: true
+  capture_requests: true
+  capture_behavior: true
+
+auto_fix:
+  enabled: true
+  confidence_threshold: 0.8

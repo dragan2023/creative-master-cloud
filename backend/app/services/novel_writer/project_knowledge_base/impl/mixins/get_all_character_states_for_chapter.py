@@ -5,6 +5,8 @@ from typing import Any
 import re
 import os
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class GetAllCharacterStatesForChapterMixin:
     """get_all_character_states_for_chapter功能域"""

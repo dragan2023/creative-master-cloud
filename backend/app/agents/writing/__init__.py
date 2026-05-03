@@ -55,8 +55,8 @@ from app.agents.writing.knowledge_agent import KnowledgeAgent
 from app.agents.writing.assembler_agent import AssemblerAgent
 
 # 编辑Agent
-from app.agents.writing.logic_editor_agent import LogicEditorAgent
-from app.agents.writing.style_editor_agent import StyleEditorAgent
+from app.agents.writing.logic_editor import LogicEditorAgent
+from app.agents.writing.style_editor import StyleEditorAgent
 from app.agents.writing.compliance_agent import ComplianceAgent
 
 __all__ = [

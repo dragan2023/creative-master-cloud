@@ -150,7 +150,7 @@ class AgentCommunicationMixin:
             AgentResult: 逻辑审阅结果，包含character_state_updates和new_characters
         """
         try:
-            from app.agents.writing.logic_editor_agent import LogicEditorAgent
+            from app.agents.writing.logic_editor import LogicEditorAgent
 
             agent = self._get_agent(AgentRole.LOGIC_EDITOR, LogicEditorAgent)
 
@@ -233,7 +233,7 @@ class AgentCommunicationMixin:
             AgentResult: 风格润色结果
         """
         try:
-            from app.agents.writing.style_editor_agent import StyleEditorAgent
+            from app.agents.writing.style_editor import StyleEditorAgent
     
             # 从上下文配置中获取AI文风消除设置
             ai_elimination_enabled = context.config.get("ai_elimination_enabled", True)

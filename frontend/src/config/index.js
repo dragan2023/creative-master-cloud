@@ -117,6 +117,50 @@ export const LLM_PROVIDERS = [
     ]
   },
   
+  // ==================== DeepSeek（官方）====================
+  {
+    value: 'deepseek',
+    label: 'DeepSeek (官方)',
+    doc_url: 'https://api-docs.deepseek.com',
+    api_base: 'https://api.deepseek.com',
+    notice: 'DeepSeek 官方 API。deepseek-chat/reasoner 将于 2026/07/24 弃用，请使用 V4 系列。',
+    type: 'text',
+    models: [
+      { 
+        id: 'deepseek-v4-pro', 
+        name: 'DeepSeek V4 Pro', 
+        context: '1M', 
+        vision: false,
+        type: 'text',
+        description: '旗舰模型，1M上下文，最强推理能力，支持思考模式（reasoning_effort参数）'
+      },
+      { 
+        id: 'deepseek-v4-flash', 
+        name: 'DeepSeek V4 Flash', 
+        context: '1M', 
+        vision: false,
+        type: 'text',
+        description: '快速模型，1M上下文，高性价比。非思考模式等效旧deepseek-chat，思考模式等效旧deepseek-reasoner'
+      },
+      { 
+        id: 'deepseek-chat', 
+        name: 'DeepSeek Chat (旧版，即将弃用)', 
+        context: '128K', 
+        vision: false,
+        type: 'text',
+        description: '⚠️ 将于2026/07/24弃用，对应V4 Flash非思考模式'
+      },
+      { 
+        id: 'deepseek-reasoner', 
+        name: 'DeepSeek Reasoner (旧版，即将弃用)', 
+        context: '128K', 
+        vision: false,
+        type: 'text',
+        description: '⚠️ 将于2026/07/24弃用，对应V4 Flash思考模式'
+      }
+    ]
+  },
+  
   // ==================== 硅基流动 ====================
   {
     value: 'siliconflow',

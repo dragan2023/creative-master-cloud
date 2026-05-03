@@ -414,11 +414,11 @@ class OutlineExtractionMixin:
                 emotional_curve = ep_outline.get("emotional_curve", "")
 
                 ep_summary = f"""【第{ep}集《{title}》摘要】
-剧情概要：{summary[:400]}{'...' if len(summary) > 400 else ''}"""
+剧情概要：{summary}"""
                 if core_conflict:
-                    ep_summary += f"\n核心冲突：{core_conflict[:200]}"
+                    ep_summary += f"\n核心冲突：{core_conflict}"
                 if emotional_curve:
-                    ep_summary += f"\n情感曲线：{emotional_curve[:100]}"
+                    ep_summary += f"\n情感曲线：{emotional_curve}"
 
                 summaries.append(ep_summary)
                 self.logger.info(f"[前序大纲] 获取第{ep}集详细大纲摘要成功")
@@ -431,9 +431,7 @@ class OutlineExtractionMixin:
                     ep_summary_in_outline = ep_summary_in_outline.replace(
                         f"【第{ep}集大纲】\n", f"【第{ep}集概要（来自基础大纲）】\n"
                     ).replace(f"\n【以上是第{ep}集的大纲内容，请严格按照此大纲进行创作】", "")
-                    if len(ep_summary_in_outline) > 500:
-                        ep_summary_in_outline = ep_summary_in_outline[:500] + "..."
-                    summaries.append(ep_summary_in_outline)
+                    summaries.append(ep_summary_in_outline)  # 不再截断
                     self.logger.info(f"[前序大纲] 从基础大纲提取第{ep}集概要成功")
 
         if summaries:
@@ -792,7 +790,7 @@ class OutlineExtractionMixin:
                     title = outline.get('scene_title', f'第{sn}场')
                     summary = outline.get('scene_summary', outline.get('summary', ''))
                     if summary:
-                        summaries.append(f"【{title}】{summary[:200]}")
+                        summaries.append(f"【{title}】{summary}")  # 不再截断场景摘要
 
             return "\n".join(summaries) if summaries else ""
         except Exception as e:

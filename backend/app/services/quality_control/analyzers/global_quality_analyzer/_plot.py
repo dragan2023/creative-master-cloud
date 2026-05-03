@@ -131,7 +131,7 @@ class GlobalPlotConsistencyAnalyzer:
 
             logger.info("[剧情线一致性分析] 成功获取LLM提供者，开始调用...")
 
-            outline_sample = global_outline[:15000]
+            outline_sample = global_outline  # 不再截断大纲，完整上下文有助于LLM准确分析
 
             prompt = f"""你是专业的剧情逻辑分析师。
 
@@ -326,7 +326,7 @@ class GlobalPlotConsistencyAnalyzer:
 
             logger.info("[伏笔分析] 成功获取LLM提供者，开始调用...")
 
-            outline_sample = global_outline[:15000]
+            outline_sample = global_outline  # 不再截断大纲，完整上下文有助于LLM准确分析
 
             prompt = f"""你是专业的剧情结构分析师。
 

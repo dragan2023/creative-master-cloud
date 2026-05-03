@@ -3,6 +3,8 @@ from typing import Dict
 from typing import Any
 import re
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class DetectAndMergeNewEntitiesMixin:
     """detect_and_merge_new_entities功能域"""
@@ -53,6 +55,8 @@ class DetectAndMergeNewEntitiesMixin:
 
             # 2. 使用LLM提取实体
             if llm_provider:
+                from app.tools.novel_graph_rag.impl.entity_extractor_generator import NovelEntityExtractor
+                
                 extractor = NovelEntityExtractor(llm_provider=llm_provider)
                 extraction_result = await extractor.extract_with_llm(chapter_content)
 

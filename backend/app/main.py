@@ -5,7 +5,7 @@
 """
 from app.services.writing_engine.websocket_manager import get_websocket_manager
 from app.api.v1.router import api_router
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,20 +13,21 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import time
 import os
-import sys
-import signal
+import json
+import logging
 import threading
+import webbrowser
+import traceback
 
 from app.core.config import get_settings
 from app.core.logger import init_logging, get_logger
 from app.core.exceptions import AppException, ErrorCode
 from app.core.error_responses import ErrorResponse
+from app.api.deps import get_current_superuser
 
 
 def _open_browser_delayed(frontend_url: str, delay: float = 3.0):
     """延迟打开浏览器的后台线程函数"""
-    import time
-    import webbrowser
     time.sleep(delay)  # 等待服务完全就绪
     try:
         print(f"\n[INFO] 正在打开浏览器访问前端: {frontend_url}")
@@ -87,7 +88,6 @@ async def lifespan(app: FastAPI):
         f"应用启动: {get_settings().APP_NAME} v{get_settings().APP_VERSION}")
 
     # 关闭 uvicorn 访问日志
-    import logging
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
 
@@ -113,7 +113,6 @@ async def lifespan(app: FastAPI):
 
     # 自动创建超级管理员账号（如果配置了环境变量）
     try:
-        import os
         from app.core.database import async_session_maker
         from app.core.security import get_password_hash
         from app.models import User, UserRole
@@ -166,18 +165,19 @@ async def lifespan(app: FastAPI):
     # 清理上次服务器退出时遗留的幽灵运行任务
     # 服务器重启后，内存中的任务状态丢失，数据库中残留 running 状态的任务已无法继续
     # 将其标记为 failed，避免前端页面刷新后误认为任务仍在运行
+    # P0改造：改用WritingTask查询（不再依赖NovelProject的DEPRECATED字段）
     try:
-        from app.repositories.novel_project import NovelProjectRepository
+        from app.repositories.writing_task import WritingTaskRepository
         from app.core.database import async_session_maker
         from app.services.task_manager_constants import TASK_STATUS_RUNNING, TASK_STATUS_FAILED
         async with async_session_maker() as db:
-            repo = NovelProjectRepository(db)
-            running_projects = await repo.get_by_status(TASK_STATUS_RUNNING)
-            for project in running_projects:
-                project.generation_task_status = TASK_STATUS_FAILED
-            if running_projects:
+            repo = WritingTaskRepository(db)
+            running_tasks = await repo.get_by_status(TASK_STATUS_RUNNING)
+            for task in running_tasks:
+                task.status = TASK_STATUS_FAILED
+            if running_tasks:
                 await db.commit()
-                logger.info(f"已清理 {len(running_projects)} 个遗留运行任务")
+                logger.info(f"已清理 {len(running_tasks)} 个遗留运行写作任务")
     except Exception as e:
         logger.warning(f"清理遗留运行任务失败（不影响启动）: {e}")
 
@@ -243,10 +243,69 @@ async def lifespan(app: FastAPI):
     # 启动后自动打开浏览器
     _start_browser_opener()
 
+    # 清理幽灵状态：将所有RUNNING状态的任务标记为INTERRUPTED
+    # 因为后端重启意味着之前的运行进程已终止
+    try:
+        from app.core.database import async_session_maker
+        from app.models import WritingTask
+        from app.models.writing_task import TaskStatus
+        from sqlalchemy import update
+        from datetime import datetime
+
+        async with async_session_maker() as db:
+            result = await db.execute(
+                update(WritingTask)
+                .where(WritingTask.status == TaskStatus.RUNNING)
+                .values(
+                    status=TaskStatus.INTERRUPTED,
+                    end_time=datetime.now(),
+                    error_message="后端服务重启，任务自动中断"
+                )
+            )
+            await db.commit()
+            cleaned_count = result.rowcount
+            if cleaned_count > 0:
+                logger.info(
+                    f"【幽灵状态清理】已清理 {cleaned_count} 个残留的RUNNING状态任务"
+                )
+    except Exception as e:
+        logger.warning(f"清理幽灵状态失败（不影响启动）: {e}")
+
     yield
 
     # 关闭时清理
     logger.info("应用关闭")
+
+    # 清理活跃Pipeline的RUNNING状态
+    try:
+        from app.core.database import async_session_maker
+        from app.models import WritingTask
+        from app.models.writing_task import TaskStatus
+        from app.services.writing_engine.pipeline import WritingPipeline
+        from sqlalchemy import update
+        from datetime import datetime
+
+        active_pipelines = WritingPipeline.get_all_active_pipelines()
+        if active_pipelines:
+            # 将不在活跃列表中的RUNNING任务标记为INTERRUPTED
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    update(WritingTask)
+                    .where(WritingTask.status == TaskStatus.RUNNING)
+                    .values(
+                        status=TaskStatus.INTERRUPTED,
+                        end_time=datetime.now(),
+                        error_message="后端服务关闭，任务自动中断"
+                    )
+                )
+                await db.commit()
+                cleaned_count = result.rowcount
+                if cleaned_count > 0:
+                    logger.info(
+                        f"【关闭清理】已将 {cleaned_count} 个RUNNING任务标记为INTERRUPTED"
+                    )
+    except Exception as e:
+        logger.warning(f"关闭时清理任务状态失败: {e}")
 
 
 # 创建 FastAPI 应用实例
@@ -264,6 +323,12 @@ app = FastAPI(
 print(f"[INFO] 设置文件上传限制: {settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB")
 app.add_middleware(RequestSizeLimitMiddleware,
                    max_content_length=settings.MAX_UPLOAD_SIZE)
+
+# 添加输入消毒中间件（防止XSS和SQL注入）
+# Vibe Coding模拟检测 - 异常输入注入防护
+from app.middleware.input_sanitization import InputSanitizationMiddleware
+print("[INFO] 启用输入消毒中间件")
+app.add_middleware(InputSanitizationMiddleware)
 
 
 # CORS 中间件配置
@@ -331,7 +396,6 @@ async def app_exception_handler(request: Request, exc: AppException):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger = get_logger("system")
-    import traceback
     error_detail = f"{type(exc).__name__}: {str(exc)}"
     full_traceback = traceback.format_exc()
     # 记录完整的异常堆栈
@@ -359,9 +423,9 @@ async def health_check():
     }
 
 
-# 退出程序端点
+# 退出程序端点（需超级管理员权限）
 @app.post("/api/v1/system/exit", tags=["系统"])
-async def exit_application():
+async def exit_application(current_user=Depends(get_current_superuser)):
     """
     退出程序接口
     执行清理操作后关闭应用程序
@@ -396,7 +460,6 @@ async def exit_application():
 
     # 在后台线程中延迟退出，确保HTTP响应能够返回
     def _exit_with_delay():
-        import time
         time.sleep(0.5)  # 等待HTTP响应发送完成
         logger.info("程序退出")
         os._exit(0)  # 强制退出，确保所有线程终止
@@ -424,6 +487,8 @@ async def writing_task_websocket(websocket: WebSocket, task_id: int):
 
     提供实时进度推送、状态变更通知等功能。
     客户端连接后可接收任务生成进度、状态变更等消息。
+    
+    认证：通过查询参数传递token（?token=xxx）
 
     消息格式:
     - progress: 进度更新 {"type": "progress", "data": {"current_unit": 1, "total_units": 10, ...}}
@@ -431,10 +496,61 @@ async def writing_task_websocket(websocket: WebSocket, task_id: int):
     - error: 错误通知 {"type": "error", "data": {"error_code": "...", "error_message": "..."}}
     - complete: 完成通知 {"type": "complete", "data": {"total_units": 10, "total_word_count": 50000}}
     """
+    from app.api.deps import verify_token
+    from app.core.database import get_db
+    from app.models import WritingTask
+    from sqlalchemy import select
+    
+    logger = get_logger("websocket")
+    
+    # 从查询参数获取token
+    token = websocket.query_params.get("token")
+    if not token:
+        logger.warning(f"WebSocket连接被拒绝: 缺少token, task_id={task_id}")
+        await websocket.close(code=4001, reason="Missing authentication token")
+        return
+    
+    # 验证token
+    try:
+        payload = await verify_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            raise ValueError("Token中缺少用户ID")
+        user_id = int(user_id)
+    except Exception as e:
+        logger.warning(f"WebSocket连接被拒绝: token无效, task_id={task_id}, error={e}")
+        await websocket.close(code=4001, reason="Invalid authentication token")
+        return
+    
+    # 验证用户是否有权限访问该任务
+    try:
+        async for db in get_db():
+            result = await db.execute(
+                select(WritingTask).where(WritingTask.id == task_id)
+            )
+            task = result.scalar_one_or_none()
+            
+            if not task:
+                logger.warning(f"WebSocket连接被拒绝: 任务不存在, task_id={task_id}")
+                await websocket.close(code=4004, reason="Task not found")
+                return
+            
+            # 检查任务归属（防止越权访问）
+            if task.user_id != user_id:
+                logger.warning(f"WebSocket连接被拒绝: 无权访问任务, task_id={task_id}, user_id={user_id}")
+                await websocket.close(code=4003, reason="Unauthorized access to task")
+                return
+            
+            break
+    except Exception as e:
+        logger.error(f"WebSocket连接验证异常: task_id={task_id}, error={e}")
+        await websocket.close(code=4000, reason="Authentication error")
+        return
+    
+    # 认证通过，建立连接
     ws_manager = get_websocket_manager()
     await ws_manager.connect(task_id, websocket)
-    logger = get_logger("websocket")
-    logger.info(f"WebSocket连接建立: task_id={task_id}")
+    logger.info(f"WebSocket连接建立: task_id={task_id}, user_id={user_id}")
 
     try:
         while True:
@@ -443,7 +559,6 @@ async def writing_task_websocket(websocket: WebSocket, task_id: int):
             logger.debug(f"收到WebSocket消息: task_id={task_id}, data={data}")
 
             # 处理客户端消息（如心跳响应、控制命令等）
-            import json
             try:
                 message = json.loads(data)
                 msg_type = message.get("type")

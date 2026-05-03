@@ -10,6 +10,7 @@ class CharacterStatus(Enum):
     """人物状态枚举"""
     ACTIVE = "active"          # 活跃
     INACTIVE = "inactive"      # 非活跃
+    ABSENT = "absent"          # 缺席（未出场且未被提及）
     DEPARTED = "departed"      # 已退场
     DECEASED = "deceased"      # 已死亡
     MENTIONED = "mentioned"    # 被提及

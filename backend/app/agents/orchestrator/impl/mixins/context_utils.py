@@ -14,6 +14,8 @@ import re
 import time
 import random
 from app.tools.creative_search import get_creative_search, OptimizedCreativeSearch
+from app.agents.orchestrator.api import extract_input_params_files, GenerateStreamContext
+from app.core.config import get_settings
 
 
 class ContextUtilsMixin:
@@ -69,7 +71,7 @@ class ContextUtilsMixin:
         creative_seed = random.choice(creative_angles)
         creative_style_hint = random.choice(creative_styles)
         creative_id = random.randint(
-            settings.CREATIVE_ID_MIN, settings.CREATIVE_ID_MAX)
+            get_settings().CREATIVE_ID_MIN, get_settings().CREATIVE_ID_MAX)
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         system_prompt += f"""

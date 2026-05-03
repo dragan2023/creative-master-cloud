@@ -1,0 +1,16 @@
+module: 认证模块
+
+scenarios:
+  - name: 快速连击登录
+    type: stress_test
+    simulator: impatient_user
+    steps:
+      - navigate: /login
+      - fill_form:
+          'input[placeholder="用户名"]': "admin"
+          'input[placeholder="密码"]': "123456"
+      - rapid_click:
+          selector: "button[type='submit']"
+          count: 3
+          interval_ms: 50
+      - wait: 2000

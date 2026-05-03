@@ -21,13 +21,13 @@
     <h3>内容要求</h3>
     
     <!-- 原创IP计划模块不显示此字段，使用独立的ip_description字段 -->
-    <el-form-item v-if="type !== 'original-ip'" :label="type === 'script' || type === 'novel' ? '故事梗概' : '详细描述'" prop="description">
+    <el-form-item v-if="type !== 'original-ip'" :label="type === 'novel' || type === 'movie-outline' || type === 'series-outline' ? '故事梗概' : '详细描述'" prop="description">
       <div class="description-input-wrapper">
         <el-input
           v-model="form.description"
           type="textarea"
           :rows="4"
-          :placeholder="type === 'script' ? '请描述故事的主要内容，包括背景设定、核心冲突、人物关系等' : type === 'novel' ? '请描述小说的故事梗概，包括世界观、主线剧情、人物关系等' : '请详细描述您的创意需求，包括背景、目标、关键元素等'"
+          :placeholder="type === 'movie-outline' ? '请描述电影的故事梗概，包括世界观、主线剧情、人物关系等' : type === 'series-outline' ? '请描述剧集的故事梗概，包括世界观、主线剧情、人物关系等' : type === 'novel' ? '请描述小说的故事梗概，包括世界观、主线剧情、人物关系等' : '请详细描述您的创意需求，包括背景、目标、关键元素等'"
         />
         <!-- 优化按钮 -->
         <div class="optimize-actions">
@@ -66,21 +66,43 @@
       />
     </template>
     
-    <!-- ========== 剧本大纲模块 ========== -->
-    <template v-if="type === 'script'">
-      <ScriptFields
+    <!-- ========== 电影大纲模块 ========== -->
+    <template v-if="type === 'movie-outline'">
+      <MovieOutlineFields
         :form="form"
-        :series-duration-hint="seriesDurationHint"
+        :movie-duration-hint="movieDurationHint"
         :upload-url="uploadUrl"
         :upload-headers="uploadHeaders"
         :uploading-outline="uploadingOutline"
         :outline-upload-progress="outlineUploadProgress"
         @update:form="$emit('update:form', $event)"
-        @series-type-change="$emit('series-type-change', $event)"
+        @movie-type-change="$emit('movie-type-change', $event)"
         @outline-upload-success="$emit('outline-upload-success', $event)"
         @outline-upload-error="$emit('outline-upload-error', $event)"
         @outline-progress="$emit('outline-progress', $event)"
         @remove-outline="$emit('remove-outline')"
+        @update:style-data="$emit('update:style-data', $event)"
+        @update:title-style-data="$emit('update:title-style-data', $event)"
+      />
+    </template>
+    
+    <!-- ========== 剧集大纲模块 ========== -->
+    <template v-if="type === 'series-outline'">
+      <SeriesOutlineFields
+        :form="form"
+        :series-episode-duration-hint="seriesEpisodeDurationHint"
+        :upload-url="uploadUrl"
+        :upload-headers="uploadHeaders"
+        :uploading-outline="uploadingOutline"
+        :outline-upload-progress="outlineUploadProgress"
+        @update:form="$emit('update:form', $event)"
+        @series-outline-type-change="$emit('series-outline-type-change', $event)"
+        @outline-upload-success="$emit('outline-upload-success', $event)"
+        @outline-upload-error="$emit('outline-upload-error', $event)"
+        @outline-progress="$emit('outline-progress', $event)"
+        @remove-outline="$emit('remove-outline')"
+        @update:style-data="$emit('update:style-data', $event)"
+        @update:title-style-data="$emit('update:title-style-data', $event)"
       />
     </template>
     
@@ -99,7 +121,7 @@
         @outline-progress="$emit('outline-progress', $event)"
         @remove-outline="$emit('remove-outline')"
         @update:style-data="handleStyleDataUpdate"
-        @update:title-style-data="$emit('update:titleStyleData', $event)"
+        @update:title-style-data="$emit('update:title-style-data', $event)"
       />
     </template>
     
@@ -150,6 +172,8 @@
 import { ref } from 'vue'
 import ShortVideoFields from './ShortVideoFields.vue'
 import ScriptFields from './ScriptFields.vue'
+import MovieOutlineFields from './MovieOutlineFields.vue'
+import SeriesOutlineFields from './SeriesOutlineFields.vue'
 import NovelFields from './NovelFields.vue'
 import PrintAdFields from './PrintAdFields.vue'
 import TvcFields from './TvcFields.vue'
@@ -161,10 +185,12 @@ const novelFieldsRef = ref(null)
 const emit = defineEmits([
   'update:form',
   'update:imageUrlInput',
-  'update:styleData',  // 文风数据
-  'update:titleStyleData',  // 标题风格数据
+  'update:style-data',  // 文风数据
+  'update:title-style-data',  // 标题风格数据
   'optimize',
   'series-type-change',
+  'movie-type-change',  // 电影类型变化
+  'series-outline-type-change',  // 剧集大纲类型变化
   'outline-upload-success',
   'outline-upload-error',
   'outline-progress',
@@ -226,6 +252,14 @@ const props = defineProps({
     default: 0
   },
   seriesDurationHint: {
+    type: String,
+    default: ''
+  },
+  movieDurationHint: {
+    type: String,
+    default: ''
+  },
+  seriesEpisodeDurationHint: {
     type: String,
     default: ''
   },

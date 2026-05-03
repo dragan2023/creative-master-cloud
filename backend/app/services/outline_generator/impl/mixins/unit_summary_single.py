@@ -15,7 +15,7 @@ class UnitSummarySingleMixin:
         truncated_content: str,
         content_type: str,
         llm_provider,
-        temperature: float = 0.7
+        temperature: float = 0.3,  # 降低到0.3，减少创造性，增强遵循性（v2.5）
     ) -> str:
         """
         接续单个不完整的单元

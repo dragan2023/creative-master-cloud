@@ -1,4 +1,6 @@
 """StyleLibrary - API层"""
+from app.tools.style_library import STYLE_LIBRARY
+
 def get_style_by_id(style_id: str) -> Optional[Dict]:
     """根据ID获取文风详情"""
     for category in STYLE_LIBRARY["categories"].values():

@@ -6,6 +6,8 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { generateApi } from '@/api'
 import { API_BASE_URL } from '@/config'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 export function useStreamHandler(type, form, globalOutlineContent, generatedContent, workflowSteps, handleWorkflowEvent, currentEventSource, titleStyleData = { styleId: '', styleName: '' }) {
   // 生成状态
@@ -45,13 +47,11 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
   const showStartUnitDialog = ref(false)
 
   // 是否使用两阶段生成模式
-  const useTwoStageMode = computed(() => type.value === 'novel' || type.value === 'script')
+  const useTwoStageMode = computed(() => type.value === 'novel' || type.value === 'movie-outline' || type.value === 'series-outline')
 
   // 渲染全局大纲
   const renderedGlobalOutline = computed(() => {
     if (!globalOutlineContent.value) return ''
-    const { marked } = require('marked')
-    const DOMPurify = require('dompurify')
     return DOMPurify.sanitize(marked(globalOutlineContent.value))
   })
 
@@ -89,22 +89,6 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
         unique_selling_point: form.value.unique_selling_point || '',
         chapter_count: form.value.chapter_count || '50',
         custom_outline: form.value.custom_outline || ''
-      }
-    } else if (type.value === 'script') {
-      return {
-        title: form.value.title || '',
-        series_type: form.value.series_type || '网剧',
-        theme: form.value.genre || '都市',
-        audience: form.value.target_audience || '年轻观众',
-        platform: form.value.platform || '爱奇艺',
-        reference_works: form.value.reference_works || '无',
-        synopsis: form.value.description,
-        episode_count: form.value.episode_count || '24',
-        custom_outline: form.value.custom_outline || '',
-        episode_duration_range: `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟`,
-        format_standard: form.value.format_standard || '标准格式',
-        dialogue_narration_ratio: form.value.dialogue_narration_ratio || '均衡',
-        script_mode: form.value.script_mode || 'real'
       }
     }
     return {}
@@ -309,13 +293,11 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
           content_type: type.value,
           global_outline: globalOutlineContent.value,
           unit_count: unitCount,
-          series_type: type.value === 'script' ? form.value.series_type : null,
-          episode_duration_range: type.value === 'script' 
-            ? `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟` 
-            : null,
+          series_type: null,
+          episode_duration_range: null,
           provider: null,
           model: null,
-          temperature: 0.7,
+          temperature: 0.3,  // 降低到0.3，减少创造性，增强对全局大纲的遵循性（v2.5）
           enable_quality_control: true,  // 启用3维质量管控
           // 标题风格参数（新增）
           title_style: titleStyleData.styleId || null,
@@ -332,8 +314,15 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
           handleWorkflowEvent(event)
         },
         (newContent, message) => {
-          generatedContent.value = newContent
-          ElMessage.success(message || '内容已更新')
+          // replace_content事件：每章生成完成后发送完整累积内容
+          // 用于确保前端始终显示全部已生成章节（防止流式传输中断导致内容丢失）
+          if (newContent && newContent.length > (generatedContent.value || '').length) {
+            generatedContent.value = newContent
+          }
+          // 阶段3流式生成时不显示成功提示，避免频繁弹窗
+          if (message && outlineStage.value !== 3) {
+            ElMessage.success(message)
+          }
         }
       )
       
@@ -553,7 +542,8 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
         const parsed = parseUnitSummariesFromContent(importContent.value)
         if (Object.keys(parsed).length > 0) {
           unitSummaries.value = parsed
-          const globalOutlineMatch = importContent.value.match(/^([\s\S]*?)(?=###\s*第\d+章|###\s*第\d+集|\*\*第\d+集)/)
+          // v2.4: 兼容加粗标记的章节标题
+          const globalOutlineMatch = importContent.value.match(/^([\s\S]*?)(?=###\s*\*{0,2}\s*第\d+(?:章|集)\s*\*{0,2}[：:])/)
           if (globalOutlineMatch) {
             globalOutlineContent.value = globalOutlineMatch[1].trim()
           } else {
@@ -635,11 +625,8 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
           content_type: type.value,
           global_outline: modifiedOutline,
           unit_count: unitCount,  // 传递总章节数，后端会计算需要生成的数量
-          series_type: type.value === 'script' ? form.value.series_type : null,
-          episode_duration_range: type.value === 'script'
-            ? `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟`
-            : null,
-          script_mode: type.value === 'script' ? (form.value.script_mode || 'real') : null,
+          series_type: null,
+          episode_duration_range: null,
           provider: null,
           model: null,
           temperature: 0.7,
@@ -663,8 +650,14 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
           handleWorkflowEvent(event)
         },
         (newContent, message) => {
-          generatedContent.value = newContent
-          ElMessage.success(message || '内容已更新')
+          // replace_content事件：确保前端显示完整内容
+          if (newContent && newContent.length > (generatedContent.value || '').length) {
+            generatedContent.value = newContent
+          }
+          // 流式生成时不显示成功提示，避免频繁弹窗
+          if (message && outlineStage.value !== 3) {
+            ElMessage.success(message)
+          }
         }
       )
       

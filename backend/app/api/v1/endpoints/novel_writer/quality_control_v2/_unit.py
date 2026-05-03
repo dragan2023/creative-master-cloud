@@ -1,4 +1,5 @@
 """质量管控 v2.0 - 单元实时质控端点"""
+import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from fastapi import Depends
@@ -59,7 +60,8 @@ async def analyze_single_unit_quality(
         # 因为后续需要更新unit的质控结果
         from app.models.writing_task import WritingTask
         task_query = select(WritingTask).where(
-            WritingTask.project_id == project_id
+            WritingTask.project_id == project_id,
+            WritingTask.user_id == current_user.id  # 添加用户权限过滤
         )
         task_result = await db.execute(task_query)
         tasks = task_result.scalars().all()
@@ -74,9 +76,9 @@ async def analyze_single_unit_quality(
         unit_query = select(WritingUnit).where(
             WritingUnit.unit_index == unit_index,
             WritingUnit.task_id.in_(task_ids)
-        )
+        ).order_by(WritingUnit.created_at.desc())  # 按创建时间倒序，取最新的
         unit_result = await db.execute(unit_query)
-        unit = unit_result.scalar_one_or_none()
+        unit = unit_result.scalars().first()  # 使用first()避免Multiple rows错误
 
         if not unit:
             return ResponseModel(
@@ -97,7 +99,7 @@ async def analyze_single_unit_quality(
         chapters_data = [{
             "chapter_number": unit_index,
             "content": content,
-            "summary": content[:500],
+            "summary": content,  # 不再截断，完整传递给质控服务
             # 新增：传递单元概述
             "unit_summary": getattr(unit, 'unit_summary', '') or "",
             "title": f"第{unit_index}章"
@@ -143,7 +145,8 @@ async def analyze_single_unit_quality(
             worldview_settings=getattr(
                 project, 'worldview_settings', {}) or {},
             db=db,
-            user_id=current_user.id
+            user_id=current_user.id,
+            project_id=project_id
         )
 
         # 提取问题和得分
@@ -308,7 +311,7 @@ async def revert_unit_fix(
             WritingUnit.task_id.in_(task_ids)
         )
         unit_result = await db.execute(unit_query)
-        unit = unit_result.scalar_one_or_none()
+        unit = unit_result.scalars().first()  # 使用first()避免Multiple rows错误
 
         if not unit:
             return ResponseModel(

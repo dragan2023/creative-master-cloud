@@ -5,9 +5,10 @@
 1. 应用自动修正方案
 2. 用户反馈记录
 3. SSE实时推送质控进度 (v1.1新增)
+4. 正文内容批量质控 (v2.2新增)
 
 @date: 2026-04-14
-@version: v2.1.0
+@version: v2.2.0
 """
 # 导入公共定义（模型、辅助函数、SSE订阅器）
 from ._common import (
@@ -31,6 +32,10 @@ from ._common import (
 from . import _basic
 from . import _global
 from . import _unit
+from . import _content  # v2.2新增：正文内容批量质控
+
+# 导出单元质控函数（供 orchestrator 调用）
+from ._unit import analyze_single_unit_quality
 
 __all__ = [
     # 请求模型
@@ -49,4 +54,6 @@ __all__ = [
     "publish_qc_progress",
     # 辅助函数
     "_generate_fixes_for_issues",
+    # 质控函数
+    "analyze_single_unit_quality",
 ]

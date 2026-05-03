@@ -113,6 +113,9 @@ class MonitoringCharacterMixin:
         if not self._character_tracker:
             return
 
+        # 初始化 extraction_result，避免后续访问未定义变量
+        extraction_result = None
+
         try:
             if llm_provider is None:
                 llm_provider = await self._get_llm_provider_for_extraction()
@@ -234,28 +237,51 @@ class MonitoringCharacterMixin:
                     if save_success:
                         self.logger.info(f"人物状态已同步到知识图谱: 章节{chapter_num}, 节点数={unit_graph.graph.number_of_nodes()}, 边数={unit_graph.graph.number_of_edges()}")
 
+                        # 🆕 [知识图谱优化 v3.1] 禁用单元图谱同步到全局图谱
+                        # 原因: 持续同步导致全局图谱无限膨胀 (100章可达3550实体)
+                        # 优化: 全局图谱仅保留全局大纲实体 (~50个),跨章检索通过向量库实现
                         try:
-                            global_graph_path = self._project_knowledge_base.get_graph_path(project_id, unit_number=None)
-                            global_graph = NovelKnowledgeGraph(persist_path=global_graph_path)
-                            global_graph.load()
-
-                            sync_result = self._character_tracker.sync_unit_to_global_graph(
-                                global_graph=global_graph,
-                                unit_graph=unit_graph,
-                                chapter_num=chapter_num,
-                                sync_extended_entities=True
+                            self.logger.info(
+                                f"[知识图谱优化] 跳过单元图谱同步到全局图谱: 章节{chapter_num}, "
+                                f"单元图谱节点={unit_graph.graph.number_of_nodes()}, "
+                                f"边={unit_graph.graph.number_of_edges()}"
                             )
+                            self.logger.info(
+                                f"[知识图谱优化] 全局图谱将仅保留全局大纲实体,跨章检索通过向量库实现"
+                            )
+                            
+                            # 保留人物设定更新 (仅同步人物状态变化,不同步所有实体)
+                            try:
+                                global_graph_path = self._project_knowledge_base.get_graph_path(project_id, unit_number=None)
+                                global_graph = NovelKnowledgeGraph(persist_path=global_graph_path)
+                                global_graph.load()
+                                
+                                # 仅更新人物设定到全局图谱
+                                # get_all_characters()返回Dict[str, CharacterState]，需要转换为列表格式
+                                all_chars = self._character_tracker.get_all_characters()
+                                character_profiles_list = [
+                                    {
+                                        "name": name,
+                                        "identity": state.identity,
+                                        "location": state.location,
+                                        **state.attributes
+                                    }
+                                    for name, state in all_chars.items()
+                                ]
+                                self._character_tracker.export_character_profiles_to_knowledge_graph(
+                                    global_graph, 
+                                    character_profiles_list
+                                )
+                                global_graph.save()
+                                self.logger.info(
+                                    f"[知识图谱优化] 仅更新人物设定到全局图谱: "
+                                    f"章节{chapter_num}, 人物数={len(self._character_tracker.get_all_characters())}"
+                                )
+                            except Exception as profile_update_error:
+                                self.logger.warning(f"[知识图谱优化] 更新人物设定失败: {profile_update_error}")
 
-                            if sync_result.get("new_entities"):
-                                self.logger.info(f"检测到新实体: 章节{chapter_num}, 新实体={[e['text'] for e in sync_result['new_entities'][:5]]}")
-                            if sync_result.get("conflicts"):
-                                self.logger.info(f"全局图谱同步完成: 章节{chapter_num}, 冲突检测={len(sync_result['conflicts'])}个, 设定更新={sync_result['profiles_updated']}个")
-
-                            extended_stats = sync_result.get("extended_entities_synced", {})
-                            if any(v > 0 for v in extended_stats.values()):
-                                self.logger.info(f"扩展实体同步统计: 设施={extended_stats.get('facilities', 0)}, 事件={extended_stats.get('events', 0)}, 群体={extended_stats.get('groups', 0)}, 道具={extended_stats.get('items', 0)}, 伏笔={extended_stats.get('foreshadows', 0)}")
                         except Exception as global_sync_error:
-                            self.logger.warning(f"同步到全局图谱失败: {global_sync_error}")
+                            self.logger.warning(f"[知识图谱优化] 跳过同步失败: {global_sync_error}")
 
                         if self._context_accumulator is not None:
                             try:

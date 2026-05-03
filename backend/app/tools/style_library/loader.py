@@ -37,5 +37,41 @@ def get_style_library() -> Dict:
     return _STYLE_LIBRARY
 
 
-# 兼容性：保持STYLE_LIBRARY可导入
-STYLE_LIBRARY = property(lambda self: get_style_library())
+# 兼容性：保持STYLE_LIBRARY可导入（懒加载代理）
+class _LazyStyleLibrary(dict):
+    """代理dict，首次访问时自动加载"""
+    def __init__(self):
+        super().__init__()
+        self._loaded = False
+
+    def _ensure_loaded(self):
+        if not self._loaded:
+            self.update(_load_style_library())
+            self._loaded = True
+
+    def __getitem__(self, key):
+        self._ensure_loaded()
+        return super().__getitem__(key)
+
+    def __contains__(self, key):
+        self._ensure_loaded()
+        return super().__contains__(key)
+
+    def keys(self):
+        self._ensure_loaded()
+        return super().keys()
+
+    def values(self):
+        self._ensure_loaded()
+        return super().values()
+
+    def items(self):
+        self._ensure_loaded()
+        return super().items()
+
+    def get(self, key, default=None):
+        self._ensure_loaded()
+        return super().get(key, default)
+
+
+STYLE_LIBRARY = _LazyStyleLibrary()

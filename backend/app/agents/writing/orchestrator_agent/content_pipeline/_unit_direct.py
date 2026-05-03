@@ -105,16 +105,22 @@ class UnitDirectMixin:
             character_state_snapshot = ""
             knowledge_graph_context = ""
             extended_consistency_context = ""
+            
             if self._character_tracker:
+                # 🆕 [知识图谱优化 v3.1] 分离人物状态和扩展实体配额
+                # 人物状态通过 get_state_for_prompt() 获取,无数量限制
                 character_state_snapshot = self._character_tracker.get_state_for_prompt(
                     chapter_num=unit_index
                 )
+                
+                # 扩展实体通过 get_knowledge_graph_context_for_writing() 获取,独立配额
                 knowledge_graph_context = self._character_tracker.get_knowledge_graph_context_for_writing(
                     chapter_num=unit_index,
-                    max_entities=30
+                    max_entities=20  # 仅用于扩展实体,人物状态不受此限制
                 )
                 self.logger.info(f"[整章生成] 已获取前文知识图谱参考: 单元 {unit_index}")
 
+            # 🆕 [知识图谱优化 v3.1] 获取单元图谱的完整一致性报告
             if self._project_knowledge_base and context.project_id:
                 try:
                     from app.tools.novel_graph_rag import NovelKnowledgeGraph
@@ -127,6 +133,22 @@ class UnitDirectMixin:
                             self.logger.info(f"[整章生成] 已获取扩展实体一致性上下文: 单元 {unit_index}")
                 except Exception as e:
                     self.logger.warning(f"获取扩展实体上下文失败: {e}")
+            
+            # 🆕 [知识图谱优化 v3.1] 合并知识图谱上下文到单一入口
+            # 将 character_state_snapshot, knowledge_graph_context, extended_consistency_context
+            # 合并为一个完整的上下文,避免提示词结构混乱
+            full_kg_context_parts = []
+            
+            if character_state_snapshot:
+                full_kg_context_parts.append(character_state_snapshot)
+            
+            if knowledge_graph_context:
+                full_kg_context_parts.append(knowledge_graph_context)
+            
+            if extended_consistency_context:
+                full_kg_context_parts.append(extended_consistency_context)
+            
+            full_kg_context = "\n\n---\n\n".join(full_kg_context_parts) if full_kg_context_parts else ""
 
             self.logger.info(f"[整章生成] 使用全局大纲+单元概述模式: 单元 {unit_index}")
 
@@ -151,8 +173,9 @@ class UnitDirectMixin:
                     "unit_title": unit.unit_title,
                     "unit_summary": unit.unit_summary,
                     "direct_mode": True,
-                    "knowledge_graph_context": knowledge_graph_context,
-                    "extended_consistency_context": extended_consistency_context,
+                    # 🆕 [知识图谱优化 v3.1] 使用合并后的完整上下文
+                    "knowledge_graph_context": full_kg_context,
+                    # 移除 extended_consistency_context (已合并到 knowledge_graph_context)
                     "style_document_features": style_document_features
                 },
                 config={

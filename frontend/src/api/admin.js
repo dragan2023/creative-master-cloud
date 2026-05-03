@@ -1,4 +1,4 @@
-import api from './index'
+import { api } from './_axios'
 
 // 管理员API
 export const adminApi = {

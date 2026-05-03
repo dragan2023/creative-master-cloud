@@ -13,10 +13,11 @@
       <el-select v-model="filterType" placeholder="类型筛选" clearable style="width: 150px" @change="handleFilter">
         <el-option label="全部" value="" />
         <el-option label="短视频脚本" value="short-video" />
-        <el-option label="剧本大纲" value="script" />
         <el-option label="小说大纲" value="novel" />
         <el-option label="平面广告" value="print-ad" />
         <el-option label="TVC广告" value="tvc" />
+        <el-option label="电影大纲" value="movie-outline" />
+        <el-option label="剧集大纲" value="series-outline" />
       </el-select>
       
       <el-date-picker
@@ -211,10 +212,11 @@ async function copyContent() {
 // 模块名称映射（后端返回下划线格式）
 const moduleNameMap = {
   'short_video': '短视频脚本',
-  'script': '剧本大纲',
   'novel': '小说大纲',
   'print_ad': '平面广告',
-  'tvc': 'TVC广告脚本'
+  'tvc': 'TVC广告脚本',
+  'movie_outline': '电影大纲',
+  'series_outline': '剧集大纲'
 }
 
 function getTypeName(type) {
@@ -224,10 +226,11 @@ function getTypeName(type) {
 function getTagType(type) {
   const typeMap = {
     'short_video': 'danger',
-    'script': 'success',
     'novel': 'primary',
     'print_ad': 'warning',
-    'tvc': 'info'
+    'tvc': 'info',
+    'movie_outline': 'success',
+    'series_outline': ''
   }
   return typeMap[type] || ''
 }

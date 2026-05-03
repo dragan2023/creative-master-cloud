@@ -10,6 +10,8 @@ import time
 import asyncio
 import base64
 from app.models.generation import Generation, GenerationModule, GenerationStatus, GenerationRevisionHistory
+from app.agents.orchestrator.api import get_model_friendly_name, convert_images_to_base64, GenerateStreamContext
+from app.core.config import get_settings
 
 
 class GenerationCoreMixin:
@@ -77,7 +79,7 @@ class GenerationCoreMixin:
 
         # 获取模型支持的最大输出 token，并设置安全上限
         safe_output_limit = min(
-            ctx.llm_provider.get_max_output_tokens(), settings.MAX_LLM_OUTPUT_TOKENS)
+            ctx.llm_provider.get_max_output_tokens(), get_settings().MAX_LLM_OUTPUT_TOKENS)
         logger.info(f"初次回答生成 - max_tokens: {safe_output_limit}")
 
         first_draft_content = []

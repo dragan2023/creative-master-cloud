@@ -99,7 +99,6 @@
         <el-radio-button label="user-specific">用户专属</el-radio-button>
         <el-radio-button label="manual">官方手册</el-radio-button>
         <el-radio-button label="short-video">短视频</el-radio-button>
-        <el-radio-button label="script">剧本</el-radio-button>
         <el-radio-button label="novel">小说</el-radio-button>
         <el-radio-button label="print-ad">平面广告</el-radio-button>
         <el-radio-button label="tvc">TVC广告</el-radio-button>
@@ -297,13 +296,6 @@
                 <small>脚本、案例</small>
               </div>
             </el-radio-button>
-            <el-radio-button label="script">
-              <div class="radio-content">
-                <el-icon><Film /></el-icon>
-                <span>剧本</span>
-                <small>大纲、剧本</small>
-              </div>
-            </el-radio-button>
             <el-radio-button label="novel">
               <div class="radio-content">
                 <el-icon><Notebook /></el-icon>
@@ -405,7 +397,6 @@
             <el-option label="用户专属" value="user-specific" />
             <el-option label="官方手册" value="manual" />
             <el-option label="短视频" value="short-video" />
-            <el-option label="剧本" value="script" />
             <el-option label="小说" value="novel" />
             <el-option label="平面广告" value="print-ad" />
             <el-option label="TVC广告" value="tvc" />
@@ -992,7 +983,6 @@ function getCategoryName(category) {
     'user-specific': '用户专属',
     'manual': '官方手册',
     'short-video': '短视频',
-    'script': '剧本',
     'novel': '小说',
     'print-ad': '平面广告',
     'tvc': 'TVC广告'
@@ -1006,7 +996,6 @@ function getCategoryType(category) {
     'user-specific': 'success',
     'manual': 'warning',
     'short-video': 'primary',
-    'script': 'success',
     'novel': 'warning',
     'print-ad': 'info',
     'tvc': 'danger'

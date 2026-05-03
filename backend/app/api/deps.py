@@ -4,7 +4,7 @@
 """
 from typing import Optional
 from datetime import datetime, timedelta
-from fastapi import Depends, Query, HTTPException, status
+from fastapi import Depends, Query, HTTPException, status, Cookie as CookieParam
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -120,20 +120,29 @@ async def get_or_create_default_user(db: AsyncSession) -> User:
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    cookie_token: Optional[str] = CookieParam(None, description="HttpOnly Cookie中的Token")
 ) -> User:
     """
-    获取当前用户（支持JWT认证）
+    获取当前用户（支持JWT认证 + HttpOnly Cookie）
 
     Args:
-        credentials: 认证凭据
+        credentials: HTTP Bearer认证凭据
         db: 数据库会话
+        cookie_token: HttpOnly Cookie中的Token
 
     Returns:
         当前用户
     """
+    # 优先从 Header 获取 Token，其次从 Cookie 获取
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif cookie_token:
+        token = cookie_token
+
     # 如果没有提供Token，检查是否启用了多租户模式
-    if not credentials:
+    if not token:
         if settings.MULTI_TENANT_ENABLED if hasattr(settings, 'MULTI_TENANT_ENABLED') else False:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -144,8 +153,8 @@ async def get_current_user(
         return await get_or_create_default_user(db)
     
     # 验证Token
-    token = credentials.credentials
     payload = await verify_token(token)
+    
     
     # 从Token中获取用户ID
     user_id = payload.get("sub")

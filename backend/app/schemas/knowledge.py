@@ -25,7 +25,7 @@ class KnowledgeBaseStatus(str, Enum):
 class KnowledgeBaseCategory(str, Enum):
     """知识库业务板块分类"""
     SHORT_VIDEO = "short-video"
-    SCRIPT = "script"
+    SCRIPT = "script"  # [DEPRECATED] 剧本大纲已移除，保留用于数据库兼容
     NOVEL = "novel"
     PRINT_AD = "print-ad"
     TVC = "tvc"

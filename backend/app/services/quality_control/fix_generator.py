@@ -6,9 +6,10 @@
 2. 结合全局大纲、人物设定、世界观生成修正内容
 3. 确保修正内容与上下文逻辑自洽
 4. 提供修正说明和置信度评估
+5. v2.2新增：批量修正机制，一次性处理多个问题，显著提升效率
 
 @date: 2026-04-14
-@version: v2.1.0
+@version: v2.2.0
 """
 import json
 from typing import Dict, List, Optional, Any
@@ -79,6 +80,66 @@ QUALITY_FIX_PROMPT = """你是专业的创意写作编辑,擅长修正小说/剧
 """
 
 
+# 批量修正提示词模板（v2.2新增 - 一次性处理多个问题）
+BATCH_QUALITY_FIX_PROMPT = """你是专业的创意写作编辑,擅长综合修正小说/剧本中的多个问题。
+
+【待修正的问题列表】（共{issue_count}个问题）
+{all_issues_list}
+
+【原始内容】(第{chapter_number}单元)
+{original_content}
+
+【单元概述】（当前单元的原始规划，修正时应作为重要参考）
+{unit_summary}
+
+【知识图谱上下文】（项目中的实体状态、关系和剧情线索，修正时必须保持一致）
+{knowledge_graph_context}
+
+【人物设定】
+{character_profiles}
+
+【世界观设定】
+{worldview_settings}
+
+## 修正任务
+
+请综合分析以上所有问题,生成一次性的修正内容。要求:
+
+1. **整体视角**: 不要逐个问题单独修正,而是综合分析所有问题后整体优化
+2. **辩证思考**: 问题之间可能存在关联,修正时需要考虑问题A的修正是否会影响问题B
+3. **逻辑自洽**: 修正内容必须与单元概述、知识图谱、人物设定、世界观保持一致
+4. **上下文连贯**: 与前后单元自然衔接
+5. **彻底解决**: 确保所有列出的问题都得到解决
+6. **保持风格**: 维持原有的文风和叙事风格
+7. **尊重原文**: 只做必要的修改,不要重写整个内容
+
+## 重要原则
+
+- **正向优化**: 修正是为了提升质量,不是重写。保留原文的核心情节、人物设定和精彩段落
+- **适度修改**: 一般情况修改幅度建议不超过30%,但如遇情节重构等特殊情况可酌情突破限制
+- **内容完整性**: 修正后的内容长度不应显著少于原文,避免大面积删减导致内容不完整
+- **灵活处理**: 如果某些问题不需要修改文本(如逻辑性建议),请在description中说明原因
+- **保持创造性**: 不要过度保守,当问题确实需要较大修改时,应该大胆重构
+- **避免冲突**: 如果问题之间存在冲突,请根据问题严重程度和上下文逻辑判断优先级
+
+## 输出格式
+
+请严格按照以下JSON格式输出:
+
+```json
+{{
+  "fixed_content": "修正后的完整内容",
+  "description": "综合修正说明,详细解释做了什么修改",
+  "changes_made": ["修改点1", "修改点2", ...],
+  "confidence": 0.90,
+  "issues_addressed": ["issue_id1", "issue_id2", ...]
+}}
+```
+
+只输出JSON,不要其他内容。
+"""
+
+
 class QualityFixGenerator:
     """质量修正生成器 - 使用LLM生成智能修正方案"""
 
@@ -135,19 +196,16 @@ class QualityFixGenerator:
             worldview_text = self._format_worldview_settings(
                 worldview_settings or {})
 
-            # 构建提示词
+            # 构建提示词（不再静默截断内容，LLM 上下文由模型自行处理）
             prompt = QUALITY_FIX_PROMPT.format(
                 issue_description=description,
                 issue_category=category,
                 chapter_number=chapter_number,
-                original_content=chapter_content[:10000] if len(
-                    chapter_content) > 10000 else chapter_content,
-                unit_summary=unit_summary[:3000] if unit_summary else "无",
+                original_content=chapter_content,
+                unit_summary=unit_summary if unit_summary else "无",
                 knowledge_graph_context=knowledge_graph_context if knowledge_graph_context else "暂无知识图谱数据",
-                character_profiles=character_text[:
-                                                  3000] if character_text else "无",
-                worldview_settings=worldview_text[:
-                                                  3000] if worldview_text else "无"
+                character_profiles=character_text if character_text else "无",
+                worldview_settings=worldview_text if worldview_text else "无"
             )
 
             # 获取用户的默认LLM provider
@@ -155,7 +213,7 @@ class QualityFixGenerator:
                 llm_provider = await self.llm_manager.get_provider_from_db(db, user_id)
             else:
                 # 如果没有db或user_id，使用系统默认
-                llm_provider = await self.llm_manager.get_default_provider("qianwen")
+                llm_provider = await self.llm_manager.get_system_provider("qianwen")
 
             # 调用LLM生成修正内容
             response = await llm_provider.generate(
@@ -186,6 +244,120 @@ class QualityFixGenerator:
             # 返回降级方案
             return self._fallback_fix(issue, chapter_content, str(e))
 
+    async def generate_batch_fix(
+        self,
+        issues: List[Dict],
+        chapter_content: str,
+        unit_summary: str = "",
+        character_profiles: List[Dict] = None,
+        worldview_settings: Dict = None,
+        knowledge_graph_context: str = "",
+        db: AsyncSession = None,
+        user_id: int = 0
+    ) -> Dict:
+        """
+        批量修正：一次性处理同一章节的多个问题（v2.2新增）
+
+        Args:
+            issues: 同一章节的所有问题列表
+            chapter_content: 当前单元内容
+            unit_summary: 单元概述
+            character_profiles: 人物设定列表
+            worldview_settings: 世界观设定
+            knowledge_graph_context: 知识图谱上下文
+            db: 数据库会话
+            user_id: 用户ID
+
+        Returns:
+            批量修正方案字典,包含:
+            - original: 原始内容
+            - fixed: 修正后内容
+            - description: 综合修正说明
+            - changes_made: 修改点列表
+            - confidence: 置信度(0-1)
+            - issues_addressed: 已处理的问题ID列表
+            - tokens_used: 消耗的token数
+        """
+        try:
+            if not issues:
+                logger.warning("批量修正：问题列表为空")
+                return {
+                    "fixed": chapter_content,
+                    "description": "无需修正",
+                    "changes_made": [],
+                    "confidence": 1.0,
+                    "issues_addressed": [],
+                    "original": chapter_content,
+                    "tokens_used": 0,
+                    "type": "no_issues"
+                }
+
+            chapter_number = issues[0].get("location", {}).get("chapter_number", 0)
+            issue_count = len(issues)
+
+            logger.info(
+                f"开始批量修正: chapter={chapter_number}, "
+                f"issue_count={issue_count}"
+            )
+
+            # 构建问题列表文本
+            all_issues_list = self._format_issues_list(issues)
+
+            # 构建人物设定文本
+            character_text = self._format_character_profiles(
+                character_profiles or [])
+
+            # 构建世界观设定文本
+            worldview_text = self._format_worldview_settings(
+                worldview_settings or {})
+
+            # 构建批量修正提示词
+            prompt = BATCH_QUALITY_FIX_PROMPT.format(
+                issue_count=issue_count,
+                all_issues_list=all_issues_list,
+                chapter_number=chapter_number,
+                original_content=chapter_content,
+                unit_summary=unit_summary if unit_summary else "无",
+                knowledge_graph_context=knowledge_graph_context if knowledge_graph_context else "暂无知识图谱数据",
+                character_profiles=character_text if character_text else "无",
+                worldview_settings=worldview_text if worldview_text else "无"
+            )
+
+            # 获取用户的默认LLM provider
+            if db and user_id:
+                llm_provider = await self.llm_manager.get_provider_from_db(db, user_id)
+            else:
+                llm_provider = await self.llm_manager.get_system_provider("qianwen")
+
+            # 调用LLM生成批量修正内容
+            response = await llm_provider.generate(
+                prompt=prompt,
+                temperature=0.3,  # 较低温度确保稳定性
+                max_tokens=30000
+            )
+
+            # 解析LLM响应
+            fix_result = self._parse_batch_llm_response(
+                response.content, chapter_content, issues)
+
+            # 添加原始内容和token消耗
+            fix_result["original"] = chapter_content
+            usage = response.usage or {}
+            fix_result["tokens_used"] = usage.get("total_tokens", 0)
+
+            logger.info(
+                f"批量修正方案生成成功: issues_addressed={len(fix_result.get('issues_addressed', []))}, "
+                f"confidence={fix_result.get('confidence', 0):.2f}, "
+                f"tokens={fix_result.get('tokens_used', 0)}"
+            )
+
+            return fix_result
+
+        except Exception as e:
+            logger.error(f"批量修正失败: {str(e)}", exc_info=True)
+            # 降级为逐个修正
+            return await self._fallback_batch_fix(issues, chapter_content, str(e), db, user_id)
+
     def _format_character_profiles(self, profiles: List[Dict]) -> str:
         """格式化人物设定为文本"""
         if not profiles:
@@ -210,6 +382,101 @@ class QualityFixGenerator:
             lines.append("")
 
         return "\n".join(lines)
+
+    def _format_issues_list(self, issues: List[Dict]) -> str:
+        """格式化问题列表为文本（v2.2新增）"""
+        if not issues:
+            return "无问题"
+
+        lines = []
+        for idx, issue in enumerate(issues, 1):
+            issue_id = issue.get("id", f"issue_{idx}")
+            category = issue.get("category", "未知类型")
+            severity = issue.get("severity", "未知严重程度")
+            description = issue.get("description", "无描述")
+            suggestion = issue.get("suggestion", "")
+
+            lines.append(f"问题{idx} [{issue_id}]")
+            lines.append(f"  类型: {category}")
+            lines.append(f"  严重程度: {severity}")
+            lines.append(f"  描述: {description}")
+            if suggestion:
+                lines.append(f"  建议: {suggestion}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _parse_batch_llm_response(self, content: str, original_content: str, issues: List[Dict]) -> Dict:
+        """解析批量修正LLM响应（v2.2新增）"""
+        try:
+            # 尝试提取JSON
+            json_start = content.find("```json")
+            if json_start != -1:
+                json_start = content.find("{", json_start)
+                json_end = content.rfind("}") + 1
+                json_str = content[json_start:json_end]
+            else:
+                json_str = content
+
+            # 解析JSON
+            data = json.loads(json_str)
+
+            # 验证必要字段
+            if "fixed_content" not in data:
+                raise ValueError("缺少fixed_content字段")
+
+            return {
+                "fixed": data.get("fixed_content", original_content),
+                "description": data.get("description", "已根据问题描述生成修正内容"),
+                "changes_made": data.get("changes_made", []),
+                "confidence": min(max(float(data.get("confidence", 0.7)), 0.0), 1.0),
+                "issues_addressed": data.get("issues_addressed", [issue.get("id") for issue in issues]),
+                "type": "batch_llm_generated"
+            }
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"批量修正LLM响应JSON解析失败: {str(e)}")
+            # 尝试从内容中提取
+            return self._extract_fix_from_text(content, original_content)
+        except Exception as e:
+            logger.error(f"解析批量修正LLM响应失败: {str(e)}")
+            raise
+
+    async def _fallback_batch_fix(
+        self,
+        issues: List[Dict],
+        chapter_content: str,
+        error: str,
+        db: AsyncSession = None,
+        user_id: int = 0
+    ) -> Dict:
+        """批量修正降级方案：逐个修正（v2.2新增）"""
+        logger.warning(f"批量修正失败，降级为逐个修正: {error}")
+
+        # 尝试逐个修正第一个问题
+        if issues:
+            first_issue = issues[0]
+            fallback_result = await self.generate_fix(
+                issue=first_issue,
+                chapter_content=chapter_content,
+                db=db,
+                user_id=user_id
+            )
+            fallback_result["issues_addressed"] = [first_issue.get("id")]
+            fallback_result["type"] = "fallback_single"
+            return fallback_result
+
+        # 如果连逐个修正都失败，返回原文
+        return {
+            "fixed": chapter_content,
+            "description": f"批量修正和逐个修正均失败({error}),保持原内容",
+            "changes_made": [],
+            "confidence": 0.0,
+            "issues_addressed": [],
+            "original": chapter_content,
+            "tokens_used": 0,
+            "type": "fallback_failed"
+        }
 
     def _format_worldview_settings(self, settings: Dict) -> str:
         """格式化世界观设定为文本"""
@@ -289,7 +556,7 @@ class QualityFixGenerator:
 
                 if len(fixed_content) > 50:  # 确保内容有意义
                     return {
-                        "fixed": fixed_content[:3000],  # 限制长度
+                        "fixed": fixed_content,  # 不再截断修正内容
                         "description": "从LLM响应中提取的修正内容",
                         "changes_made": [],
                         "confidence": 0.6,

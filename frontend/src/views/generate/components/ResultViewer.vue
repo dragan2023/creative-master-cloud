@@ -59,6 +59,7 @@
             确认全局大纲，继续生成单元概述
           </el-button>
         </template>
+
         <!-- 阶段3：单元概述生成中，显示中断按钮 -->
         <el-button
           v-if="outlineStage === 3 && unitSummariesGenerating"
@@ -79,7 +80,16 @@
           {{ qcApplied ? '重新检测' : '质量检测' }}
           <el-badge v-if="issuesFixed > 0" :value="issuesFixed" class="qc-badge" />
         </el-button>
-        <!-- 阶段4：全部完成，显示下载按钮 -->
+        <!-- v3.1新增：查看版本对比按钮（质控修正后显示） -->
+        <el-button
+          v-if="qcApplied && unitSummaries && Object.keys(unitSummaries).length > 0 && (outlineStage === 3 || outlineStage === 4)"
+          type="info"
+          @click="$emit('open-unit-diff')"
+        >
+          <el-icon><View /></el-icon>
+          查看版本对比
+        </el-button>
+        <!-- 阶段4：全部完成，显示下载按钮和创建写作项目按钮 -->
         <el-button
           v-if="outlineStage === 4"
           type="success"
@@ -87,6 +97,16 @@
         >
           <el-icon><Download /></el-icon>
           下载完整大纲
+        </el-button>
+        <!-- 一键创建写作项目按钮 - P0改造新增 -->
+        <el-button
+          v-if="outlineStage === 4 && contentType === 'novel'"
+          type="primary"
+          @click="$emit('create-writing-project')"
+          :loading="creatingWritingProject"
+        >
+          <el-icon><Promotion /></el-icon>
+          创建写作项目
         </el-button>
         <!-- 续生成按钮：已生成章节数 < 预期总数时显示 -->
         <el-button
@@ -190,7 +210,7 @@
             </el-button>
           </template>
           <!-- 全局大纲质量检测按钮(次要操作) - v2.3优化 -->
-          <!-- 导入大纲场景：显示“重新检测”按钮，调用自动质控API -->
+          <!-- 导入大纲场景：显示"重新检测"按钮，调用自动质控API -->
           <el-button 
             v-if="importedOutline"
             type="primary" 
@@ -216,61 +236,34 @@
         <div v-else class="preview-content markdown-content" v-html="renderedGlobalOutline"></div>
       </div>
     </div>
+        
+    <!-- 单元概述显示区（阶段3-4统一使用，打字机效果） -->
+    <div v-if="useTwoStageMode && (outlineStage === 3 || outlineStage === 4) && (unitSummariesGenerating || (unitSummaries && Object.keys(unitSummaries).length > 0))" class="unit-summaries-display">
+      <div class="display-header">
+        <template v-if="outlineStage === 3 && unitSummariesGenerating">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>正在生成单元概述，内容将实时显示...</span>
+        </template>
+        <template v-else>
+          <el-icon><Edit /></el-icon>
+          <span>单元概述内容（点击"质量检测"进行质控）</span>
+        </template>
+        <div class="header-actions">
+          <el-tag v-if="unitSummaries && Object.keys(unitSummaries).length > 0" type="success" size="small">
+            共 {{ Object.keys(unitSummaries).length }} 章
+          </el-tag>
+        </div>
+      </div>
+      <!-- 阶段3：流式显示；阶段4：显示完整内容 -->
+      <div class="preview-content markdown-content" v-html="renderedContent"></div>
+    </div>
+        
     
     <!-- v1.1新增: SSE实时进度显示 -->
-    <div v-if="globalOutlineQCLoading && qcProgress" class="qc-progress-panel" style="margin-top: 20px;">
-      <el-card shadow="hover">
-        <template #header>
-          <div class="progress-header">
-            <el-icon class="is-loading"><Loading /></el-icon>
-            <span>质量检测进行中...</span>
-          </div>
-        </template>
-        <div class="progress-content">
-          <!-- 总体进度 -->
-          <el-progress 
-            :percentage="qcProgress.progress || 0" 
-            :stroke-width="20"
-            :text-inside="true"
-            :color="getProgressColor(qcProgress.progress)"
-            style="margin-bottom: 16px;"
-          />
-          
-          <!-- 当前状态 -->
-          <div class="progress-status">
-            <el-tag :type="getProgressStatusType(qcProgress.status)">
-              {{ qcProgress.message || '正在分析...' }}
-            </el-tag>
-            <span v-if="qcProgress.dimension" style="margin-left: 8px; color: #909399;">
-              当前维度: {{ getDimensionName(qcProgress.dimension) }}
-            </span>
-          </div>
-          
-          <!-- v1.1新增: 重连状态警告 -->
-          <el-alert
-            v-if="isReconnecting"
-            type="warning"
-            :closable="false"
-            show-icon
-            style="margin-top: 12px;"
-          >
-            <template #title>
-              <el-icon class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
-              {{ reconnectMessage }}
-            </template>
-          </el-alert>
-          
-          <!-- 维度进度列表 -->
-          <div v-if="qcProgress.data?.dimensions" class="dimension-progress" style="margin-top: 16px;">
-            <el-row :gutter="8">
-              <el-col :span="6" v-for="dim in qcProgress.data.dimensions" :key="dim">
-                <el-tag size="small" type="info">{{ getDimensionName(dim) }}</el-tag>
-              </el-col>
-            </el-row>
-          </div>
-        </div>
-      </el-card>
-    </div>
+    <QCProgressPanel 
+      v-if="globalOutlineQCLoading && qcProgress" 
+      :qc-progress="qcProgress" 
+    />
     
     <!-- 全局大纲质控报告显示区（独立显示，不受阶段限制）-->
     <!-- v2.3优化：导入大纲场景不显示完整报告，只显示简短标记 -->
@@ -328,6 +321,18 @@
         
         <!-- 问题列表入口按钮 -->
         <div v-if="globalOutlineQCReport.issues?.length > 0" class="issues-entry" style="margin: 16px 0;">
+          <!-- 问题统计 -->
+          <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
+            <el-tag type="danger" size="small">
+              严重 {{ (globalOutlineQCReport.issues.filter(i => i.severity === 'critical')).length }}
+            </el-tag>
+            <el-tag type="warning" size="small">
+              重要 {{ (globalOutlineQCReport.issues.filter(i => i.severity === 'major')).length }}
+            </el-tag>
+            <el-tag type="info" size="small">
+              建议 {{ (globalOutlineQCReport.issues.filter(i => i.severity === 'minor')).length }}
+            </el-tag>
+          </div>
           <el-button 
             type="primary" 
             size="large"
@@ -421,289 +426,14 @@
     </div>
     
     <!-- 全局大纲问题详情弹窗 -->
-    <el-dialog
-      v-model="showGlobalOutlineIssuesDialog"
-      title="全局大纲质控问题详情"
-      width="900px"
-      top="5vh"
-      :close-on-click-modal="true"
-      destroy-on-close
-      class="issues-dialog"
-    >
-      <div class="issues-dialog-content">
-        <el-collapse v-model="activeGlobalOutlineIssues">
-          <el-collapse-item 
-            v-for="(issue, index) in globalOutlineQCReport?.issues || []" 
-            :key="issue.id || index"
-            :name="`issue-${issue.id || index}`"
-          >
-            <template #title>
-              <div class="issue-title">
-                <el-tag :type="getSeverityType(issue.severity)" size="small">
-                  {{ getSeverityLabel(issue.severity) }}
-                </el-tag>
-                <el-tag 
-                  v-if="issue.priority" 
-                  :type="issue.priority === 'critical' ? 'danger' : issue.priority === 'high' ? 'warning' : 'info'" 
-                  size="small"
-                  style="margin-left: 8px;"
-                >
-                  {{ issue.priority === 'critical' ? '紧急' : issue.priority === 'high' ? '高' : issue.priority === 'medium' ? '中' : '低' }}优先级
-                </el-tag>
-                <span class="issue-dimension">[{{ getDimensionName(issue.dimension) }}]</span>
-                <span class="issue-desc">{{ issue.description }}</span>
-              </div>
-            </template>
-            <div class="issue-detail">
-              <p v-if="issue.evidence">
-                <strong>原文证据:</strong> {{ issue.evidence }}
-              </p>
-              <div v-if="issue.suggestion">
-                <strong>修改建议:</strong>
-                <pre class="suggestion-content">{{ issue.suggestion }}</pre>
-              </div>
-              
-              <!-- 调用LLM修正按钮 -->
-              <div class="issue-actions" style="margin-top: 16px;">
-                <el-button 
-                  type="primary" 
-                  size="small" 
-                  @click="$emit('revise-global-outline', { issue, qualityReport: globalOutlineQCReport })"
-                  :loading="revisingIssueId === issue.id"
-                >
-                  <el-icon><MagicStick /></el-icon>
-                  调用LLM修正
-                </el-button>
-              </div>
-              
-              <!-- 用户反馈按钮 -->
-              <div v-if="!issue.user_feedback" class="feedback-section" style="margin-top: 16px;">
-                <el-divider content-position="left">这个检测结果准确吗?</el-divider>
-                <el-button-group>
-                  <el-button size="small" type="success" @click="handleGlobalOutlineFeedback(issue, 'accepted')">
-                    <el-icon><Select /></el-icon>
-                    准确
-                  </el-button>
-                  <el-button size="small" @click="handleGlobalOutlineFeedback(issue, 'ignored')">
-                    <el-icon><RemoveFilled /></el-icon>
-                    忽略
-                  </el-button>
-                  <el-button size="small" type="danger" @click="handleGlobalOutlineFeedback(issue, 'false_positive')">
-                    <el-icon><CircleClose /></el-icon>
-                    误报
-                  </el-button>
-                </el-button-group>
-              </div>
-              <div v-else class="feedback-recorded">
-                <el-tag type="success" size="small">
-                  您的反馈已记录: {{ issue.user_feedback === 'accepted' ? '准确' : issue.user_feedback === 'ignored' ? '忽略' : '误报' }}
-                </el-tag>
-              </div>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-      </div>
-    </el-dialog>
-    
-    <!-- 单元概述完整质控报告展示区（手动模式）-->
-    <!-- v2.4新增：位于单元概述正文上方，包含完整交互功能 -->
-    <div v-if="unitSummariesQCReport && unitSummariesQCMode === 'manual'" class="unit-summaries-qc-report" style="margin-top: 20px;">
-        <el-divider content-position="left">
-          <el-icon><DataAnalysis /></el-icon>
-          单元概述质量检测报告（手动模式）
-          <el-button 
-            type="primary" 
-            size="small" 
-            @click="$emit('quality-control-unit-summaries')"
-            :loading="unitSummariesQCLoading"
-            style="margin-left: 16px;"
-          >
-            <el-icon><Refresh /></el-icon>
-            重新检测
-          </el-button>
-        </el-divider>
-        
-        <!-- 质控总结 -->
-        <el-descriptions :column="2" border class="qc-summary">
-          <el-descriptions-item label="综合得分">
-            <el-tag :type="getScoreType(unitSummariesQCReport.overall_score)" size="large">
-              {{ unitSummariesQCReport.overall_score?.toFixed(1) || 0 }}分
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="问题总数">
-            <el-tag :type="unitSummariesQCReport.issues?.length > 0 ? 'warning' : 'success'">
-              {{ unitSummariesQCReport.issues?.length || 0 }}个
-            </el-tag>
-          </el-descriptions-item>
-        </el-descriptions>
-        
-        <!-- 维度得分 -->
-        <div v-if="unitSummariesQCReport.dimension_scores" class="dimension-scores" style="margin: 16px 0;">
-          <h4>维度得分</h4>
-          <el-row :gutter="16">
-            <el-col :span="6" v-for="(score, dim) in unitSummariesQCReport.dimension_scores" :key="dim">
-              <el-card shadow="hover" class="dimension-card">
-                <template #header>
-                  <div class="card-header">
-                    <span>{{ getDimensionName(dim) }}</span>
-                  </div>
-                </template>
-                <el-progress 
-                  :percentage="score" 
-                  :color="getScoreColor(score)"
-                  :stroke-width="12"
-                />
-                <div class="score-text">{{ score.toFixed(1) }}分</div>
-              </el-card>
-            </el-col>
-          </el-row>
-        </div>
-        
-        <!-- 问题列表 -->
-        <div v-if="unitSummariesQCReport.issues?.length > 0" class="issues-list" style="margin: 16px 0;">
-          <h4>检测到的问题</h4>
-          <el-collapse accordion>
-            <el-collapse-item 
-              v-for="issue in unitSummariesQCReport.issues" 
-              :key="issue.id"
-              :name="issue.id"
-            >
-              <template #title>
-                <div class="issue-title">
-                  <el-tag 
-                    :type="getSeverityType(issue.severity)" 
-                    size="small"
-                    style="margin-right: 8px;"
-                  >
-                    {{ getSeverityLabel(issue.severity) }}
-                  </el-tag>
-                  <span class="issue-category">{{ issue.category }}</span>
-                  <span v-if="issue.unit_number" class="issue-unit" style="margin-left: 8px; color: #409eff;">
-                    第{{ issue.unit_number }}章
-                  </span>
-                  <span class="issue-id" style="margin-left: 8px; color: #999;">{{ issue.id }}</span>
-                </div>
-              </template>
-              <div class="issue-content">
-                <p><strong>描述:</strong> {{ issue.description }}</p>
-                <p v-if="issue.evidence"><strong>证据:</strong> {{ issue.evidence }}</p>
-                <p v-if="issue.suggestion"><strong>建议:</strong> {{ issue.suggestion }}</p>
-                
-                <!-- 手动执行LLM修正按钮 -->
-                <div class="issue-actions" style="margin-top: 12px;">
-                  <el-button 
-                    type="primary" 
-                    size="small" 
-                    @click="handleUnitSummariesIssueRevise(issue)"
-                    :loading="revisingUnitIssueId === issue.id"
-                  >
-                    <el-icon><MagicStick /></el-icon>
-                    调用LLM修正
-                  </el-button>
-                </div>
-                
-                <!-- 用户反馈按钮 -->
-                <div v-if="!issue.user_feedback" class="feedback-section" style="margin-top: 16px;">
-                  <el-divider content-position="left">这个检测结果准确吗?</el-divider>
-                  <el-button-group>
-                    <el-button size="small" type="success" @click="handleUnitSummariesFeedback(issue, 'accepted')">
-                      <el-icon><Select /></el-icon>
-                      准确
-                    </el-button>
-                    <el-button size="small" @click="handleUnitSummariesFeedback(issue, 'ignored')">
-                      <el-icon><RemoveFilled /></el-icon>
-                      忽略
-                    </el-button>
-                    <el-button size="small" type="danger" @click="handleUnitSummariesFeedback(issue, 'false_positive')">
-                      <el-icon><CircleClose /></el-icon>
-                      误报
-                    </el-button>
-                  </el-button-group>
-                </div>
-                <div v-else class="feedback-recorded" style="margin-top: 12px;">
-                  <el-tag type="success" size="small">
-                    您的反馈已记录: {{ issue.user_feedback === 'accepted' ? '准确' : issue.user_feedback === 'ignored' ? '忽略' : '误报' }}
-                  </el-tag>
-                </div>
-              </div>
-            </el-collapse-item>
-          </el-collapse>
-        </div>
-        
-        <!-- 清理重复单元按钮（手动模式，始终显示） -->
-        <div style="margin: 16px 0;">
-          <el-button
-            type="warning"
-            size="small"
-            @click="handleDetectAndCleanDuplicates"
-            :loading="removingUnitSummariesDuplicates"
-          >
-            <el-icon><Delete /></el-icon>
-            清理重复单元
-          </el-button>
-        </div>
-        
-        <!-- 重复章节检测结果（检测后显示） -->
-        <div v-if="unitSummariesDuplicates && unitSummariesDuplicates.length > 0" class="duplicate-detection" style="margin: 16px 0;">
-          <el-divider>重复单元检测结果</el-divider>
-          <el-alert
-            :title="`发现 ${unitSummariesDuplicates.length} 组重复单元`"
-            type="warning"
-            :closable="false"
-            show-icon
-            style="margin-bottom: 12px;"
-          >
-            <template #default>
-              <div class="duplicate-info">
-                检测到重复的章节单元，点击下方按钮清理重复章节，保留第一个出现的章节。
-              </div>
-            </template>
-          </el-alert>
-          
-          <el-table :data="unitSummariesDuplicates" border size="small" style="margin-bottom: 12px;">
-            <el-table-column prop="groupIndex" label="组别" width="60" align="center" />
-            <el-table-column label="重复单元" min-width="200">
-              <template #default="{ row }">
-                <div v-for="(dup, idx) in row.duplicates" :key="idx" class="duplicate-item">
-                  <el-tag :type="idx === 0 ? 'success' : 'danger'" size="small" style="margin-right: 8px;">
-                    {{ idx === 0 ? '保留' : '删除' }}
-                  </el-tag>
-                  <strong>{{ dup.title }}</strong>
-                  <span class="duplicate-unit-num">（第{{ dup.unitNumber }}章）</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="内容长度" width="120" align="center">
-              <template #default="{ row }">
-                {{ row.duplicates[0]?.contentLength || 0 }} 字
-              </template>
-            </el-table-column>
-          </el-table>
-          
-          <el-button
-            type="danger"
-            size="small"
-            @click="handleRemoveUnitSummariesDuplicates"
-            :loading="removingUnitSummariesDuplicates"
-          >
-            <el-icon><Delete /></el-icon>
-            确认清理重复单元
-          </el-button>
-        </div>
-        
-        <!-- 无问题提示 -->
-        <el-alert
-          v-if="!unitSummariesQCReport?.issues?.length && !(unitSummariesDuplicates?.length > 0)"
-          title="太棒了！未检测到质量问题"
-          type="success"
-          :closable="false"
-          style="margin-top: 16px;"
-        >
-          <template #default>
-            <p>单元概述质量优秀，可以继续后续操作。</p>
-          </template>
-        </el-alert>
-    </div>
+        <GlobalOutlineIssuesDialog
+      v-model:visible="showGlobalOutlineIssuesDialog"
+      :qcReport="globalOutlineQCReport"
+      :revisingIssueId="revisingIssueId"
+      
+      @revise="handleGlobalOutlineRevise"
+      @feedback="handleGlobalOutlineFeedback"
+    />
     
     <!-- 质量管控报告 (阶段4显示) -->
     <div v-if="useTwoStageMode && outlineStage === 4 && qualityReport" class="quality-control-report">
@@ -859,395 +589,49 @@
     </div>
     
     <!-- 问题详情弹窗 -->
-    <el-dialog
-      v-model="showIssuesDialog"
-      title="质控问题详情"
-      width="900px"
-      top="5vh"
-      :close-on-click-modal="true"
-      destroy-on-close
-      class="issues-dialog"
-    >
-      <div class="issues-dialog-content">
-        <el-collapse v-model="activeIssues">
-          <el-collapse-item 
-            v-for="(issue, index) in qualityReport.issues" 
-            :key="issue.id || index"
-            :name="`issue-${issue.id || index}`"
-          >
-            <template #title>
-              <div class="issue-title">
-                <el-tag :type="getSeverityType(issue.severity)" size="small">
-                  {{ getSeverityLabel(issue.severity) }}
-                </el-tag>
-                <el-tag 
-                  v-if="issue.priority" 
-                  :type="issue.priority === 'critical' ? 'danger' : issue.priority === 'high' ? 'warning' : 'info'" 
-                  size="small"
-                  style="margin-left: 8px;"
-                >
-                  {{ issue.priority === 'critical' ? '紧急' : issue.priority === 'high' ? '高' : issue.priority === 'medium' ? '中' : '低' }}优先级
-                </el-tag>
-                <el-tag 
-                  v-if="issue.metadata?.adjusted_by_feedback" 
-                  type="success" 
-                  size="small"
-                  style="margin-left: 8px;"
-                >
-                  已优化
-                </el-tag>
-                <span class="issue-dimension">[{{ issue.dimension }}]</span>
-                <span class="issue-desc">{{ issue.description }}</span>
-              </div>
-            </template>
-            <div class="issue-detail">
-              <p v-if="issue.location">
-                <strong>位置:</strong> 第{{ issue.location.chapter_number }}单元
-              </p>
-              <p v-if="issue.evidence">
-                <strong>原文证据:</strong> {{ issue.evidence }}
-              </p>
-              <div v-if="issue.suggestion">
-                <strong>修改建议:</strong>
-                <pre class="suggestion-content">{{ issue.suggestion }}</pre>
-              </div>
-              
-              <p v-if="issue.fix_difficulty">
-                <strong>修正难度:</strong> 
-                <el-tag :type="issue.fix_difficulty === 'easy' ? 'success' : issue.fix_difficulty === 'medium' ? 'warning' : 'danger'" size="small">
-                  {{ issue.fix_difficulty === 'easy' ? '简单' : issue.fix_difficulty === 'medium' ? '中等' : '困难' }}
-                </el-tag>
-              </p>
-              
-              <div v-if="issue.auto_fix" class="auto-fix-section">
-                <el-divider content-position="left">自动修正方案</el-divider>
-                <el-alert 
-                  :title="issue.auto_fix.description" 
-                  type="info" 
-                  :closable="false"
-                  show-icon
-                />
-                <el-row :gutter="16" style="margin-top: 12px;">
-                  <el-col :span="12">
-                    <h5>修正前</h5>
-                    <el-input 
-                      type="textarea" 
-                      :rows="6" 
-                      :model-value="issue.auto_fix.original"
-                      readonly
-                      class="content-comparison"
-                    />
-                  </el-col>
-                  <el-col :span="12">
-                    <h5>修正后</h5>
-                    <el-input 
-                      type="textarea" 
-                      :rows="6" 
-                      :model-value="issue.auto_fix.fixed"
-                      readonly
-                      class="content-comparison"
-                    />
-                  </el-col>
-                </el-row>
-                <div class="auto-fix-actions">
-                  <el-tag size="small">
-                    置信度: {{ (issue.auto_fix.confidence * 100).toFixed(0) }}%
-                  </el-tag>
-                  <el-button 
-                    type="primary" 
-                    size="small" 
-                    @click="handleApplyFix(issue)"
-                    :loading="applyingFix === (qualityReport?.issues || []).indexOf(issue)"
-                    style="margin-left: 12px;"
-                  >
-                    <el-icon><Check /></el-icon>
-                    应用修正
-                  </el-button>
-                </div>
-              </div>
-              <div v-else class="no-auto-fix">
-                <el-button 
-                  type="warning" 
-                  size="small" 
-                  @click="handleApplyFix(issue)"
-                  :loading="applyingFix === (qualityReport?.issues || []).indexOf(issue)"
-                >
-                  <el-icon><Edit /></el-icon>
-                  生成并应用修正
-                </el-button>
-              </div>
-              
-              <div v-if="!issue.user_feedback" class="feedback-section">
-                <el-divider content-position="left">这个检测结果准确吗?</el-divider>
-                <el-button-group>
-                  <el-button size="small" type="success" @click="handleFeedback(issue, 'accepted')">
-                    <el-icon><Select /></el-icon>
-                    准确
-                  </el-button>
-                  <el-button size="small" @click="handleFeedback(issue, 'ignored')">
-                    <el-icon><RemoveFilled /></el-icon>
-                    忽略
-                  </el-button>
-                  <el-button size="small" type="danger" @click="handleFeedback(issue, 'false_positive')">
-                    <el-icon><CircleClose /></el-icon>
-                    误报
-                  </el-button>
-                </el-button-group>
-              </div>
-              <div v-else class="feedback-recorded">
-                <el-tag type="success" size="small">
-                  您的反馈已记录: {{ issue.user_feedback === 'accepted' ? '准确' : issue.user_feedback === 'ignored' ? '忽略' : '误报' }}
-                </el-tag>
-              </div>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-      </div>
-    </el-dialog>
+        <IssuesDetailDialog
+      v-model:visible="showIssuesDialog"
+      :qualityReport="qualityReport"
+      :applyingFixIndex="applyingFix"
+      
+      @apply-fix="handleApplyFix"
+      @feedback="handleGlobalOutlineFeedback"
+    />
     
     <!-- 修订模式对话框 (多轮对话修订) -->
-    <el-dialog
-      v-model="props.isRevisionMode"
-      :title="useTwoStageMode ? '修订全局大纲' : '修订内容'"
-      width="1200px"
-      top="5vh"
-      :close-on-click-modal="false"
-      destroy-on-close
-      class="revision-dialog"
-    >
-      <div class="revision-container">
-        <!-- 左侧: 对话区域 -->
-        <div class="revision-chat">
-          <div class="chat-header">
-            <h4>
-              <el-icon><ChatDotRound /></el-icon>
-              与AI对话修订
-              <el-tag v-if="props.currentRevisionRound > 0" type="success" size="small" style="margin-left: 8px;">
-                第 {{ props.currentRevisionRound }} 轮修订
-              </el-tag>
-            </h4>
-          </div>
-          
-          <div class="chat-messages">
-            <div v-if="props.revisionMessages.length === 0" class="empty-message">
-              <el-empty description="请输入您的修改意见" />
-            </div>
-            <div v-for="(msg, idx) in props.revisionMessages" :key="idx" class="message-item">
-              <div v-if="msg.role === 'user'" class="message user-message">
-                <div class="message-avatar">👤</div>
-                <div class="message-content">{{ msg.content }}</div>
-              </div>
-              <div v-else class="message ai-message">
-                <div class="message-avatar">🤖</div>
-                <div class="message-content">
-                  <div v-if="msg.loading" class="loading-indicator">
-                    <el-icon class="is-loading"><Loading /></el-icon>
-                    <span>AI正在生成修订内容...</span>
-                  </div>
-                  <div v-else v-html="msg.content"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div class="chat-input">
-            <!-- 已上传文件列表 -->
-            <div v-if="uploadedFiles.length > 0" class="uploaded-files-list">
-              <div v-for="(file, idx) in uploadedFiles" :key="idx" class="file-tag">
-                <el-icon><Document /></el-icon>
-                <span class="file-name">{{ file.name }}</span>
-                <span class="file-size">({{ (file.size / 1024).toFixed(1) }}KB)</span>
-                <el-icon class="remove-file" @click="removeUploadedFile(idx)"><Close /></el-icon>
-              </div>
-            </div>
-            
-            <el-input
-              v-model="localRevisionInput"
-              type="textarea"
-              :rows="3"
-              placeholder="请输入修改意见，例如：&#10;- 把主角的职业改为医生&#10;- 增加一个反派角色&#10;- 调整故事背景到现代都市&#10;&#10;💡 提示：可上传TXT/MD参考文件作为修订上下文"
-              :disabled="props.revising"
-              @keyup.ctrl.enter="handleSubmitRevision"
-            />
-            
-            <div class="input-actions">
-              <div class="left-actions">
-                <!-- 文件上传按钮 -->
-                <el-button text size="small" @click="fileInputRef?.click()">
-                  <el-icon><Paperclip /></el-icon>
-                  上传参考文件
-                </el-button>
-                <input
-                  ref="fileInputRef"
-                  type="file"
-                  multiple
-                  accept=".txt,.md,.doc,.docx"
-                  style="display: none"
-                  @change="handleFileSelect"
-                />
-                <el-text v-if="uploadedFiles.length > 0" type="success" size="small">
-                  已上传 {{ uploadedFiles.length }} 个文件
-                </el-text>
-              </div>
-              <div class="right-actions">
-                <el-button @click="handleExitRevision">
-                  <el-icon><Close /></el-icon>
-                  退出修订
-                </el-button>
-                <el-button 
-                  type="primary" 
-                  @click="handleSubmitRevision"
-                  :loading="props.revising"
-                  :disabled="!localRevisionInput.trim() && uploadedFiles.length === 0"
-                >
-                  <el-icon><Promotion /></el-icon>
-                  提交修订意见
-                </el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 右侧: 内容预览区域 -->
-        <div class="revision-preview">
-          <div class="preview-header">
-            <h4>
-              <el-icon><Document /></el-icon>
-              当前内容预览
-            </h4>
-          </div>
-          <div class="preview-content">
-            <div v-if="props.revisionContent" class="markdown-content" v-html="renderedRevisionContent"></div>
-            <el-empty v-else description="暂无内容" />
-          </div>
-        </div>
-      </div>
+        <RevisionDialog
+      v-model:visible="props.isRevisionMode"
+      :revisionContent="props.revisionContent"
+      :revisionMessages="props.revisionMessages"
+      :currentRevisionRound="props.currentRevisionRound"
+      :revising="props.revising"
+      :renderedRevisionContent="renderedRevisionContent"
+      :useTwoStageMode="useTwoStageMode"
       
-      <template #footer>
-        <div class="revision-footer">
-          <el-button @click="handleExitRevision">
-            <el-icon><Close /></el-icon>
-            退出修订
-          </el-button>
-          <el-button type="success" @click="handleFinalizeContent">
-            <el-icon><Check /></el-icon>
-            确认使用当前内容
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+      @submit-revision="handleSubmitRevision"
+      @exit-revision="handleExitRevision"
+      @finalize-content="handleFinalizeContent"
+      @file-select="handleFileSelect"
+    />
     
-    <!-- 默认渲染内容（阶段2时不显示，因为已有编辑区） -->
-    <div v-if="!(useTwoStageMode && outlineStage === 2)" class="result-content markdown-content" v-html="renderedContent"></div>
+    <!-- 默认渲染内容（阶段2、3、4时不显示，因为已有独立的编辑区） -->
+    <div v-if="!(useTwoStageMode && (outlineStage === 2 || outlineStage === 3 || outlineStage === 4))" class="result-content markdown-content" v-html="renderedContent"></div>
     
     <!-- v2.3新增：质控历史记录弹窗 -->
-    <el-dialog
-      v-model="showQCHistoryDialog"
-      title="质量控制详情"
-      width="900px"
-      top="5vh"
-      :close-on-click-modal="true"
-      destroy-on-close
-      class="qc-history-dialog"
-    >
-      <div class="qc-history-content">
-        <!-- 质控执行信息 -->
-        <el-descriptions :column="2" border class="qc-summary">
-          <el-descriptions-item label="执行时间">
-            {{ qcReportData?.applied_at || '自动质控' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="修正问题数">
-            <el-tag :type="issuesFixed > 0 ? 'warning' : 'success'">
-              {{ issuesFixed }}个
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="综合得分" v-if="qcReportData?.overall_score">
-            <el-tag :type="getScoreType(qcReportData.overall_score)">
-              {{ qcReportData.overall_score?.toFixed(1) || 0 }}分
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="问题总数" v-if="qcReportData?.issues">
-            <el-tag :type="qcReportData.issues?.length > 0 ? 'warning' : 'success'">
-              {{ qcReportData.issues?.length || 0 }}个
-            </el-tag>
-          </el-descriptions-item>
-        </el-descriptions>
-        
-        <!-- 维度得分 -->
-        <div v-if="qcReportData?.dimension_scores" class="dimension-scores" style="margin: 16px 0;">
-          <h4>维度得分</h4>
-          <el-row :gutter="16">
-            <el-col :span="6" v-for="(score, dim) in qcReportData.dimension_scores" :key="dim">
-              <el-card shadow="hover" class="dimension-card">
-                <template #header>
-                  <div class="card-header">
-                    <span>{{ getDimensionName(dim) }}</span>
-                  </div>
-                </template>
-                <el-progress 
-                  :percentage="score" 
-                  :color="getScoreColor(score)"
-                  :stroke-width="12"
-                />
-                <div class="score-text">{{ score.toFixed(1) }}分</div>
-              </el-card>
-            </el-col>
-          </el-row>
-        </div>
-        
-        <!-- 问题列表 -->
-        <div v-if="qcReportData?.issues?.length > 0" class="issues-list">
-          <h4>检测到的问题</h4>
-          <el-collapse accordion>
-            <el-collapse-item 
-              v-for="issue in qcReportData.issues" 
-              :key="issue.id"
-              :name="issue.id"
-            >
-              <template #title>
-                <div class="issue-title">
-                  <el-tag 
-                    :type="getSeverityType(issue.severity)" 
-                    size="small"
-                    style="margin-right: 8px;"
-                  >
-                    {{ getSeverityLabel(issue.severity) }}
-                  </el-tag>
-                  <span class="issue-category">{{ issue.category }}</span>
-                </div>
-              </template>
-              <div class="issue-content">
-                <p><strong>描述:</strong> {{ issue.description }}</p>
-                <p v-if="issue.evidence"><strong>证据:</strong> {{ issue.evidence }}</p>
-                <p v-if="issue.suggestion"><strong>建议:</strong> {{ issue.suggestion }}</p>
-              </div>
-            </el-collapse-item>
-          </el-collapse>
-        </div>
-        
-        <!-- 无问题提示 -->
-        <el-alert
-          v-else-if="qcReportData"
-          title="质量检测通过"
-          type="success"
-          :closable="false"
-          style="margin-top: 16px;"
-        >
-          内容质量良好，未发现需要修正的问题。
-        </el-alert>
-      </div>
-      <template #footer>
-        <el-button @click="showQCHistoryDialog = false">关闭</el-button>
-      </template>
-    </el-dialog>
+        <QCHistoryDialog
+      v-model:visible="showQCHistoryDialog"
+      :qcReportData="qcReportData"
+      :issuesFixed="issuesFixed"
+      
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import { 
   DataAnalysis, 
   Connection, 
@@ -1268,9 +652,17 @@ import {
   Download,
   RefreshRight,
   Delete,
-  MagicStick
+  MagicStick,
+  View
 } from '@element-plus/icons-vue'
 import { qualityControlApi } from '@/api'
+import { useResultViewerQC } from '../composables/useResultViewerQC'
+import { useResultViewerUnits } from '../composables/useResultViewerUnits'
+import GlobalOutlineIssuesDialog from './GlobalOutlineIssuesDialog.vue'
+import IssuesDetailDialog from './IssuesDetailDialog.vue'
+import RevisionDialog from './RevisionDialog.vue'
+import QCHistoryDialog from './QCHistoryDialog.vue'
+import QCProgressPanel from './QCProgressPanel.vue'
 
 const props = defineProps({
   showResult: Boolean,
@@ -1317,21 +709,16 @@ const props = defineProps({
   
   // 单元概述质控相关（手动触发）
   unitSummariesQCLoading: { type: Boolean, default: false },  // 单元概述质控加载状态
-  unitSummariesQCReport: { type: Object, default: null },  // v2.4新增：单元概述质控报告（手动模式完整展示）
-  unitSummariesQCMode: { type: String, default: 'manual' },  // v2.4新增：质控模式（manual/auto）
+  unitSummariesQCReport: { type: Object, default: null },  // 单元概述质控报告
   
   // 后端断点信息（可选，用于页面刷新后恢复续生成状态）
-  backendResumeInfo: { type: Object, default: null }  // { can_resume, remaining_count, start_from_unit, existing_count, expected_count }
-})
+  backendResumeInfo: { type: Object, default: null },  // { can_resume, remaining_count, start_from_unit, existing_count, expected_count }
+  
+  // P0改造新增：创建写作项目状态
+  creatingWritingProject: { type: Boolean, default: false },
 
-// 调试：监控globalOutlineQCReport prop的变化
-watch(() => props.globalOutlineQCReport, (newVal) => {
-  console.log('========== [ResultViewer] globalOutlineQCReport prop变化 ==========')
-  console.log('newVal:', newVal)
-  console.log('newVal !== null:', newVal !== null)
-  console.log('typeof newVal:', typeof newVal)
-  console.log('===============================================================')
-}, { deep: true, immediate: true })
+  // 知识图谱构建相关props已移除（v5.0）
+})
 
 const emit = defineEmits([
   'stop',
@@ -1362,178 +749,115 @@ const emit = defineEmits([
   'exit-revision',  // 退出修订模式
   
   // 全局大纲质控相关事件 (v1.0新增)
-  'analyze-global-outline-qc',  // 触发全局大纲质量检测
+  'global-outline-qc',  // 触发全局大纲质量检测（两阶段模式，无需projectId）
+  'analyze-global-outline-qc',  // 触发全局大纲质量检测（普通模式，需要projectId）
   'revise-global-outline',  // 触发全局大纲修正
   
   // 单元概述质控相关事件（手动触发）
   'quality-control-unit-summaries',  // 触发单元概述质量检测
-  'revise-unit-summaries-issue',  // v2.4新增：触发单元概述问题修正
-  'unit-summaries-feedback',  // v2.4新增：单元概述质控用户反馈
-  'apply-unit-summaries-revision',  // v2.4新增：应用单元概述修正
-  'remove-unit-summaries-duplicates',  // v2.4新增：清理单元概述质控报告中的重复章节（手动模式）
+  'unit-summaries-feedback',  // 单元概述质控用户反馈
+  'apply-unit-summaries-revision',  // 应用单元概述修正
   'resume-unit-summaries',  // 续生成剩余章节
-  'resume-unit-summaries-from-backend'  // 从后端断点信息续生成
+  'resume-unit-summaries-from-backend',  // 从后端断点信息续生成
+  'create-writing-project',  // P0改造新增: 一键创建写作项目
+  'open-unit-diff'  // v3.1新增: 打开单元概述版本对比
 ])
 
-// 续生成相关计算属性
-const existingUnitCount = computed(() => {
-  return props.unitSummaries ? Object.keys(props.unitSummaries).length : 0
+// ==================== 提取到 composables ====================
+const {
+  getQCButtonText,
+  isReconnecting,
+  reconnectMessage,
+  handleGlobalOutlineQC,
+  getProgressColor,
+  getProgressStatusType,
+  getDimensionLabel,
+  getDimensionName,
+  getScoreType,
+  getScoreColor,
+  getSeverityType,
+  getSeverityLabel,
+  groupIssuesBySeverity
+} = useResultViewerQC(props, emit)
+
+const {
+  existingUnitCount,
+  canResumeUnitSummaries,
+  showResumeFromBackend,
+  remainingUnitCount,
+  formatDuration,
+  renderedGlobalOutline,
+  renderedContent,
+  renderedRevisionContent,
+  localRevisionInput,
+  uploadedFiles,
+  fileInputRef
+} = useResultViewerUnits(props)
+
+// v2.5新增：单元概述排序和渲染
+const sortedUnitSummaries = computed(() => {
+  if (!props.unitSummaries) return {}
+  
+  // 将unitSummaries对象按章节号排序
+  const sorted = {}
+  const keys = Object.keys(props.unitSummaries).sort((a, b) => parseInt(a) - parseInt(b))
+  keys.forEach(key => {
+    sorted[key] = props.unitSummaries[key]
+  })
+  return sorted
 })
 
-const canResumeUnitSummaries = computed(() => {
-  const existing = existingUnitCount.value
-  const expected = props.expectedUnitCount
-  return existing > 0 && expected > 0 && existing < expected
-})
-
-// 从后端获取的断点信息（用于页面刷新后恢复）
-const showResumeFromBackend = computed(() => {
-  return props.backendResumeInfo?.can_resume === true
-})
-
-const remainingUnitCount = computed(() => {
-  // 优先使用后端断点信息
-  if (props.backendResumeInfo?.remaining_count !== undefined) {
-    return props.backendResumeInfo.remaining_count
+// v2.5新增:渲染单个单元内容
+const renderUnitContent = (unit) => {
+  if (!unit) {
+    console.warn('[单元概述渲染] unit为空')
+    return ''
   }
-  const existing = existingUnitCount.value
-  const expected = props.expectedUnitCount
-  return Math.max(0, expected - existing)
-})
-
-const formatDuration = (ms) => {
-  if (!ms || ms < 0) return ''
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  if (minutes > 0) {
-    return `${minutes}分${remainingSeconds}秒`
-  } else {
-    return `${remainingSeconds}秒`
+  
+  console.log('[单元概述渲染] unit数据:', unit)
+  
+  // 优先使用full_content字段(后端解析的完整Markdown内容)
+  const content = unit.full_content || unit.summary || unit.content || ''
+  
+  if (!content) {
+    console.warn('[单元概述渲染] 所有内容为空, unit:', JSON.stringify(unit))
+    return '<p class="text-gray-500">暂无内容</p>'
+  }
+  
+  console.log('[单元概述渲染] 找到full_content,长度:', content.length)
+  console.log('[单元概述渲染] full_content前200字符:', content.substring(0, 200))
+  
+  try {
+    // 使用marked渲染Markdown,配置选项确保正确解析
+    const html = marked(content, {
+      breaks: true,
+      gfm: true
+    })
+    console.log('[单元概述渲染] marked渲染成功,HTML长度:', html.length)
+    
+    // 使用DOMPurify净化HTML
+    const sanitized = DOMPurify.sanitize(html)
+    return sanitized
+  } catch (error) {
+    console.error('[单元概述渲染] marked渲染失败:', error)
+    return `<div class="error-text">内容渲染失败: ${error.message}</div>`
   }
 }
 
-// 质量报告辅助函数
-const getScoreType = (score) => {
-  if (!score) return 'info'
-  if (score >= 90) return 'success'
-  if (score >= 70) return 'primary'
-  if (score >= 60) return 'warning'
-  return 'danger'
-}
+// ==================== 以下为保留逻辑 ====================
 
-const getScoreColor = (score) => {
-  if (score >= 90) return '#67c23a'
-  if (score >= 70) return '#409eff'
-  if (score >= 60) return '#e6a23c'
-  return '#f56c6c'
-}
-
-// v1.1新增: SSE进度辅助函数
-const getProgressColor = (progress) => {
-  if (progress >= 80) return '#67c23a'
-  if (progress >= 50) return '#409eff'
-  if (progress >= 20) return '#e6a23c'
-  return '#909399'
-}
-
-const getProgressStatusType = (status) => {
-  switch (status) {
-    case 'running': return 'primary'
-    case 'success': return 'success'
-    case 'failed': return 'danger'
-    case 'completed': return 'success'
-    case 'error': return 'danger'
-    case 'reconnecting': return 'warning'
-    default: return 'info'
-  }
-}
-
-// v1.1新增: 质控按钮文字计算属性
-const getQCButtonText = computed(() => {
-  if (props.globalOutlineQCLoading) {
-    return '检测中...'
-  }
-  if (props.globalOutlineQCReport) {
-    const score = props.globalOutlineQCReport.overall_score || 0
-    const issues = props.globalOutlineQCReport.issues?.length || 0
-    if (score >= 90) {
-      return '质量优秀，重新检测'
-    } else if (score >= 70) {
-      return '质量良好，重新检测'
-    } else if (issues > 0) {
-      return `重新检测 (${issues}个问题)`
-    }
-    return '重新检测'
-  }
-  return '质量检测'
-})
+// 调试：监控globalOutlineQCReport prop的变化
+watch(() => props.globalOutlineQCReport, (newVal) => {
+  console.log('========== [ResultViewer] globalOutlineQCReport prop变化 ==========')
+  console.log('newVal:', newVal)
+  console.log('newVal !== null:', newVal !== null)
+  console.log('typeof newVal:', typeof newVal)
+  console.log('===============================================================')
+}, { deep: true, immediate: true })
 
 // v1.1新增: 重连状态显示
-const isReconnecting = computed(() => {
-  return props.qcProgress?.status === 'reconnecting'
-})
-
-const reconnectMessage = computed(() => {
-  return props.qcProgress?.message || '连接中断，正在重连...'
-})
-
-const getDimensionLabel = (dim) => {
-  const labels = {
-    unit_structure: '单元结构',
-    unit_character: '人物发展',
-    unit_consistency: '大纲一致性',
-    unit_timeline_space: '时间线空间',
-    unit_ooc: '人物OOC',
-    // 全局大纲四维度 (v1.1新增)
-    global_structure: '宏观结构',
-    global_character_worldview: '人物与世界观',
-    global_plot_consistency: '剧情线一致性',
-    global_storyline_integrity: '故事线完整性'
-  }
-  return labels[dim] || dim
-}
-
-// 别名函数,兼容全局大纲质控模板
-const getDimensionName = getDimensionLabel
-
-const getSeverityType = (severity) => {
-  const types = {
-    critical: 'danger',
-    warning: 'warning',
-    info: 'info'
-  }
-  return types[severity] || 'info'
-}
-
-const getSeverityLabel = (severity) => {
-  const labels = {
-    critical: '严重',
-    warning: '警告',
-    info: '提示'
-  }
-  return labels[severity] || severity
-}
-
-const renderedGlobalOutline = computed(() => {
-  if (!props.globalOutlineContent) return ''
-  return DOMPurify.sanitize(marked(props.globalOutlineContent))
-})
-
-const renderedContent = computed(() => {
-  if (!props.generatedContent) return ''
-  return DOMPurify.sanitize(marked(props.generatedContent))
-})
 
 // 修订模式相关
-const localRevisionInput = ref('')
-const uploadedFiles = ref([])  // 已上传的文件列表
-const fileInputRef = ref(null)  // 文件输入引用
-
-const renderedRevisionContent = computed(() => {
-  if (!props.revisionContent) return ''
-  return DOMPurify.sanitize(marked(props.revisionContent))
-})
 
 // 读取文件内容
 const readFileContent = async (file) => {
@@ -1569,9 +893,8 @@ const readFileContent = async (file) => {
   })
 }
 
-// 处理文件选择
-const handleFileSelect = async (event) => {
-  const files = event.target.files
+// 处理文件选择（接收RevisionDialog传来的文件数组）
+const handleFileSelect = async (files) => {
   if (!files || files.length === 0) return
   
   for (const file of files) {
@@ -1599,9 +922,6 @@ const handleFileSelect = async (event) => {
       ElMessage.error(`读取文件失败: ${file.name}`)
     }
   }
-  
-  // 清空input,允许重复选择同一文件
-  event.target.value = ''
 }
 
 // 移除已上传文件
@@ -1610,18 +930,36 @@ const removeUploadedFile = (index) => {
 }
 
 // 提交修订意见
-const handleSubmitRevision = () => {
-  if ((!localRevisionInput.value.trim() && uploadedFiles.value.length === 0) || props.revising) {
+const handleSubmitRevision = (revisionData) => {
+  console.log('[ResultViewer] handleSubmitRevision 被调用, revisionData:', revisionData)
+  
+  // 修复：接收 RevisionDialog 传递的数据
+  let inputText
+  let filesList
+  
+  if (revisionData && typeof revisionData === 'object') {
+    // RevisionDialog 传递的是对象格式
+    inputText = revisionData.input || ''
+    filesList = revisionData.files || []
+    console.log('[ResultViewer] 使用 RevisionDialog 传递的数据')
+  } else {
+    // 兼容旧版：使用本地状态
+    inputText = localRevisionInput.value
+    filesList = uploadedFiles.value
+    console.log('[ResultViewer] 使用本地状态')
+  }
+  
+  if ((!inputText.trim() && filesList.length === 0) || props.revising) {
     ElMessage.warning('请输入修订意见或上传参考文件')
     return
   }
   
   // 构建完整的修订意见(包含文件内容)
-  let fullInput = localRevisionInput.value.trim()
+  let fullInput = inputText.trim()
   
-  if (uploadedFiles.value.length > 0) {
+  if (filesList.length > 0) {
     fullInput += '\n\n--- 参考文件内容 ---\n'
-    uploadedFiles.value.forEach((file, idx) => {
+    filesList.forEach((file, idx) => {
       fullInput += `\n【文件${idx + 1}: ${file.name}】\n`
       fullInput += file.content + '\n'
     })
@@ -1665,8 +1003,6 @@ const showQCHistoryDialog = ref(false)
 const revisingUnitIssueId = ref(null)  // 正在修正的单元问题ID
 const showUnitSummariesReviseDialog = ref(false)  // 单元概述修正对比对话框
 const unitSummariesReviseData = ref(null)  // 单元概述修正数据
-const unitSummariesDuplicates = ref([])  // v2.4新增：单元概述重复章节
-const removingUnitSummariesDuplicates = ref(false)  // v2.4新增：清理重复章节加载状态
 
 // 质量报告响应式引用
 const qualityReport = computed(() => props.qualityReport)
@@ -1938,29 +1274,6 @@ const handleGlobalOutlineFeedback = async (issue, feedbackType) => {
   }
 }
 
-// v2.4新增：单元概述质控相关方法
-/**
- * 处理单元概述问题修正
- */
-const handleUnitSummariesIssueRevise = async (issue) => {
-  try {
-    console.log('[单元概述修正] 开始修正问题:', issue.id)
-    revisingUnitIssueId.value = issue.id
-    
-    // 发射事件到父组件处理修正逻辑
-    emit('revise-unit-summaries-issue', {
-      issue,
-      qualityReport: props.unitSummariesQCReport,
-      unitSummaries: props.unitSummaries
-    })
-  } catch (error) {
-    console.error('[单元概述修正] 失败:', error)
-    ElMessage.error('修正失败: ' + (error.message || ''))
-  } finally {
-    revisingUnitIssueId.value = null
-  }
-}
-
 /**
  * 处理单元概述质控用户反馈
  */
@@ -2017,126 +1330,6 @@ const applyUnitSummariesRevision = (revisedData) => {
     console.error('[单元概述修正] 应用失败:', error)
     ElMessage.error('应用修正失败: ' + (error.message || ''))
   }
-}
-
-/**
- * 手动模式：检测并清理重复单元
- * 点击按钮后先检测，如果没有重复则提示，如果有重复则显示结果让用户确认清理
- */
-const handleDetectAndCleanDuplicates = () => {
-  // 使用当前生成的完整内容进行检测
-  const content = props.generatedContent
-  if (!content) {
-    ElMessage.warning('没有可检测的内容')
-    return
-  }
-  
-  // 执行检测
-  detectUnitSummariesDuplicates(content)
-  
-  // 检测结果显示在UI中，用户可以看到结果后再决定是否点击"确认清理"
-  if (unitSummariesDuplicates.value.length === 0) {
-    ElMessage.success('未检测到重复单元，内容质量良好')
-  } else {
-    ElMessage.warning(`检测到 ${unitSummariesDuplicates.value.length} 组重复单元，请查看详情并确认清理`)
-  }
-}
-
-/**
- * 检测单元概述重复章节
- * 以章节为单位,比较标题和内容的完全匹配
- */
-const detectUnitSummariesDuplicates = (content) => {
-  if (!content) {
-    unitSummariesDuplicates.value = []
-    return
-  }
-  
-  // 解析章节内容
-  const chapterRegex = /###\s*第([\u4e00二三四五六七八九十百千万\d]+)[章集场][\uff1a:]\s*(.+?)\n([\s\S]*?)(?=###\s*第|$)/g
-  const chapters = []
-  let match
-  
-  while ((match = chapterRegex.exec(content)) !== null) {
-    chapters.push({
-      unitNumber: match[1],
-      title: match[2].trim(),
-      content: match[3].trim(),
-      fullMatch: match[0]
-    })
-  }
-  
-  if (chapters.length === 0) {
-    unitSummariesDuplicates.value = []
-    return
-  }
-  
-  // 查找重复章节
-  const duplicateGroups = []
-  const seen = new Map() // title+content -> first index
-  
-  chapters.forEach((chapter, index) => {
-    const key = `${chapter.title}|||${chapter.content}`
-    
-    if (seen.has(key)) {
-      // 找到重复章节
-      const firstIndex = seen.get(key)
-      let group = duplicateGroups.find(g => g.firstIndex === firstIndex)
-      
-      if (!group) {
-        group = {
-          groupIndex: duplicateGroups.length + 1,
-          firstIndex: firstIndex,
-          duplicates: [chapters[firstIndex]]
-        }
-        duplicateGroups.push(group)
-      }
-      
-      group.duplicates.push({
-        ...chapter,
-        contentLength: chapter.content.length
-      })
-    } else {
-      seen.set(key, index)
-    }
-  })
-  
-  unitSummariesDuplicates.value = duplicateGroups
-}
-
-/**
- * 处理单元概述重复章节清理
- */
-const handleRemoveUnitSummariesDuplicates = () => {
-  if (unitSummariesDuplicates.value.length === 0) {
-    ElMessage.info('没有检测到重复章节')
-    return
-  }
-  
-  ElMessageBox.confirm(
-    `即将清理 ${unitSummariesDuplicates.value.length} 组重复章节,保留第一个出现的章节,删除后续重复章节。是否继续?`,
-    '确认清理重复章节',
-    {
-      confirmButtonText: '确认清理',
-      cancelButtonText: '取消',
-      type: 'warning'
-    }
-  ).then(() => {
-    removingUnitSummariesDuplicates.value = true
-    
-    // 发射事件到父组件处理清理逻辑
-    emit('remove-unit-summaries-duplicates', {
-      duplicates: unitSummariesDuplicates.value,
-      unitSummaries: props.unitSummaries
-    })
-    
-    // 清理完成后重置检测结果
-    unitSummariesDuplicates.value = []
-    removingUnitSummariesDuplicates.value = false
-    ElMessage.success('重复单元已清理')
-  }).catch(() => {
-    // 用户取消
-  })
 }
 
 // v2.1新增: 使用LLM生成修正方案
@@ -2320,21 +1513,6 @@ const handleReAnalyze = async () => {
   }
 }
 
-// ==================== 全局大纲质控处理函数 (v1.0新增) ====================
-
-/**
- * 触发全局大纲质量检测
- */
-const handleGlobalOutlineQC = async () => {
-  try {
-    // 触发父组件的检测逻辑
-    emit('analyze-global-outline-qc')
-  } catch (error) {
-    console.error('[全局大纲质控] 触发检测失败:', error)
-    ElMessage.error('触发质量检测失败')
-  }
-}
-
 /**
  * 修正全局大纲问题
  */
@@ -2508,64 +1686,102 @@ const showScoreChangesDialog = () => {
 
 .global-outline-edit {
   margin-bottom: 24px;
-  border: 2px solid #409eff;  // 增强边框,使用主题色
+  border: 2px solid #409eff;
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.15);  // 添加阴影增强可见性
-  background: linear-gradient(to bottom, #ffffff, #f8f9fa);  // 渐变背景
+  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.15);
+  background: linear-gradient(to bottom, #ffffff, #f8f9fa);
   
   .edit-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 14px 16px;  // 增加内边距
-    background: linear-gradient(135deg, #ecf5ff 0%, #f5f7fa 100%);  // 渐变背景
-    border-bottom: 2px solid #d9ecff;  // 增强分隔线
+    padding: 12px 16px;
+    background: linear-gradient(to right, #ecf5ff, #ffffff);
+    border-bottom: 1px solid #dcdfe6;
     
     .edit-tip {
-      font-size: 14px;
-      color: #409eff;  // 使用主题色,更醒目
       display: flex;
       align-items: center;
       gap: 6px;
-      font-weight: 500;  // 加粗
-      
-      .el-icon {
-        font-size: 16px;
-      }
+      color: #606266;
+      font-size: 14px;
     }
     
     .edit-actions {
       display: flex;
-      gap: 10px;  // 增加按钮间距
-      
-      .el-button {
-        font-weight: 500;  // 按钮文字加粗
-      }
+      gap: 8px;
+      align-items: center;
     }
   }
   
   .edit-content {
     padding: 16px;
-    
-    .el-textarea {
-      font-family: monospace;
-      border: 1px solid #dcdfe6;
-      border-radius: 4px;
-      
-      &:focus {
-        border-color: #409eff;
-        box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
-      }
-    }
+    background: #fff;
     
     .preview-content {
-      max-height: 500px;
-      overflow-y: auto;
-      padding: 12px;  // 增加内边距
-      background: #ffffff;
-      border: 1px solid #ebeef5;
-      border-radius: 4px;
+      line-height: 1.8;
+    }
+  }
+}
+
+// 单元概述显示区（阶段3-4统一，打字机效果）
+.unit-summaries-display {
+  margin-bottom: 24px;
+  border: 2px solid #409eff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.15);
+  background: linear-gradient(to bottom, #ffffff, #ecf5ff);
+  
+  .display-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: linear-gradient(to right, #ecf5ff, #ffffff);
+    border-bottom: 1px solid #dcdfe6;
+    color: #409eff;
+    font-size: 14px;
+    font-weight: 500;
+    
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+  }
+  
+  .preview-content {
+    padding: 24px;
+    background: #fff;
+    max-height: 600px;
+    overflow-y: auto;
+    line-height: 1.8;
+    
+    :deep(h1), :deep(h2), :deep(h3), :deep(h4) {
+      margin-top: 20px;
+      margin-bottom: 10px;
+      color: #303133;
+    }
+    
+    :deep(h3) {
+      padding-bottom: 6px;
+      border-bottom: 1px solid #e4e7ed;
+    }
+    
+    :deep(p) {
+      margin: 10px 0;
+    }
+    
+    :deep(ul), :deep(ol) {
+      padding-left: 20px;
+      margin: 10px 0;
+    }
+    
+    :deep(li) {
+      margin: 4px 0;
     }
   }
 }
@@ -2933,5 +2149,81 @@ const showScoreChangesDialog = () => {
   justify-content: flex-end;
   gap: 12px;
   padding: 12px 0;
+}
+
+// ===== v4.2 知识图谱构建区域样式 =====
+.kb-build-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+
+  .kb-building-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 0;
+
+    .kb-custom-progress {
+      width: 100%;
+      height: 8px;
+      background: #e5e9f2;
+      border-radius: 4px;
+      overflow: hidden;
+
+      .kb-custom-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #409eff, #67c23a);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+        min-width: 2px;
+      }
+    }
+
+    .kb-stage-text {
+      font-size: 13px;
+      color: #606266;
+      text-align: center;
+    }
+  }
+
+  .kb-id-alert {
+    margin: 0;
+
+    .kb-id-display {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+
+      .kb-id-label {
+        font-size: 15px;
+        font-weight: 600;
+        color: #67c23a;
+      }
+
+      .kb-id-value {
+        font-size: 1.4em;
+        font-weight: bold;
+        color: #409eff;
+        background: #ecf5ff;
+        padding: 2px 10px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+      }
+    }
+
+    .kb-id-hint {
+      font-size: 12px;
+      color: #909399;
+      margin-top: 4px;
+      display: inline-block;
+    }
+  }
+
+  .kb-manual-id {
+    margin-top: 8px;
+  }
 }
 </style>

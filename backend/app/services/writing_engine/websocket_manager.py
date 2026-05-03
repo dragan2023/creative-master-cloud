@@ -19,6 +19,7 @@
 import json
 from typing import Dict, Set, Any, Optional
 from asyncio import Lock
+from datetime import datetime, timezone
 
 from fastapi import WebSocket
 
@@ -93,34 +94,37 @@ class WebSocketManager:
         Returns:
             int: 成功发送的连接数
         """
-        connections = self._connections.get(task_id, set())
-        if not connections:
-            msg_type = message.get('type', 'unknown')
-            logger.info(
-                f"没有活跃的WebSocket连接: task_id={task_id}, msg_type={msg_type}, "
-                f"活跃任务列表={list(self._connections.keys())}")
-            return 0
+        async with self._lock:
+            connections = self._connections.get(task_id, set())
+            if not connections:
+                msg_type = message.get('type', 'unknown')
+                logger.info(
+                    f"没有活跃的WebSocket连接: task_id={task_id}, msg_type={msg_type}, "
+                    f"活跃任务列表={list(self._connections.keys())}")
+                return 0
 
-        message_json = json.dumps(message, ensure_ascii=False)
-        success_count = 0
+            message_json = json.dumps(message, ensure_ascii=False)
+            success_count = 0
 
-        # 收集需要移除的断开连接
-        disconnected = set()
+            # 收集需要移除的断开连接
+            disconnected = set()
 
-        for websocket in connections:
-            try:
-                await websocket.send_text(message_json)
-                success_count += 1
-            except Exception as e:
-                logger.warning(
-                    f"发送消息失败，连接将被移除: task_id={task_id}, error={str(e)}")
-                disconnected.add(websocket)
+            for websocket in connections:
+                try:
+                    await websocket.send_text(message_json)
+                    success_count += 1
+                except Exception as e:
+                    logger.warning(
+                        f"发送消息失败，连接将被移除: task_id={task_id}, error={str(e)}")
+                    disconnected.add(websocket)
 
-        # 移除断开的连接
-        if disconnected:
-            async with self._lock:
-                for ws in disconnected:
-                    self._connections.get(task_id, set()).discard(ws)
+            # 移除断开的连接
+            for ws in disconnected:
+                self._connections.get(task_id, set()).discard(ws)
+
+            # 如果没有连接了，移除task_id键
+            if task_id in self._connections and not self._connections[task_id]:
+                del self._connections[task_id]
 
         return success_count
 
@@ -555,13 +559,12 @@ class WebSocketManager:
 
     @staticmethod
     def _get_timestamp() -> str:
-        """获取当前时间戳（ISO格式）
+        """获取当前时间戳（ISO格式，带时区）
 
         Returns:
             str: ISO格式时间戳
         """
-        from datetime import datetime
-        return datetime.now().isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
 
 # 全局WebSocket管理器实例

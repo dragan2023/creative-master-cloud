@@ -121,10 +121,9 @@ class ConsistencyManager:
                 # 清理可能的markdown标记
                 new_summary = self._clean_llm_output(new_summary)
             else:
-                # 无LLM时简单追加
-                # 对纯追加场景允许截断，因为这不是LLM提示词而是文件存储
+                # 无LLM时简单追加（完整内容，不再截断）
                 new_summary = current_summary + \
-                    f"\n第{chapter_number}章: {chapter_title}\n{chapter_content[:500]}..."
+                    f"\n第{chapter_number}章: {chapter_title}\n{chapter_content}"
 
             # 保存新摘要
             if project.summary_file:
@@ -276,13 +275,13 @@ class ConsistencyManager:
             # 用于一致性检查的上下文构建，非正文生成提示词，属于可接受范围
             # 但仍建议未来使用SemanticCompressor替代
             prompt = CONSISTENCY_CHECK_PROMPT.format(
-                novel_setting=novel_setting[:1000],
-                character_state=character_state[:1000] or "暂无角色状态",
-                global_summary=global_summary[:1000] or "暂无前文摘要",
+                novel_setting=novel_setting,
+                character_state=character_state or "暂无角色状态",
+                global_summary=global_summary or "暂无前文摘要",
                 plot_arcs="暂无记录的未解决冲突",
                 chapter_number=chapter_number,
                 chapter_title=chapter_title,
-                chapter_content=chapter_content[:2000]
+                chapter_content=chapter_content
             )
 
             response = await self.llm_provider.generate(prompt)

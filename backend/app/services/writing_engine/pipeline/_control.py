@@ -1,8 +1,8 @@
 """
 写作流水线 - 中断/续传/继续生成 Mixin
 
-@date: 2026-04-24
-@version: v1.0.0
+@date: 2026-04-29
+@version: v1.2.0 - 幽灵状态即时检测（后端重启即判定为INTERRUPTED）
 """
 import asyncio
 from datetime import datetime
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import get_logger
 from app.models.writing_task import WritingTask, TaskStatus
+
 from app.agents.writing.orchestrator_agent import OrchestratorAgent
 from app.agents.writing.base_agent import AgentContext, AgentResult
 from app.agents.writing.agent_config import AgentConfig
@@ -126,7 +127,26 @@ class PipelineControlMixin(PipelineExecuteMixin):
                     logger.error(f"任务不存在: task_id={self.task_id}")
                     return False
 
-                # 验证任务状态
+                # 验证任务状态（含幽灵状态检测）
+                if self.task.status == TaskStatus.RUNNING:
+                    # 检查内存中是否有活跃的Pipeline
+                    if self.task.id in type(self)._active_pipelines:
+                        logger.warning(
+                            f"任务正在运行中，无法续传: task_id={self.task.id}, status={self.task.status}")
+                        return False
+                    else:
+                        # 内存中没有活跃Pipeline，说明是幽灵状态（后端已重启）
+                        logger.warning(
+                            f"检测到幽灵状态RUNNING，自动转为INTERRUPTED: task_id={self.task.id}")
+                        # 更新状态为INTERRUPTED
+                        await db.execute(
+                            update(WritingTask)
+                            .where(WritingTask.id == self.task.id)
+                            .values(status=TaskStatus.INTERRUPTED, end_time=datetime.now())
+                        )
+                        await db.commit()
+                        self.task.status = TaskStatus.INTERRUPTED
+
                 if self.task.status not in (TaskStatus.INTERRUPTED, TaskStatus.FAILED):
                     logger.warning(
                         f"任务不在可续传状态: task_id={self.task.id}, status={self.task.status}")
@@ -138,7 +158,28 @@ class PipelineControlMixin(PipelineExecuteMixin):
             logger.info(
                 f"任务已加载: task_id={self.task.id}, status={self.task.status}")
         else:
-            # 任务已加载，验证状态
+            # 任务已加载，验证状态（含幽灵状态检测）
+            if self.task.status == TaskStatus.RUNNING:
+                # 检查内存中是否有活跃的Pipeline
+                if self.task.id in type(self)._active_pipelines:
+                    logger.warning(
+                        f"任务正在运行中，无法续传: task_id={self.task.id}, status={self.task.status}")
+                    return False
+                else:
+                    # 内存中没有活跃Pipeline，说明是幽灵状态（后端已重启）
+                    logger.warning(
+                        f"检测到幽灵状态RUNNING，自动转为INTERRUPTED: task_id={self.task.id}")
+                    # 需要在数据库会话中更新状态
+                    from app.core.database import async_session_maker
+                    async with async_session_maker() as db:
+                        await db.execute(
+                            update(WritingTask)
+                            .where(WritingTask.id == self.task.id)
+                            .values(status=TaskStatus.INTERRUPTED, end_time=datetime.now())
+                        )
+                        await db.commit()
+                    self.task.status = TaskStatus.INTERRUPTED
+
             if self.task.status not in (TaskStatus.INTERRUPTED, TaskStatus.FAILED):
                 logger.warning(
                     f"任务不在可续传状态: task_id={self.task.id}, status={self.task.status}")
@@ -279,8 +320,11 @@ class PipelineControlMixin(PipelineExecuteMixin):
                     logger.info(f"继续生成任务被中断: task_id={self.task.id}")
                     self.task.status = TaskStatus.INTERRUPTED
                     self.task.end_time = datetime.now()
-                    await db.commit()
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
+                    try:
+                        await db.commit()
+                        await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
+                    except Exception:
+                        logger.warning("继续生成任务中断时数据库提交失败,连接可能已关闭")
 
             except Exception as e:
                 logger.exception(
@@ -397,8 +441,11 @@ class PipelineControlMixin(PipelineExecuteMixin):
                     logger.info(f"续传任务被中断: task_id={self.task.id}")
                     self.task.status = TaskStatus.INTERRUPTED
                     self.task.end_time = datetime.now()
-                    await db.commit()
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
+                    try:
+                        await db.commit()
+                        await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
+                    except Exception:
+                        logger.warning("续传任务中断时数据库提交失败,连接可能已关闭")
                 else:
                     logger.info(f"续传任务被中断: task_id={self.task_id}")
 

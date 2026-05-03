@@ -74,10 +74,10 @@
       <!-- 图谱可视化区域 -->
       <div class="graph-visualization" v-loading="loadingGraphData">
         <div v-if="graphData.nodes.length === 0 && !loadingGraphData" class="graph-empty">
-          <el-empty :image-size="100" description="暂无图谱数据，请先构建知识库">
-            <el-button type="primary" @click="$emit('build-knowledge-base')">
-              构建知识库
-            </el-button>
+          <el-empty :image-size="100" description="暂无图谱数据">
+            <span style="font-size: 13px; color: #909399;">
+              请前往创意生成页面构建知识图谱<br/>然后在创建项目时粘贴图谱ID继承
+            </span>
           </el-empty>
         </div>
         <div v-else class="graph-canvas">
@@ -287,7 +287,7 @@ const props = defineProps({
 })
 
 // ==================== Emits ====================
-const emit = defineEmits(['update:visible', 'build-knowledge-base'])
+const emit = defineEmits(['update:visible'])
 
 // ==================== 知识图谱相关状态 ====================
 const graphType = ref('global')

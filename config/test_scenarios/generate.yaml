@@ -1,0 +1,15 @@
+module: 创意生成
+
+scenarios:
+  - name: 正常生成流程
+    type: normal_flow
+    steps:
+      - navigate: /generate
+      - wait: 2000
+  
+  - name: 快速连击生成
+    type: stress_test  
+    simulator: impatient_user
+    steps:
+      - navigate: /generate
+      - wait: 1000

@@ -5,6 +5,10 @@ from app.core.config import PRESET_MODELS, get_settings
 from app.agents.llm_manager import get_llm_manager, LLMManager
 from app.agents.memory_manager import get_memory_manager, MemoryManager
 from app.agents.prompt_manager import get_prompt_manager, PromptManager
+from app.tools.web_search import get_web_search_tool
+from app.tools.knowledge_retrieval import get_knowledge_retrieval_tool
+from app.tools.webpage_reader import get_webpage_reader
+from app.tools.mcp.mcp_client import get_mcp_client
 from app.agents.orchestrator.impl.mixins import (
     ContextUtilsMixin,
     GenerationCoreMixin,

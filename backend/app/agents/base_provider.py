@@ -41,6 +41,7 @@ class LLMResponse(BaseModel):
     provider: str
     usage: Optional[Dict[str, int]] = None
     finish_reason: Optional[str] = None
+    reasoning_content: Optional[str] = None  # DeepSeek思考模式的思维链内容
 
 
 class MultimodalMessage(BaseModel):

@@ -77,34 +77,35 @@ class QcLayeredMixin:
                 "icon": "Search"
             }
 
-        # ==================== 第二层：边界检查（续生成增强）====================
-        if is_resume and new_units_start:
-            if workflow_yield:
-                yield {
-                    "type": "step", "step": "qc_boundary", "status": "running",
-                    "message": "正在检查续生成边界连贯性...",
-                    "icon": "Connection"
-                }
+        # ==================== 第二层：边界检查（所有模式，不仅限于续生成）====================
+        # v4.0：边界检查在所有模式下运行，防止QC修正引入越界问题
+        boundary_chapter_start = new_units_start if (is_resume and new_units_start) else 1
+        if workflow_yield:
+            yield {
+                "type": "step", "step": "qc_boundary", "status": "running",
+                "message": "正在检查续生成边界连贯性...",
+                "icon": "Connection"
+            }
 
-            boundary_report = await self._check_resume_boundary(
-                full_parsed=full_parsed,
-                new_units_start=new_units_start,
-                content_type=content_type,
-                llm_provider=llm_provider,
-                temperature=temperature
-            )
+        boundary_report = await self._check_resume_boundary(
+            full_parsed=full_parsed,
+            new_units_start=boundary_chapter_start,
+            content_type=content_type,
+            llm_provider=llm_provider,
+            temperature=temperature
+        )
 
-            # 合并边界检查问题
-            quality_report.setdefault("issues", []).extend(
-                boundary_report.get("issues", [])
-            )
+        # 合并边界检查问题
+        quality_report.setdefault("issues", []).extend(
+            boundary_report.get("issues", [])
+        )
 
-            if workflow_yield:
-                yield {
-                    "type": "step", "step": "qc_boundary", "status": "done",
-                    "message": f"边界检查完成，发现{len(boundary_report.get('issues', []))}个问题",
-                    "icon": "Connection"
-                }
+        if workflow_yield:
+            yield {
+                "type": "step", "step": "qc_boundary", "status": "done",
+                "message": f"边界检查完成，发现{len(boundary_report.get('issues', []))}个问题",
+                "icon": "Connection"
+            }
 
         # ==================== 第三层：增量全局检查（续生成抽查）====================
         if is_resume:
@@ -174,20 +175,80 @@ class QcLayeredMixin:
                     if unit_num in full_parsed:
                         full_parsed[unit_num]["original_summary"] = full_parsed[unit_num].get(
                             "summary", "")
+                        full_parsed[unit_num]["original_full_content"] = full_parsed[unit_num].get(
+                            "full_content", "")
                         full_parsed[unit_num]["summary"] = revised_data.get(
                             "summary", full_parsed[unit_num]["summary"])
+                        # 同时应用LLM返回的full_content（如果提供且非空）
+                        revised_full_content = revised_data.get("full_content", "")
+                        if revised_full_content and revised_full_content != revised_data.get("summary", ""):
+                            full_parsed[unit_num]["full_content"] = revised_full_content
                         full_parsed[unit_num]["quality_revised"] = True
                         full_parsed[unit_num]["revision_reason"] = revised_data.get(
                             "revision_reason", "")
 
-                # 重新生成完整内容
-                revised_content = self._format_all_units(
+                # 重新生成完整内容（使用_build_revised_content保留完整full_content）
+                revised_content = self._build_revised_content(
                     full_parsed, content_type)
 
                 if replace_content_yield:
                     yield revised_content, f"已修正{len(revised_parsed)}个单元的质量问题"
 
                 self.logger.info("[单元概述] 质量管控修正完成")
+
+                # ========== v4.0新增：QC修正后边界语义验证保护 ==========
+                # 修正后的内容必须通过语义边界验证，防止QC修正引入新的越界问题
+                if global_outline and len(global_outline) > 50 and llm_provider:
+                    unit_label = {"novel": "章", "series_script": "集"}.get(
+                        content_type, "章")
+                    try:
+                        boundary_map = self.extract_chapter_boundaries(
+                            global_outline,
+                            max(int(k) for k in full_parsed.keys()),
+                            unit_label
+                        )
+                        if boundary_map:
+                            for unit_num in list(revised_parsed.keys()):
+                                if unit_num not in full_parsed:
+                                    continue
+                                chapter_num = int(unit_num)
+                                content = (
+                                    full_parsed[unit_num].get("full_content", "")
+                                    or full_parsed[unit_num].get("summary", "")
+                                )
+                                if not content:
+                                    continue
+
+                                semantic_result = await self.validate_boundary_semantic(
+                                    chapter_content=content,
+                                    chapter_num=chapter_num,
+                                    boundary_map=boundary_map,
+                                    llm_provider=llm_provider,
+                                    unit_label=unit_label,
+                                )
+
+                                if not semantic_result.passed or semantic_result.violations:
+                                    self.logger.warning(
+                                        f"[QC边界保护] 第{chapter_num}{unit_label}"
+                                        f"修正后语义越界，回退到修正前版本"
+                                    )
+                                    self.logger.info(
+                                        f"[QC边界保护] 违规: {semantic_result.violations[:3]}")
+                                    # 回退：恢复修正前的original_summary和original_full_content
+                                    if "original_summary" in full_parsed[unit_num]:
+                                        full_parsed[unit_num]["summary"] = (
+                                            full_parsed[unit_num]["original_summary"]
+                                        )
+                                        del full_parsed[unit_num]["original_summary"]
+                                        full_parsed[unit_num]["quality_revised"] = False
+                                    if "original_full_content" in full_parsed[unit_num]:
+                                        full_parsed[unit_num]["full_content"] = (
+                                            full_parsed[unit_num]["original_full_content"]
+                                        )
+                                        del full_parsed[unit_num]["original_full_content"]
+                    except Exception as e:
+                        self.logger.warning(
+                            f"[QC边界保护] 语义边界验证异常: {e!r}")
 
             if workflow_yield:
                 yield {

@@ -150,12 +150,14 @@ class UnitSummaryResumeContextMixin:
         series_type: str = None,
         episode_duration_range: str = None,
         title_style: str = None,  # 标题风格ID（新增）
-        title_style_name: str = None  # 标题风格名称（新增）
+        title_style_name: str = None,  # 标题风格名称（新增）
+        unit_label: str = None  # 单元标签（新增）
     ) -> str:
         """构建续生成的提示词"""
-        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
-            content_type, "章"
-        )
+        if not unit_label:
+            unit_label = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                content_type, "章"
+            )
 
         units_to_generate = unit_count - start_from_unit + 1
 
@@ -164,7 +166,8 @@ class UnitSummaryResumeContextMixin:
             "chapter_count": str(units_to_generate),
             "episode_count": str(units_to_generate),
             "series_type": series_type or "网剧",
-            "episode_duration_range": episode_duration_range or "30-45分钟"
+            "episode_duration_range": episode_duration_range or "30-45分钟",
+            "unit_label": unit_label  # 新增：单元标签变量
         }
 
         # 生成标题风格指导文本（新增）
@@ -183,42 +186,93 @@ class UnitSummaryResumeContextMixin:
             prompt_template, input_params, module_name
         )
 
-        # 添加续生成特别说明（三重约束机制）
+        # 章节边界识别机制（v4.0正向版）- 放在全局大纲之前
+        boundary_constraint_resume = f"""# 章节边界指引（请首先阅读）
+
+## 全局大纲中的分章结构
+
+全局大纲包含【分章大纲】部分，其中为每个章节分配了专属内容。在开始创作之前，请先做以下工作：
+
+### 第一步：定位分章大纲
+在全局大纲中找到【分章大纲】部分，这是每个章节最细粒度的内容分配。
+
+### 第二步：建立章节内容映射
+为每个章节建立明确的内容归属，例如：
+
+| 章节范围 | 本章专属内容 |
+|---------|------------|
+| 第1-10章 | 主角初入江湖，结识伙伴 |
+| 第11-30章 | 江湖历练，逐渐成长 |
+| 第91-98章 | 战前部署，各方势力集结 |
+| 第99-100章 | 平播之战一触即发。第一部完。 |
+
+### 第三步：逐章细化原则
+- 每一章只展开其编号范围内分章大纲分配的内容
+- 第98章只写到"战前准备完毕，即将开战"为止
+- 第99章开始才展开平播之战的实际过程
+- 如果分章大纲中某个事件在第50章才出现，在第30章时仅为该事件做铺垫和伏笔
+
+### 核心创作原则
+你的创造性体现在**如何写**（场景描写、对话设计、情感渲染），而非**写什么**（事件、角色、结果——这些由分章大纲决定）。
+
+---
+
+# 全局大纲（请据此创作）
+
+"""
+        
+        # 前置边界约束
+        filled_prompt = boundary_constraint_resume + filled_prompt
+
+        # 添加续生成指引（v4.0正向版）
         filled_prompt += f"""
 
-## 🚨🚨🚨 极其重要：续生成模式 - 严格的批次约束
+---
 
-### 当前任务状态
-- **已生成章节**：第1-{start_from_unit - 1}{unit_label}（共{start_from_unit - 1}章）
+## 续生成指引
+
+### 当前进度
+- **已完成**：第1-{start_from_unit - 1}{unit_label}（共{start_from_unit - 1}章）
 - **本次任务**：生成第{start_from_unit}-{unit_count}{unit_label}（共{units_to_generate}章）
-- **全局大纲**：已提供完整的1-{unit_count}{unit_label}的大纲（供参考整体设定）
 
-### ⛔ 绝对禁止的行为
-1. ❌ 严禁从第1章重新开始生成
-2. ❌ 严禁重复生成第1-{start_from_unit - 1}章的内容
-3. ❌ 严禁跳过第{start_from_unit}章，从后面的章节开始
-4. ❌ 严禁生成超过第{unit_count}章的内容
+### 生成规则
+1. 从第{start_from_unit}{unit_label}开始，按顺序逐章生成到第{unit_count}{unit_label}
+2. 恰好生成{units_to_generate}个章节，编号连续：{start_from_unit}, {start_from_unit + 1}, {start_from_unit + 2}, ..., {unit_count}
 
-### ✅ 必须严格遵守的规则
-1. ✅ **必须从第{start_from_unit}{unit_label}开始生成**（这是你的起点）
-2. ✅ **必须按顺序生成**：第{start_from_unit}章 → 第{start_from_unit + 1}章 → ... → 第{unit_count}章
-3. ✅ **必须生成恰好{units_to_generate}个章节**，不多不少
-4. ✅ **章节编号必须连续**：{start_from_unit}, {start_from_unit + 1}, {start_from_unit + 2}, ..., {unit_count}
+### 衔接要求
+- 第{start_from_unit}{unit_label}从上一章结尾情境自然延续发展
+- 人物状态、关系发展与前文保持一致
+- 前文埋下的伏笔和线索在后续章节中继续推进或回收
+- 参考全局大纲中第{start_from_unit}-{unit_count}{unit_label}的情节分配
 
-### 情节连贯性要求
-- 你生成的第{start_from_unit}章必须与第{start_from_unit - 1}章的情节自然衔接
-- 人物状态、关系发展要与前文保持一致
-- 伏笔、线索要继续发展或回收
-- 参考全局大纲中第{start_from_unit}-{unit_count}章的情节分配
+### 逐章细化指南
 
-### 输出完整性保障（防截断）
-- 当你感觉到输出即将达到token上限时，**必须提前结束**
-- 结束时必须确保最后一个章节概述是**完整的**，包含标题、梗概、情节要点等全部要素
-- **绝对禁止输出不完整的章节概述**——如果来不及写完某一章，就不要开始写这一章
-- 正确做法：写完当前章节后，判断是否还有足够空间写完下一章，如果空间不足就停在此处
-- 未生成的章节可以通过续生成机制补全，但被截断的半章内容无法使用
+你的任务是**将分章大纲细化为详细的章节概述**，以下原则帮助你在正确的范围内创作：
 
-### 输出格式示例
+1. **忠于大纲内容**
+   - 分章大纲中已列出的事件，你负责细化、展开和丰富
+   - 分章大纲中的人物、地点、事件走向均已确定，你负责将它们写得更生动
+
+2. **尊重内容归属**
+   - 每个章节只涵盖其编号范围内分章大纲分配的内容
+   - 例如：分章大纲中"第99-100章：平播之战一触即发"意味着第98章写到"战前准备完毕"即可
+   - 例如：分章大纲中某个事件在第50章才出现，在第5章时只需为该事件做铺垫
+
+3. **创造性范围**
+   - 你可以发挥创造力的地方：场景如何描写、对话如何设计、情感如何渲染
+   - 由分章大纲决定的地方：发生什么事件、谁参与、事件的结果
+
+4. **逐章自查指南**
+   - 本章的编号范围在分章大纲中对应什么内容？
+   - 我写的内容是否恰好覆盖了这些内容？
+   - 下一章将展开的事件，本章是否做好了合理的铺垫和过渡？
+
+### 输出完整性保障
+- 当你感知到输出即将达到token上限时，确保最后一个章节概述是**完整**的
+- 如果无法完成下一章完整概述，在当前章节完成后停止
+- 未生成的章节可通过续生成机制补全
+
+### 输出格式
 ```
 第{start_from_unit}章 [章节标题]
 梗概：[本章情节概述]
@@ -230,8 +284,6 @@ class UnitSummaryResumeContextMixin:
 
 （继续直到第{unit_count}章）
 ```
-
-**再次强调：从第{start_from_unit}章开始，生成到第{unit_count}章结束，共{units_to_generate}章！**
 """
 
         return filled_prompt

@@ -1,9 +1,12 @@
-"""
-多Agent协作文学作品生成系统 - 任务管理服务
+"""多Agent协作文学作品生成系统 - 写作任务CRUD服务（WritingTaskService）
 
 模块: services.writing_engine
 文件: task_manager.py
 功能: 写作任务的CRUD服务，管理任务生命周期和关联数据查询
+
+区别说明:
+    - 本模块: 写作任务的CRUD服务（数据库操作）
+    - services/task_manager.py: 批量生成任务的状态管理（进度追踪、取消、持久化）
 
 依赖关系:
     - 依赖: app.core.database, app.models.writing_task, app.models.writing_unit, 

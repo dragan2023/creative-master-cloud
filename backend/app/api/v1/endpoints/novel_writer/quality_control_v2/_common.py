@@ -19,6 +19,8 @@ async def _generate_fixes_for_issues(
 ) -> list:
     """
     为检测结果中的每个问题自动生成修正建议
+    
+    v2.2优化：按章节分组，批量调用LLM修正，显著提升效率
 
     Args:
         issues: 问题列表
@@ -33,35 +35,51 @@ async def _generate_fixes_for_issues(
     from app.services.quality_control.fix_generator import QualityFixGenerator
 
     fix_generator = QualityFixGenerator()
-    issues_with_fixes = []
-
+    
+    # 按章节号分组问题
+    issues_by_chapter = {}
     for issue in issues:
-        # 获取章节号
         chapter_number = issue.get('location', {}).get('chapter_number', 0)
-        if not chapter_number:
-            issues_with_fixes.append(issue)
+        if chapter_number:
+            if chapter_number not in issues_by_chapter:
+                issues_by_chapter[chapter_number] = []
+            issues_by_chapter[chapter_number].append(issue)
+        else:
+            # 没有章节号的问题单独处理
+            if 0 not in issues_by_chapter:
+                issues_by_chapter[0] = []
+            issues_by_chapter[0].append(issue)
+    
+    # 对每个章节批量修正
+    for chapter_number, chapter_issues in issues_by_chapter.items():
+        if chapter_number == 0:
+            # 没有章节号的问题，跳过或逐个处理
+            for issue in chapter_issues:
+                issue['auto_fix'] = None
             continue
-
-        # 查找对应章节内容和单元概述
+        
+        # 查找章节内容和单元概述
         chapter_content = ""
-        chapter_summary = ""  # 新增：单元概述
+        chapter_summary = ""
         for ch in chapters_data:
             if ch.get('chapter_number') == chapter_number:
                 chapter_content = ch.get('content', '')
-                chapter_summary = ch.get('summary', '') or ch.get(
-                    'unit_summary', '')  # 新增：获取单元概述
+                chapter_summary = ch.get('summary', '') or ch.get('unit_summary', '')
                 break
-
+        
         if not chapter_content:
-            issues_with_fixes.append(issue)
+            logger.warning(f"[批量修正] 章节{chapter_number}内容为空，跳过")
+            for issue in chapter_issues:
+                issue['auto_fix'] = None
             continue
-
+        
         try:
-            # 新增：查询知识图谱上下文
+            # 查询知识图谱上下文
             from app.services.quality_control.kg_helper import get_kg_helper
             kg_helper = get_kg_helper()
-
-            issue_category = issue.get('category', '')
+            
+            # 使用第一个问题的类别查询
+            issue_category = chapter_issues[0].get('category', '')
             kg_data = kg_helper.query_relevant_entities(
                 project_id=getattr(project, 'id', 0),
                 unit_index=chapter_number,
@@ -69,40 +87,44 @@ async def _generate_fixes_for_issues(
                 max_entities=15
             )
             knowledge_graph_context = kg_helper.format_kg_context(kg_data)
-
+            
             logger.info(
-                f"[修正建议] 知识图谱查询完成: issue={issue.get('id')}, "
+                f"[批量修正] 知识图谱查询完成: chapter={chapter_number}, "
+                f"问题数={len(chapter_issues)}, "
                 f"人物={len(kg_data.get('characters', []))}, "
                 f"事件={len(kg_data.get('events', []))}"
             )
-
-            # 调用LLM生成修正建议
-            fix_result = await fix_generator.generate_fix(
-                issue=issue,
+            
+            # 批量调用LLM修正
+            batch_fix_result = await fix_generator.generate_batch_fix(
+                issues=chapter_issues,
                 chapter_content=chapter_content,
                 unit_summary=chapter_summary,
                 knowledge_graph_context=knowledge_graph_context,
-                character_profiles=getattr(
-                    project, 'character_profiles', []) or [],
-                worldview_settings=getattr(
-                    project, 'worldview_settings', {}) or {},
+                character_profiles=getattr(project, 'character_profiles', []) or [],
+                worldview_settings=getattr(project, 'worldview_settings', {}) or {},
                 db=db,
                 user_id=user_id
             )
-
-            # 将修正建议添加到问题中
-            issue['auto_fix'] = fix_result
-            issues_with_fixes.append(issue)
-
-            logger.debug(
-                f"[修正建议] 为问题 {issue.get('id')} 生成修正建议成功, "
-                f"confidence={fix_result.get('confidence', 0):.2f}"
+            
+            # 将批量修正结果分配给每个问题
+            for issue in chapter_issues:
+                issue['auto_fix'] = batch_fix_result
+            
+            logger.info(
+                f"[批量修正] 章节{chapter_number}批量修正完成: "
+                f"问题数={len(chapter_issues)}, "
+                f"confidence={batch_fix_result.get('confidence', 0):.2f}, "
+                f"type={batch_fix_result.get('type', 'unknown')}"
             )
+            
         except Exception as e:
-            logger.warning(f"[修正建议] 为问题 {issue.get('id')} 生成修正建议失败: {e}")
-            issues_with_fixes.append(issue)
+            logger.error(f"[批量修正] 章节{chapter_number}批量修正失败: {e}", exc_info=True)
+            # 降级处理：为每个问题设置None
+            for issue in chapter_issues:
+                issue['auto_fix'] = None
 
-    return issues_with_fixes
+    return issues
 
 
 # ==================== 请求/响应模型 ====================

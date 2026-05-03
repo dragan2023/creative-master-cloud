@@ -18,7 +18,10 @@ from app.services.outline_generator.impl.mixins import (
     QcLayeredMixin,
     QcGlobalAnalysisMixin,
     QcGlobalRevisionMixin,
-    QcUnitManualMixin,
+    ChapterBoundaryMixin,
+    SemanticBoundaryValidatorMixin,
+    AtomicChapterGeneratorMixin,
+    AtomicChapterStreamMixin,
 )
 
 
@@ -36,7 +39,10 @@ class OutlineGenerator(
     QcLayeredMixin,
     QcGlobalAnalysisMixin,
     QcGlobalRevisionMixin,
-    QcUnitManualMixin,
+    ChapterBoundaryMixin,
+    SemanticBoundaryValidatorMixin,
+    AtomicChapterGeneratorMixin,
+    AtomicChapterStreamMixin,
 ):
     """大纲生成器（两阶段） - 组合Mixin实现"""
 

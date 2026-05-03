@@ -5,6 +5,8 @@ from typing import Any
 import re
 import time
 
+from app.agents.writing.character_state_tracker.api import CharacterState, ChapterSnapshot, RelationshipChange
+
 
 class ImportFromDictMixin:
     """import_from_dict功能域"""

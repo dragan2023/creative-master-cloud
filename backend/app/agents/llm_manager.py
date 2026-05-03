@@ -34,6 +34,8 @@ class LLMManager:
         # 豆包（火山引擎）
         "doubao": DoubaoProvider,
         "doubao-image": DoubaoProvider,  # 图像生成模型
+        # DeepSeek（官方）
+        "deepseek": DeepSeekProvider,
         # 硅基流动
         "siliconflow": OpenAIProvider,
         # OpenRouter
@@ -53,7 +55,11 @@ class LLMManager:
         provider_name: str,
         api_key: str,
         model_name: Optional[str] = None,
-        api_base: Optional[str] = None
+        api_base: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,  # 思考强度
+        enable_thinking: bool = False,  # 是否启用思考模式
+        thinking_save_dir: Optional[str] = None,  # 思考过程保存目录
+        **kwargs
     ) -> BaseLLMProvider:
         """
         创建 LLM 提供者实例
@@ -63,6 +69,9 @@ class LLMManager:
             api_key: API Key
             model_name: 模型名称
             api_base: API 基础地址
+            reasoning_effort: 思考强度（high/max），仅DeepSeek V4系列支持
+            enable_thinking: 是否启用思考模式
+            thinking_save_dir: 思考过程保存目录
 
         Returns:
             LLM 提供者实例
@@ -85,11 +94,24 @@ class LLMManager:
 
         provider_class = self.PROVIDER_CLASSES[provider_name]
 
-        return provider_class(
-            api_key=api_key,
-            model_name=model_name,
-            api_base=api_base
-        )
+        # DeepSeek提供者支持思考模式参数
+        if provider_name == "deepseek":
+            return provider_class(
+                api_key=api_key,
+                model_name=model_name,
+                api_base=api_base,
+                reasoning_effort=reasoning_effort,
+                enable_thinking=enable_thinking,
+                thinking_save_dir=thinking_save_dir,
+                **kwargs
+            )
+        else:
+            return provider_class(
+                api_key=api_key,
+                model_name=model_name,
+                api_base=api_base,
+                **kwargs
+            )
 
     async def get_provider_from_db(
         self,

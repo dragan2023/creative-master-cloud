@@ -213,6 +213,7 @@ VERTICAL_KB_CONFIGS = {
             }
         }
     },
+    # [DEPRECATED] 剧本大纲已移除，保留用于历史数据兼容
     "script": {
         "category": "script",
         "description": "剧本大纲专业知识库",

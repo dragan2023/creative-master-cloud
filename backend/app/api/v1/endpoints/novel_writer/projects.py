@@ -13,7 +13,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.core.exceptions import ResourceNotFoundException, AppException, ErrorCode
+from app.core.exceptions import ResourceNotFoundException, ValidationException, AppException, ErrorCode
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -143,6 +143,57 @@ async def create_project(
         db.add(project)
         await db.commit()
         await db.refresh(project)
+
+        # 处理知识图谱继承（从四阶段流程构建的项目继承）
+        if request.inherit_kb_from_project_id:
+            try:
+                # 安全校验：确认源项目归属当前用户
+                src_query = select(NovelProject).where(
+                    NovelProject.id == request.inherit_kb_from_project_id,
+                    NovelProject.user_id == current_user.id
+                )
+                src_result = await db.execute(src_query)
+                src_project = src_result.scalar_one_or_none()
+                if not src_project:
+                    raise ValidationException("源项目不存在或无权访问")
+                if src_project.kb_status != "ready":
+                    raise ValidationException("源项目知识图谱未就绪，无法继承")
+
+                from app.services.novel_writer.project_knowledge_base import ProjectKnowledgeBase
+                kb_manager = ProjectKnowledgeBase(db=db)
+                inherit_result = await kb_manager.inherit_knowledge_graph(
+                    src_project_id=request.inherit_kb_from_project_id,
+                    dst_project_id=project.id
+                )
+                if inherit_result.get("success"):
+                    project.kb_status = "ready"
+                    project.global_outline_graph_path = kb_manager.get_graph_path(project.id)
+                    project.project_kb_collection = kb_manager.get_collection_name(project.id)
+                    project.kb_build_progress = {
+                        "stage": "inherited",
+                        "progress": 100,
+                        "message": "知识图谱已从源项目继承",
+                        "entity_count": inherit_result.get("entity_count", 0),
+                        "relation_count": inherit_result.get("relation_count", 0),
+                    }
+                    await db.commit()
+                    logger.info(
+                        f"[图谱继承] 项目 {project.id} 已继承源项目 "
+                        f"{request.inherit_kb_from_project_id} 的知识图谱, "
+                        f"entities={inherit_result.get('entity_count')}, "
+                        f"relations={inherit_result.get('relation_count')}")
+                else:
+                    logger.error(
+                        f"[图谱继承] 继承失败: src={request.inherit_kb_from_project_id}, "
+                        f"dst={project.id}, error={inherit_result.get('error')}")
+            except AppException:
+                # 校验异常（如源项目不存在/未就绪）向上传播
+                raise
+            except Exception as inherit_error:
+                logger.error(
+                    f"[图谱继承] 异常: src={request.inherit_kb_from_project_id}, "
+                    f"dst={project.id}, error={inherit_error!r}")
+                # 技术性异常不影响项目创建（如文件不存在、向量库写入失败）
 
         logger.info(
             f"创建项目成功: {project.title} ({project.project_code}), 类型: {content_type.value}")
@@ -277,6 +328,13 @@ async def update_project(
         # 更新大纲内容
         if request.outline_content is not None:
             project.outline_content = request.outline_content
+
+        # 更新单元概述
+        if request.unit_summaries is not None:
+            project.unit_summaries = request.unit_summaries
+            project.unit_summaries_status = 'completed'
+            # 同步更新总章节数
+            project.total_chapters = len(request.unit_summaries)
 
         # 更新新版配置字段
         if request.novel_config:

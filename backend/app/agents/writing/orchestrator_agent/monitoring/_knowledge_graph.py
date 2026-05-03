@@ -19,18 +19,22 @@ class MonitoringKnowledgeGraphMixin:
     - _get_llm_provider_for_extraction: 获取用于提取的LLM Provider
     - _sync_extended_states_to_knowledge_graph: 同步扩展状态实体到知识图谱
     - _get_extended_context_info: 获取扩展实体的上下文信息
+
+    注意：
+    - _get_provider 方法从父类 BaseWritingAgent 继承，不应在此定义属性覆盖
     """
 
-    # 由主类提供的属性
+    # 由主类提供的属性（类型注解，不设置默认值避免覆盖父类方法）
     logger: Any
     _project_knowledge_base: Optional[Any]
     _character_tracker: Optional[Any]
     _graph_cache: Optional[Any] = None
     _context_accumulator: Optional[Any] = None
 
-    # 从主类或其他 Mixin 继承的属性/方法
+    # 从主类继承的配置
     config: Optional[Any] = None
-    _get_provider: Optional[callable] = None
+
+    # _get_provider 方法从父类继承，不需要在此定义
 
     async def _get_llm_provider_for_extraction(self) -> Optional[Any]:
         """获取用于人物状态提取的LLM Provider"""
@@ -157,18 +161,31 @@ class MonitoringKnowledgeGraphMixin:
                 result["total_relations"] = len(relations)
                 result["success"] = True
 
-                try:
-                    global_sync_result = await self._project_knowledge_base.sync_unit_entities_to_global(
-                        project_id=project_id,
-                        unit_number=chapter_num,
-                        character_tracker=self._character_tracker
-                    )
-                    if global_sync_result.get("success"):
-                        new_entities = global_sync_result.get("new_entities", [])
-                        if new_entities:
-                            self.logger.info(f"扩展实体同步到全局图谱: 章节{chapter_num}, 新实体={[e['text'] for e in new_entities[:5]]}")
-                except Exception as global_sync_error:
-                    self.logger.warning(f"扩展实体同步到全局图谱失败: {global_sync_error}")
+                # 🆕 [知识图谱优化 v3.2] 彻底禁用单元实体同步到全局图谱
+                # 原因：持续同步导致全局图谱无限膨胀（100章可达3550+实体）
+                # 优化：全局图谱仅保留全局大纲实体（~50个），跨章检索通过向量库实现
+                self.logger.info(
+                    f"[知识图谱优化 v3.2] 跳过单元实体同步到全局图谱: 章节{chapter_num}, "
+                    f"单元图谱节点={unit_graph.graph.number_of_nodes()}, "
+                    f"边={unit_graph.graph.number_of_edges()}"
+                )
+                self.logger.info(
+                    f"[知识图谱优化 v3.2] 全局图谱将仅保留全局大纲实体，跨章检索通过向量库实现"
+                )
+                
+                # 旧代码（已禁用）：
+                # try:
+                #     global_sync_result = await self._project_knowledge_base.sync_unit_entities_to_global(
+                #         project_id=project_id,
+                #         unit_number=chapter_num,
+                #         character_tracker=self._character_tracker
+                #     )
+                #     if global_sync_result.get("success"):
+                #         new_entities = global_sync_result.get("new_entities", [])
+                #         if new_entities:
+                #             self.logger.info(f"扩展实体同步到全局图谱: 章节{chapter_num}, 新实体={[e['text'] for e in new_entities[:5]]}")
+                # except Exception as global_sync_error:
+                #     self.logger.warning(f"扩展实体同步到全局图谱失败: {global_sync_error}")
             else:
                 self.logger.warning(f"扩展状态图谱保存失败: 章节{chapter_num}")
 

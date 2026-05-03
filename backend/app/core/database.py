@@ -7,6 +7,7 @@
 @author: 周金磊
 @contact: QQ：7527149（添加时请说明来意）
 """
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import MetaData
@@ -81,11 +82,32 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
-        except Exception:
-            await session.rollback()
+        except BaseException as exc:
+            # 检查是否为取消错误(CancelledError可能被包装在ExceptionGroup中)
+            is_cancelled = isinstance(exc, asyncio.CancelledError)
+            if not is_cancelled and hasattr(exc, 'exceptions'):
+                # ExceptionGroup: 检查是否包含CancelledError
+                for sub_exc in exc.exceptions:
+                    if isinstance(sub_exc, asyncio.CancelledError):
+                        is_cancelled = True
+                        break
+            
+            if is_cancelled:
+                # 任务被取消,连接可能已失效,跳过回滚
+                logger.debug("数据库会话被取消,跳过回滚")
+            else:
+                # 普通异常,尝试回滚
+                try:
+                    await session.rollback()
+                except Exception as rollback_err:
+                    # rollback失败(连接已关闭),记录但不影响主流程
+                    logger.warning(f"数据库回滚失败: {rollback_err}")
             raise
         finally:
-            await session.close()
+            try:
+                await session.close()
+            except Exception as close_err:
+                logger.debug(f"数据库会话关闭异常(可忽略): {close_err}")
 
 
 async def init_db() -> None:
@@ -151,6 +173,7 @@ async def run_migrations() -> None:
     """
     from sqlalchemy import text
     from app.models.writing_model_config import WritingModelConfig
+    from app.models.unit_outline import UnitOutline
 
     async with engine.begin() as conn:
         if is_sqlite:
@@ -161,6 +184,12 @@ async def run_migrations() -> None:
                 if result.fetchone() is None:
                     await conn.run_sync(Base.metadata.create_all, tables=[WritingModelConfig.__table__])
                     logger.info("Migration: 创建 writing_model_configs 表")
+
+                # === unit_outlines 表迁移 ===
+                result = await conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='unit_outlines'"))
+                if result.fetchone() is None:
+                    await conn.run_sync(Base.metadata.create_all, tables=[UnitOutline.__table__])
+                    logger.info("Migration: 创建 unit_outlines 表")
 
                 # === system_versions 表迁移 ===
                 result = await conn.execute(text("PRAGMA table_info(system_versions)"))
@@ -189,28 +218,9 @@ async def run_migrations() -> None:
                 if 'channel' not in uak_columns:
                     await conn.execute(text("ALTER TABLE user_api_keys ADD COLUMN channel VARCHAR(50) DEFAULT 'default'"))
 
-                # === novel_projects 表迁移（生成任务状态字段）===
-                result = await conn.execute(text("PRAGMA table_info(novel_projects)"))
-                np_columns = [row[1] for row in result.fetchall()]
-
-                if 'generation_task_type' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_type VARCHAR(50)"))
-                if 'generation_task_status' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_status VARCHAR(20)"))
-                if 'generation_task_total' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_total INTEGER DEFAULT 0"))
-                if 'generation_task_completed' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_completed INTEGER DEFAULT 0"))
-                if 'generation_task_failed' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_failed INTEGER DEFAULT 0"))
-                if 'generation_task_skipped' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_skipped INTEGER DEFAULT 0"))
-                if 'generation_task_current' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_current INTEGER"))
-                if 'generation_task_started_at' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_started_at VARCHAR(50)"))
-                if 'generation_task_updated_at' not in np_columns:
-                    await conn.execute(text("ALTER TABLE novel_projects ADD COLUMN generation_task_updated_at VARCHAR(50)"))
+                # === novel_projects 表迁移 ===
+                # 注意: generation_task_* 字段已迁移到 WritingTask 模型，此处不再添加
+                # 详见迁移脚本: 019_migrate_generation_task_to_writing_task.py 和 022_drop_generation_task_fields.py
 
                 logger.info("[Migration] SQLite 迁移检查完成")
             except Exception as e:
@@ -226,6 +236,15 @@ async def run_migrations() -> None:
                 if result.fetchone() is None:
                     await conn.run_sync(Base.metadata.create_all, tables=[WritingModelConfig.__table__])
                     logger.info("Migration: 创建 writing_model_configs 表")
+
+                # === unit_outlines 表迁移 ===
+                result = await conn.execute(text("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_name = 'unit_outlines'
+                """))
+                if result.fetchone() is None:
+                    await conn.run_sync(Base.metadata.create_all, tables=[UnitOutline.__table__])
+                    logger.info("Migration: 创建 unit_outlines 表")
 
                 # === system_versions 表迁移 ===
                 result = await conn.execute(text("""
@@ -266,13 +285,6 @@ async def run_migrations() -> None:
                 logger.info("[Migration] PostgreSQL 迁移检查完成")
             except Exception as e:
                 logger.warning(f"[Migration] PostgreSQL 迁移警告: {e}")
-
-
-async def close_db() -> None:
-    """
-    关闭数据库连接
-    """
-    await engine.dispose()
 
 
 async def close_db() -> None:

@@ -1,0 +1,237 @@
+# Vue Dialog 批量拆分配置文件
+# 用法: python scripts/split_vue_dialogs.py --config scripts/split_config.yaml
+
+targets:
+  # ============================================================
+  # ProjectDetail.vue - 11个内联Dialog
+  # ============================================================
+  - source: "frontend/src/views/novel-writer/ProjectDetail.vue"
+    output_dir: "frontend/src/views/novel-writer/components"
+    dialogs:
+      # 1. 修正对比弹窗 (L226-323, ~98行)
+      - name: "RevisionCompareDialog"
+        v_model: "revisionCompareVisible"
+        var_map:
+          chapterRevisionInfo: revisionInfo
+          originalDraftContent: originalContent
+          revisedContent: revisedContent
+          revisionDiffHtml: diffHtml
+          revisionWordChange: wordChange
+        internal_refs:
+          - revisionViewMode
+        shared_imports:
+          - "import { formatDateTime } from '@/views/novel-writer/utils/contentHelpers'"
+        props:
+          - { name: "revisionInfo", source: "chapterRevisionInfo", type: "Object" }
+          - { name: "originalContent", source: "originalDraftContent", type: "String", default: "" }
+          - { name: "revisedContent", source: "revisedContent", type: "String", default: "" }
+          - { name: "diffHtml", source: "revisionDiffHtml", type: "String", default: "" }
+          - { name: "wordChange", source: "revisionWordChange", type: "Number", default: "0" }
+        emits: []
+
+      # 2. 合规审核详情弹窗 (L326-415, ~90行)
+      - name: "ComplianceDetailDialog"
+        v_model: "complianceDetailVisible"
+        var_map:
+          complianceDetailData: complianceData
+        shared_imports:
+          - "import { formatDateTime, getIssueTypeLabel } from '@/views/novel-writer/utils/contentHelpers'"
+        props:
+          - { name: "complianceData", source: "complianceDetailData", type: "Object" }
+        emits: []
+
+      # 3. 项目设置弹窗 (L418-643, ~226行)
+      - name: "ProjectSettingsDialog"
+        v_model: "settingsVisible"
+        props:
+          - { name: "project", source: "project", type: "Object" }
+          - { name: "settingsForm", source: "settingsForm", type: "Object" }
+          - { name: "kbStatus", source: "kbStatus", type: "Object", default: "{}" }
+          - { name: "buildingKb", source: "buildingKb", type: "Boolean", default: "false" }
+          - { name: "savingSettings", source: "savingSettings", type: "Boolean", default: "false" }
+        emits: ["save", "build-knowledge-base"]
+
+      # 4. 导出弹窗 (L646-666, ~21行)
+      - name: "ExportDialog"
+        v_model: "exportVisible"
+        props:
+          - { name: "exportForm", source: "exportForm", type: "Object" }
+          - { name: "exporting", source: "exporting", type: "Boolean", default: "false" }
+        emits: ["export"]
+
+      # 5. 分集大纲详情弹窗 (L669-722, ~54行)
+      - name: "EpisodeOutlineDetailDialog"
+        v_model: "outlineDetailVisible"
+        var_map:
+          currentOutlineDetail: outline
+          outlineEditMode: editMode
+          outlineEditTitle: editTitle
+          outlineEditContent: editContent
+          savingOutlineEdit: saving
+          renderedOutlineContent: renderedContent
+        props:
+          - { name: "outline", source: "currentOutlineDetail", type: "Object", default: "{}" }
+          - { name: "editMode", source: "outlineEditMode", type: "Boolean", default: "false" }
+          - { name: "editTitle", source: "outlineEditTitle", type: "String", default: "" }
+          - { name: "editContent", source: "outlineEditContent", type: "String", default: "" }
+          - { name: "saving", source: "savingOutlineEdit", type: "Boolean", default: "false" }
+          - { name: "renderedContent", source: "renderedOutlineContent", type: "String", default: "" }
+        emits: ["start-edit", "save", "cancel-edit", "download"]
+
+      # 6. 章节大纲详情弹窗 (L725-796, ~72行)
+      - name: "ChapterOutlineDetailDialog"
+        v_model: "chapterOutlineDetailVisible"
+        var_map:
+          currentChapterOutlineDetail: outline
+          chapterOutlineEditMode: editMode
+          chapterOutlineEditTitle: editTitle
+          chapterOutlineEditContent: editContent
+          savingChapterOutlineEdit: saving
+          renderedChapterOutlineContent: renderedContent
+        props:
+          - { name: "outline", source: "currentChapterOutlineDetail", type: "Object", default: "{}" }
+          - { name: "editMode", source: "chapterOutlineEditMode", type: "Boolean", default: "false" }
+          - { name: "editTitle", source: "chapterOutlineEditTitle", type: "String", default: "" }
+          - { name: "editContent", source: "chapterOutlineEditContent", type: "String", default: "" }
+          - { name: "saving", source: "savingChapterOutlineEdit", type: "Boolean", default: "false" }
+          - { name: "renderedContent", source: "renderedChapterOutlineContent", type: "String", default: "" }
+        emits: ["start-edit", "save", "cancel-edit", "download", "show-revision-compare"]
+
+      # 7. 章节大纲修正对比弹窗 (L799-877, ~79行)
+      - name: "ChapterOutlineRevisionCompareDialog"
+        v_model: "chapterOutlineRevisionCompareVisible"
+        var_map:
+          chapterOutlineRevisionInfo: revisionInfo
+          chapterOutlineOriginalContent: originalContent
+          chapterOutlineRevisedContent: revisedContent
+          chapterOutlineRevisionDiffHtml: diffHtml
+          chapterOutlineRevisionWordChange: wordChange
+        internal_refs:
+          - chapterOutlineRevisionViewMode
+        shared_imports:
+          - "import { formatDateTime } from '@/views/novel-writer/utils/contentHelpers'"
+        props:
+          - { name: "revisionInfo", source: "chapterOutlineRevisionInfo", type: "Object" }
+          - { name: "originalContent", source: "chapterOutlineOriginalContent", type: "String", default: "" }
+          - { name: "revisedContent", source: "chapterOutlineRevisedContent", type: "String", default: "" }
+          - { name: "diffHtml", source: "chapterOutlineRevisionDiffHtml", type: "String", default: "" }
+          - { name: "wordChange", source: "chapterOutlineRevisionWordChange", type: "Number", default: "0" }
+        emits: []
+
+      # 8. 场景大纲详情弹窗 (L880-931, ~52行)
+      - name: "SceneOutlineDetailDialog"
+        v_model: "sceneOutlineDetailVisible"
+        var_map:
+          currentSceneOutlineDetail: outline
+          sceneOutlineEditMode: editMode
+          sceneOutlineEditTitle: editTitle
+          sceneOutlineEditContent: editContent
+          savingSceneOutlineEdit: saving
+          renderedSceneOutlineContent: renderedContent
+        props:
+          - { name: "outline", source: "currentSceneOutlineDetail", type: "Object", default: "{}" }
+          - { name: "editMode", source: "sceneOutlineEditMode", type: "Boolean", default: "false" }
+          - { name: "editTitle", source: "sceneOutlineEditTitle", type: "String", default: "" }
+          - { name: "editContent", source: "sceneOutlineEditContent", type: "String", default: "" }
+          - { name: "saving", source: "savingSceneOutlineEdit", type: "Boolean", default: "false" }
+          - { name: "renderedContent", source: "renderedSceneOutlineContent", type: "String", default: "" }
+        emits: ["start-edit", "save", "cancel-edit", "download"]
+
+      # 9. 用户干预弹窗 (L934-1015, ~82行)
+      - name: "InterventionDialog"
+        v_model: "interventionDialogVisible"
+        var_map:
+          interventionUserChoice: userChoice
+          interventionUserGuidance: userGuidance
+          interventionLoading: loading
+        props:
+          - { name: "interventionData", source: "interventionData", type: "Object", default: "{}" }
+          - { name: "interventionOptions", source: "interventionOptions", type: "Array", default: "[]" }
+          - { name: "loading", source: "interventionLoading", type: "Boolean", default: "false" }
+          - { name: "userChoice", source: "interventionUserChoice", type: "String", default: "" }
+          - { name: "userGuidance", source: "interventionUserGuidance", type: "String", default: "" }
+        emits: ["confirm", "cancel"]
+
+      # 10. 单元概述上传弹窗 (L1018-1103, ~86行)
+      - name: "UnitSummariesUploadDialog"
+        v_model: "showUnitSummariesUploadDialog"
+        var_map:
+          unitSummariesUploadMode: uploadMode
+          uploadingUnitSummaries: uploading
+        props:
+          - { name: "uploadMode", source: "unitSummariesUploadMode", type: "String", default: "file" }
+          - { name: "unitSummariesInput", source: "unitSummariesInput", type: "String", default: "" }
+          - { name: "globalOutlineInput", source: "globalOutlineInput", type: "String", default: "" }
+          - { name: "uploading", source: "uploadingUnitSummaries", type: "Boolean", default: "false" }
+        emits: ["upload-file", "upload-json", "cancel"]
+
+      # 11. 批量生成弹窗 (L1106-1146, ~41行)
+      - name: "BatchCountDialog"
+        v_model: "showBatchCountDialog"
+        var_map:
+          batchCountConfig: config
+          batchCountLoading: loading
+        props:
+          - { name: "config", source: "batchCountConfig", type: "Object", default: "{}" }
+          - { name: "loading", source: "batchCountLoading", type: "Boolean", default: "false" }
+        emits: ["execute"]
+
+  # ============================================================
+  # ResultViewer.vue - 4个内联Dialog
+  # ============================================================
+  - source: "frontend/src/views/generate/components/ResultViewer.vue"
+    output_dir: "frontend/src/views/generate/components"
+    dialogs:
+      # 12. 全局大纲问题详情弹窗 (L424-506, ~83行)
+      - name: "GlobalOutlineIssuesDialog"
+        v_model: "showGlobalOutlineIssuesDialog"
+        var_map:
+          globalOutlineQCReport: qcReport
+        shared_imports:
+          - "import { getSeverityType, getSeverityLabel, getDimensionLabel } from '@/views/generate/utils/qcHelpers'"
+        props:
+          - { name: "qcReport", source: "globalOutlineQCReport", type: "Object" }
+          - { name: "revisingIssueId", source: "revisingIssueId", type: "String", default: "null" }
+        emits: ["revise", "feedback"]
+
+      # 13. 质控问题详情弹窗 (L862-1006, ~145行)
+      - name: "IssuesDetailDialog"
+        v_model: "showIssuesDialog"
+        var_map:
+          applyingFix: applyingFixIndex
+        shared_imports:
+          - "import { getSeverityType, getSeverityLabel, getDimensionLabel, getScoreType, getScoreColor } from '@/views/generate/utils/qcHelpers'"
+        props:
+          - { name: "qualityReport", source: "qualityReport", type: "Object" }
+          - { name: "applyingFixIndex", source: "applyingFix", type: "Number", default: "-1" }
+        emits: ["apply-fix", "feedback"]
+
+      # 14. 修订模式弹窗 (L1009-1138, ~130行)
+      - name: "RevisionDialog"
+        v_model: "props.isRevisionMode"
+        var_map:
+          props.isRevisionMode: visible
+          props.revisionContent: revisionContent
+          props.revisionMessages: revisionMessages
+          props.currentRevisionRound: currentRevisionRound
+          props.revising: revising
+        shared_imports:
+          - "import { getDimensionLabel } from '@/views/generate/utils/qcHelpers'"
+        props:
+          - { name: "revisionContent", source: "props.revisionContent", type: "String", default: "" }
+          - { name: "revisionMessages", source: "props.revisionMessages", type: "Array", default: "[]" }
+          - { name: "currentRevisionRound", source: "props.currentRevisionRound", type: "Number", default: "0" }
+          - { name: "revising", source: "props.revising", type: "Boolean", default: "false" }
+          - { name: "renderedRevisionContent", source: "renderedRevisionContent", type: "String", default: "" }
+          - { name: "useTwoStageMode", source: "useTwoStageMode", type: "Boolean", default: "false" }
+        emits: ["submit-revision", "exit-revision", "finalize-content", "file-select"]
+
+      # 15. 质控历史记录弹窗 (L1144-end, ~98行)
+      - name: "QCHistoryDialog"
+        v_model: "showQCHistoryDialog"
+        shared_imports:
+          - "import { getSeverityType, getSeverityLabel, getDimensionLabel, getScoreType, getScoreColor } from '@/views/generate/utils/qcHelpers'"
+        props:
+          - { name: "qcReportData", source: "qcReportData", type: "Object" }
+          - { name: "issuesFixed", source: "issuesFixed", type: "Number", default: "0" }
+        emits: []

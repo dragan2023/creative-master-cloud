@@ -39,6 +39,8 @@ class VectorStore:
         self._retry_delay = 1.0
         self._verify_writes = True
         self._verify_delay = 0.1
+        # 🆕 追踪因HNSW损坏被自动修复（删除后重建为空）的集合
+        self._repaired_empty: set = set()
 
     @property
     def client(self) -> chromadb.Client:
@@ -50,10 +52,25 @@ class VectorStore:
             self._client = chromadb.PersistentClient(path=persist_dir)
         return self._client
 
+    def _is_hnsw_corruption_error(self, error: Exception) -> bool:
+        """检测 HNSW 索引损坏类错误（Nothing found on disk / segment reader 等）"""
+        error_msg = str(error).lower()
+        return any(kw in error_msg for kw in [
+            "nothing found on disk",
+            "error creating hnsw segment reader",
+            "hnsw",
+            "error executing plan",
+            "internal error",
+            "error finding id",
+        ])
+
     def get_or_create_collection(self, name: str) -> chromadb.Collection:
-        """获取或创建集合"""
+        """获取或创建集合（自动修复 HNSW 索引损坏）"""
         if name not in self._collections:
             embedding_func = get_embedding_function()
+            existing = None
+            needs_recreate = False
+
             try:
                 existing = self.client.get_collection(name=name)
                 count = existing.count()
@@ -61,10 +78,37 @@ class VectorStore:
                     self._collections[name] = existing
                     logger.debug(f"[向量库] 使用已存在的集合: {name}, 文档数: {count}")
                     return existing
-                self.client.delete_collection(name=name)
-                logger.info(f"[向量库] 删除空集合以便重建: {name}")
+                needs_recreate = True
             except Exception as e:
-                logger.debug(f"[向量库] 获取集合失败，将创建新集合: {name}, 原因: {e}")
+                if self._is_hnsw_corruption_error(e):
+                    logger.warning(
+                        f"[向量库] 检测到 HNSW 索引损坏，将删除后重建: {name}, "
+                        f"error={str(e)[:100]}"
+                    )
+                    needs_recreate = True
+                else:
+                    logger.debug(f"[向量库] 获取集合失败，将创建新集合: {name}, 原因: {e}")
+                    needs_recreate = True
+
+            if needs_recreate:
+                # 尝试删除损坏/空的集合（容错：即使删除失败也继续重建）
+                try:
+                    if existing is not None:
+                        self.client.delete_collection(name=name)
+                        logger.info(f"[向量库] 已删除损坏/空集合: {name}")
+                except Exception as del_err:
+                    logger.warning(
+                        f"[向量库] 删除集合失败（可能索引已损坏），尝试强制清理: {name}, "
+                        f"error={str(del_err)[:100]}"
+                    )
+                    # 如果 ChromaDB API 删除失败，尝试清除内部缓存后重试
+                    self._clear_collection_cache(name)
+                    try:
+                        self.client.delete_collection(name=name)
+                    except Exception:
+                        logger.warning(
+                            f"[向量库] 强制清理也无法删除集合，将尝试直接创建覆盖: {name}"
+                        )
 
             try:
                 self._collections[name] = self.client.create_collection(
@@ -75,7 +119,20 @@ class VectorStore:
                 logger.info(f"[向量库] 创建新集合: {name}")
             except Exception as create_error:
                 error_msg = str(create_error)
-                if "embedding" in error_msg.lower():
+                if "already exists" in error_msg.lower():
+                    # 集合已存在（可能删除未生效），尝试强制 SQLite 清理后重建
+                    logger.warning(
+                        f"[向量库] 集合已存在（删除未生效），尝试 SQLite 强制清理: {name}"
+                    )
+                    self._force_delete_collection_via_sqlite(name)
+                    # 重试创建
+                    self._collections[name] = self.client.create_collection(
+                        name=name,
+                        embedding_function=embedding_func,
+                        metadata={"hnsw:space": "cosine"}
+                    )
+                    logger.info(f"[向量库] SQLite 清理后创建成功: {name}")
+                elif "embedding" in error_msg.lower():
                     logger.warning(f"[向量库] Embedding 冲突，尝试使用默认配置: {error_msg}")
                     self._collections[name] = self.client.get_or_create_collection(
                         name=name,
@@ -86,13 +143,68 @@ class VectorStore:
         return self._collections[name]
 
     def delete_collection(self, name: str) -> None:
-        """删除集合"""
+        """删除集合（先尝试 API 删除，失败则强制 SQLite 清理）"""
         try:
             self.client.delete_collection(name=name)
             if name in self._collections:
                 del self._collections[name]
+            logger.debug(f"[向量库] 已通过 API 删除集合: {name}")
         except Exception as e:
-            logger.warning(f"删除集合失败: {e}")
+            err_msg = str(e).lower()
+            if self._is_hnsw_corruption_error(e) or "nothing found" in err_msg:
+                logger.warning(
+                    f"[向量库] API 删除失败（索引损坏），尝试 SQLite 强制清理: {name}"
+                )
+                self._force_delete_collection_via_sqlite(name)
+            else:
+                logger.warning(f"[向量库] 删除集合失败: {name}, error={str(e)[:100]}")
+
+    def _force_delete_collection_via_sqlite(self, name: str) -> None:
+        """直接通过 SQLite 删除 ChromaDB 集合元数据（用于 HNSW 索引损坏无法通过 API 删除的情况）"""
+        import sqlite3
+        settings = get_settings()
+        persist_dir = settings.get_chroma_dir()
+        db_path = os.path.join(persist_dir, "chroma.sqlite3")
+
+        if not os.path.exists(db_path):
+            logger.warning(f"[向量库] chroma.sqlite3 不存在，无法强制清理: {db_path}")
+            return
+
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            # 查询集合 UUID
+            cursor.execute(
+                "SELECT id FROM collections WHERE name = ?", (name,)
+            )
+            row = cursor.fetchone()
+            if row:
+                collection_uuid = row[0]
+                # 删除集合记录（CASCADE 会清理关联表）
+                cursor.execute("DELETE FROM collections WHERE id = ?", (collection_uuid,))
+                conn.commit()
+                logger.info(
+                    f"[向量库] SQLite 强制清理成功: {name} (uuid={collection_uuid})"
+                )
+                # 同时清理 segment 目录
+                segment_dir = os.path.join(persist_dir, collection_uuid)
+                if os.path.isdir(segment_dir):
+                    import shutil
+                    shutil.rmtree(segment_dir, ignore_errors=True)
+                    logger.info(f"[向量库] 已清理 segment 目录: {collection_uuid}")
+            else:
+                logger.info(f"[向量库] SQLite 中未找到集合记录: {name}（可能已被清理）")
+
+            conn.close()
+
+            # 清除内存缓存
+            if name in self._collections:
+                del self._collections[name]
+        except Exception as sqlite_err:
+            logger.error(
+                f"[向量库] SQLite 强制清理失败: {name}, error={str(sqlite_err)}"
+            )
 
     def add_documents(
         self,
@@ -275,10 +387,10 @@ class VectorStore:
                 where=where
             )
         except Exception as e:
-            error_msg = str(e).lower()
-            if any(err in error_msg for err in ["hnsw", "nothing found on disk", "error finding id", "internal error", "error executing plan"]):
-                logger.warning(f"[向量库] 查询遇到内部错误，尝试修复: {collection_name}, error={str(e)[:100]}")
+            if self._is_hnsw_corruption_error(e):
+                logger.warning(f"[向量库] 查询遇到 HNSW 错误，尝试自动修复: {collection_name}, error={str(e)[:100]}")
                 try:
+                    # 清除缓存后通过 get_or_create_collection 自动修复（检测损坏→删除→重建）
                     self._clear_collection_cache(collection_name)
                     if self._client is None:
                         _ = self.client
@@ -287,14 +399,23 @@ class VectorStore:
                     collection = self.get_or_create_collection(collection_name)
                     doc_count = collection.count()
                     if doc_count == 0:
-                        return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+                        # 🆕 标记该集合因HNSW损坏被重建为空，需要从KG JSON重新填充
+                        self._repaired_empty.add(collection_name)
+                        logger.warning(
+                            f"[向量库] 集合已修复但为空（需从知识图谱JSON重建）: {collection_name}"
+                        )
+                        return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]],
+                                "_repaired_empty": True}
                     return collection.query(
                         query_texts=query_texts,
                         n_results=min(n_results, doc_count),
                         where=where
                     )
                 except Exception as repair_error:
-                    logger.error(f"[向量库] 自动修复失败: {collection_name}, error={str(repair_error)[:100]}")
+                    logger.warning(
+                        f"[向量库] 自动修复失败（已返回空结果）: {collection_name}, "
+                        f"error={str(repair_error)[:100]}"
+                    )
                     return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
             else:
                 logger.error(f"[向量库] 查询失败: {collection_name}, error={str(e)}")
@@ -306,7 +427,7 @@ class VectorStore:
         return collection.count()
 
     def health_check(self) -> dict:
-        """健康检查：检测 ChromaDB 索引状态"""
+        """健康检查：检测 ChromaDB 索引状态（HNSW 损坏自动标记）"""
         result = {"healthy": True, "collections": [], "errors": []}
         try:
             collections = self.client.list_collections()
@@ -316,8 +437,20 @@ class VectorStore:
                     result["collections"].append({"name": coll.name, "count": count, "status": "ok"})
                 except Exception as e:
                     result["healthy"] = False
-                    result["collections"].append({"name": coll.name, "count": 0, "status": "error", "error": str(e)[:100]})
-                    result["errors"].append(f"Collection '{coll.name}': {str(e)[:100]}")
+                    error_type = (
+                        "HNSW索引损坏" if self._is_hnsw_corruption_error(e)
+                        else "未知错误"
+                    )
+                    result["collections"].append({
+                        "name": coll.name,
+                        "count": 0,
+                        "status": "error",
+                        "error_type": error_type,
+                        "error": str(e)[:200]
+                    })
+                    result["errors"].append(
+                        f"Collection '{coll.name}' [{error_type}]: {str(e)[:150]}"
+                    )
         except Exception as e:
             result["healthy"] = False
             result["errors"].append(f"Client error: {str(e)[:100]}")
@@ -350,3 +483,11 @@ class VectorStore:
                     report["details"].append({"name": coll_info["name"], "action": "repair_failed", "success": False})
         logger.info(f"[向量库] 修复完成: 检查={report['checked']}, 修复={report['repaired']}, 失败={report['failed']}")
         return report
+
+    def is_repaired_empty(self, collection_name: str) -> bool:
+        """检查集合是否因HNSW损坏被自动修复为空（需从KG JSON重建）"""
+        return collection_name in self._repaired_empty
+
+    def clear_repaired_flag(self, collection_name: str) -> None:
+        """清除修复标志（重建完成后调用）"""
+        self._repaired_empty.discard(collection_name)

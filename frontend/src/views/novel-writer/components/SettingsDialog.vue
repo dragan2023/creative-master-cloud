@@ -28,6 +28,89 @@
     </el-divider>
 
     <div class="style-settings-section">
+      <!-- 小说文风知识库选择 -->
+      <div v-if="!isScriptType" class="style-library-section">
+        <div class="section-header">
+          <span class="section-title">文风知识库</span>
+          <el-tag v-if="selectedStyleIds.length > 0" type="success" size="small">
+            已选 {{ selectedStyleIds.length }} 种
+          </el-tag>
+        </div>
+
+        <div class="style-library-content">
+          <div v-if="selectedStyleIds.length > 0" class="selected-styles">
+            <el-tag
+              v-for="(style, idx) in selectedStyleNames"
+              :key="idx"
+              closable
+              :type="idx === 0 ? '' : 'success'"
+              @close="$emit('remove-style', idx)"
+              style="margin-right: 8px; margin-bottom: 8px;"
+            >
+              {{ idx === 0 ? '主' : '辅' }} · {{ style }}
+            </el-tag>
+            <div class="style-intensity-info">
+              <el-text type="info" size="small">
+                风格强度: {{ Math.round(styleIntensity * 100) }}%
+              </el-text>
+            </div>
+          </div>
+
+          <div v-else class="empty-style-selection">
+            <el-text type="info">
+              从61种经典文风中选择1-3种进行融合创作
+            </el-text>
+          </div>
+
+          <el-button type="primary" plain @click="$emit('show-style-selector')" style="margin-top: 12px;">
+            <el-icon><Edit /></el-icon>
+            {{ selectedStyleIds.length > 0 ? '修改文风选择' : '选择写作风格' }}
+          </el-button>
+        </div>
+      </div>
+
+      <!-- 剧本多维风格选择（电影/剧集） -->
+      <div v-else class="script-style-section">
+        <div class="section-header">
+          <span class="section-title">{{ contentTypeLabel }}风格</span>
+          <el-tag v-if="scriptStyleNames.length > 0" type="success" size="small">
+            已选 {{ scriptStyleNames.length }} 维度
+          </el-tag>
+        </div>
+
+        <div class="script-style-content">
+          <div v-if="scriptStyleNames.length > 0" class="selected-dimensions">
+            <el-tag
+              v-for="(item, idx) in scriptStyleTagItems"
+              :key="idx"
+              type="primary"
+              size="small"
+              closable
+              @close="$emit('remove-script-style', item.dimName)"
+              style="margin-right: 6px; margin-bottom: 6px;"
+            >
+              {{ item.dimName }}: {{ item.styleName }}
+            </el-tag>
+            <div class="style-intensity-info">
+              <el-text type="info" size="small">
+                风格强度: {{ Math.round(scriptStyleIntensity * 100) }}%
+              </el-text>
+            </div>
+          </div>
+
+          <div v-else class="empty-style-selection">
+            <el-text type="info">
+              从多个维度选择{{ contentTypeLabel }}风格，为创作提供艺术指导
+            </el-text>
+          </div>
+
+          <el-button type="primary" plain @click="$emit('show-script-style-selector')" style="margin-top: 12px;">
+            <el-icon><Edit /></el-icon>
+            {{ scriptStyleNames.length > 0 ? '修改风格' : '选择' + contentTypeLabel + '风格' }}
+          </el-button>
+        </div>
+      </div>
+
       <!-- AI文风消除设置 -->
       <div class="ai-elimination-section">
         <div class="section-header">
@@ -35,6 +118,7 @@
           <el-switch
             :model-value="aiEliminationEnabled"
             @update:model-value="$emit('update:aiEliminationEnabled', $event)"
+            @change="$emit('elimination-change', $event)"
           />
         </div>
         <div class="elimination-config" v-if="aiEliminationEnabled">
@@ -43,6 +127,7 @@
             <el-slider
               :model-value="aiEliminationThreshold"
               @update:model-value="$emit('update:aiEliminationThreshold', $event)"
+              @change="$emit('threshold-change', $event)"
               :min="0"
               :max="100"
               :step="10"
@@ -150,6 +235,36 @@ const props = defineProps({
   uploadHeaders: {
     type: Object,
     default: () => ({})
+  },
+  // 小说文风
+  selectedStyleIds: {
+    type: Array,
+    default: () => []
+  },
+  selectedStyleNames: {
+    type: Array,
+    default: () => []
+  },
+  styleIntensity: {
+    type: Number,
+    default: 0.8
+  },
+  // 剧本风格（电影/剧集）
+  isScriptType: {
+    type: Boolean,
+    default: false
+  },
+  scriptStyleNames: {
+    type: Array,
+    default: () => []
+  },
+  scriptStyleDimensions: {
+    type: Object,
+    default: () => ({})
+  },
+  scriptStyleIntensity: {
+    type: Number,
+    default: 0.7
   }
 })
 
@@ -160,6 +275,12 @@ const emit = defineEmits([
   'show-style-detail',
   'delete-style-document',
   'show-model-config',
+  'show-style-selector',
+  'show-script-style-selector',  // 剧本风格选择器
+  'remove-style',
+  'remove-script-style',         // 移除剧本风格维度
+  'elimination-change',
+  'threshold-change',
   'upload-success',
   'upload-error'
 ])
@@ -171,6 +292,21 @@ const contentTypeLabel = computed(() => {
     movie_script: '电影剧本'
   }
   return labels[props.projectData?.content_type] || '小说'
+})
+
+// 剧本风格标签项（从 dimensions 扁平化）
+const scriptStyleTagItems = computed(() => {
+  const items = []
+  const dims = props.scriptStyleDimensions || {}
+  for (const [dimName, styles] of Object.entries(dims)) {
+    if (styles && styles.length > 0) {
+      items.push({
+        dimName,
+        styleName: styles[0]?.name || String(styles[0] || '未知')
+      })
+    }
+  }
+  return items
 })
 
 function beforeUpload(file) {
@@ -207,6 +343,7 @@ function handleUploadError(error) {
   gap: 24px;
   padding: 0 4px;
 
+  .style-library-section,
   .style-document-section,
   .ai-elimination-section {
     flex: 1;
@@ -222,6 +359,20 @@ function handleUploadError(error) {
         font-weight: 500;
         color: #303133;
       }
+    }
+  }
+
+  .style-library-content {
+    .selected-styles {
+      margin-bottom: 8px;
+    }
+
+    .style-intensity-info {
+      margin-top: 8px;
+    }
+
+    .empty-style-selection {
+      padding: 8px 0;
     }
   }
 

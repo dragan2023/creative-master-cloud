@@ -115,6 +115,12 @@ class Settings(BaseSettings):
     # 知识图谱配置
     KNOWLEDGE_GRAPH_DIR: str = "./data/knowledge_graphs"  # 知识图谱存储目录
 
+    # 加密配置
+    ENCRYPTION_SALT: str = Field(
+        default="creative_master_salt_v1",
+        description="API Key 加密盐值，用于派生 Fernet 加密密钥，变更会导致已加密数据无法解密"
+    )
+
     # 文档预处理配置
     DOC_PREPROCESSOR_ENABLED: bool = True  # 是否启用文档预处理流水线
 
@@ -137,7 +143,7 @@ class Settings(BaseSettings):
 
     # 文件上传配置
     MAX_UPLOAD_SIZE: int = Field(
-        default=200 * 1024 * 1024,  # 200MB
+        default=500 * 1024 * 1024,  # 500MB（为大文本大纲上传提供足够空间）
         description="最大上传文件大小（字节）"
     )
     UPLOAD_DIR: str = Field(

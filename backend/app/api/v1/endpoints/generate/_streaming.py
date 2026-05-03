@@ -16,12 +16,14 @@ from app.core.database import get_db
 from app.core.exceptions import GenerationException
 from app.core.logger import get_logger
 from app.core.module_registry import (
-    MODULE_SHORT_VIDEO, MODULE_SCRIPT, MODULE_NOVEL,
-    MODULE_PRINT_AD, MODULE_TVC
+    MODULE_SHORT_VIDEO, MODULE_NOVEL,
+    MODULE_PRINT_AD, MODULE_TVC,
+    MODULE_MOVIE_OUTLINE, MODULE_SERIES_OUTLINE
 )
 from app.models import User
 from app.schemas.generation import (
-    ShortVideoInput, ScriptInput, NovelInput, PrintAdInput, TVCInput,
+    ShortVideoInput, NovelInput, PrintAdInput, TVCInput,
+    MovieOutlineInput, SeriesOutlineInput,
     GenerateResponse
 )
 from app.agents.orchestrator import get_agent_orchestrator
@@ -137,11 +139,11 @@ def register_streaming_routes(router: APIRouter):
             videos=videos
         )
 
-    # ==================== 剧本大纲生成 ====================
+    # ==================== 电影大纲生成 ====================
 
-    @router.post("/script")
-    async def generate_script(
-        data: ScriptInput,
+    @router.post("/movie-outline")
+    async def generate_movie_outline(
+        data: MovieOutlineInput,
         session_id: Optional[str] = None,
         enable_search: bool = False,
         enable_knowledge: bool = False,
@@ -150,14 +152,14 @@ def register_streaming_routes(router: APIRouter):
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
     ) -> GenerateResponse:
-        """生成剧本大纲（非流式）"""
+        """生成电影大纲（非流式）"""
         orchestrator = get_agent_orchestrator()
 
         input_params = data.model_dump()
 
         result = await orchestrator.generate(
             db=db,
-            module=MODULE_SCRIPT,
+            module=MODULE_MOVIE_OUTLINE,
             user_id=current_user.id,
             input_params=input_params,
             session_id=session_id,
@@ -181,9 +183,9 @@ def register_streaming_routes(router: APIRouter):
         else:
             raise GenerationException(result.get("error", "生成失败"))
 
-    @router.post("/script/stream")
-    async def generate_script_stream(
-        data: ScriptInput,
+    @router.post("/movie-outline/stream")
+    async def generate_movie_outline_stream(
+        data: MovieOutlineInput,
         session_id: Optional[str] = None,
         enable_search: bool = False,
         enable_knowledge: bool = False,
@@ -201,14 +203,105 @@ def register_streaming_routes(router: APIRouter):
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
     ):
-        """生成剧本大纲（流式）"""
+        """生成电影大纲（流式）"""
         input_params = data.model_dump()
         logger.info(
-            f"剧本流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+            f"电影大纲流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
             f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, session_id={session_id}"
         )
         return await _create_streaming_endpoint(
-            module=MODULE_SCRIPT,
+            module=MODULE_MOVIE_OUTLINE,
+            input_params=input_params,
+            user_id=current_user.id,
+            db=db,
+            session_id=session_id,
+            enable_search=enable_search,
+            enable_knowledge=enable_knowledge,
+            enable_mcp=enable_mcp,
+            enable_trending=enable_trending,
+            provider=provider,
+            temperature=temperature,
+            search_keywords=search_keywords,
+            kb_vertical=kb_vertical,
+            kb_user_specific=kb_user_specific,
+            kb_manual=kb_manual,
+            kb_vertical_ids=parse_kb_ids(kb_vertical_ids),
+            kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
+            kb_manual_ids=parse_kb_ids(kb_manual_ids)
+        )
+
+    # ==================== 剧集大纲生成 ====================
+
+    @router.post("/series-outline")
+    async def generate_series_outline(
+        data: SeriesOutlineInput,
+        session_id: Optional[str] = None,
+        enable_search: bool = False,
+        enable_knowledge: bool = False,
+        provider: Optional[str] = None,
+        temperature: float = 0.7,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ) -> GenerateResponse:
+        """生成剧集大纲（非流式）"""
+        orchestrator = get_agent_orchestrator()
+
+        input_params = data.model_dump()
+
+        result = await orchestrator.generate(
+            db=db,
+            module=MODULE_SERIES_OUTLINE,
+            user_id=current_user.id,
+            input_params=input_params,
+            session_id=session_id,
+            enable_search=enable_search,
+            enable_knowledge=enable_knowledge,
+            reference_urls=input_params.get("reference_urls"),
+            provider=provider,
+            temperature=temperature
+        )
+
+        if result.get("success"):
+            return GenerateResponse(
+                success=True,
+                content=result.get("content"),
+                model=result.get("model"),
+                provider=result.get("provider"),
+                usage=result.get("usage"),
+                duration_ms=result.get("duration_ms"),
+                generation_id=result.get("generation_id")
+            )
+        else:
+            raise GenerationException(result.get("error", "生成失败"))
+
+    @router.post("/series-outline/stream")
+    async def generate_series_outline_stream(
+        data: SeriesOutlineInput,
+        session_id: Optional[str] = None,
+        enable_search: bool = False,
+        enable_knowledge: bool = False,
+        enable_mcp: bool = False,
+        enable_trending: bool = False,
+        provider: Optional[str] = None,
+        temperature: float = 0.7,
+        search_keywords: Optional[List[str]] = Query(default=None),
+        kb_vertical: bool = False,
+        kb_user_specific: bool = False,
+        kb_manual: bool = False,
+        kb_vertical_ids: Optional[str] = None,
+        kb_user_specific_ids: Optional[str] = None,
+        kb_manual_ids: Optional[str] = None,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """生成剧集大纲（流式）"""
+        input_params = data.model_dump()
+        logger.info(
+            f"剧集大纲流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+            f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, session_id={session_id}"
+        )
+        return await _create_streaming_endpoint(
+            module=MODULE_SERIES_OUTLINE,
             input_params=input_params,
             user_id=current_user.id,
             db=db,

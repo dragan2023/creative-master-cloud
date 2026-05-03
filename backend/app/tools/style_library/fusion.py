@@ -3,6 +3,8 @@ from typing import Dict, List, Optional
 import json
 import os
 
+from app.tools.style_library.query import get_style_by_id
+
 # 从数据目录加载文风数据
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 

@@ -11,12 +11,14 @@ from app.models.base import BaseModel
 
 class GenerationModule(str, enum.Enum):
     """生成模块枚举"""
-    SHORT_VIDEO = "short_video"     # 短视频脚本
-    SCRIPT = "script"               # 剧本大纲
-    NOVEL = "novel"                 # 小说大纲
-    PRINT_AD = "print_ad"           # 平面广告
-    TVC = "tvc"                     # TVC广告脚本
-    ORIGINAL_IP = "original_ip"     # 原创IP计划
+    SHORT_VIDEO = "short_video"       # 短视频脚本
+    SCRIPT = "script"                 # [DEPRECATED] 剧本大纲已移除，保留用于数据库兼容
+    NOVEL = "novel"                   # 小说大纲
+    PRINT_AD = "print_ad"             # 平面广告
+    TVC = "tvc"                       # TVC广告脚本
+    ORIGINAL_IP = "original_ip"       # 原创IP计划
+    MOVIE_OUTLINE = "movie_outline"   # 电影大纲
+    SERIES_OUTLINE = "series_outline" # 剧集大纲
 
 
 class GenerationStatus(str, enum.Enum):

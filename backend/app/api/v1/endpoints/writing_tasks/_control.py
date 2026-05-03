@@ -343,3 +343,80 @@ def register_control_routes(router: APIRouter):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"继续生成任务失败: {str(e)}"
             )
+
+    @router.post("/{task_id}/reset_stale_status", response_model=ResponseModel[WritingTaskResponse])
+    async def reset_stale_task_status(
+        task_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """
+        重置幽灵状态任务
+        
+        当任务卡在RUNNING状态但实际上已停止运行时（如进程崩溃、网络中断），
+        使用此接口手动将状态重置为INTERRUPTED，然后可以调用 /resume 续传。
+        """
+        from datetime import timedelta
+        from sqlalchemy import update
+        
+        STALE_THRESHOLD = timedelta(minutes=30)
+        
+        try:
+            # 查询任务
+            result = await db.execute(
+                select(WritingTask).where(
+                    and_(WritingTask.id == task_id,
+                         WritingTask.user_id == current_user.id)
+                )
+            )
+            task = result.scalar_one_or_none()
+            
+            if not task:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="任务不存在"
+                )
+            
+            # 只允许重置RUNNING状态的任务
+            if task.status != TaskStatus.RUNNING:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"任务当前状态为 {task.status.value}，只能重置RUNNING状态的任务"
+                )
+            
+            # 检查是否确实是幽灵状态（超过阈值）
+            last_update = task.updated_at or task.start_time
+            if last_update:
+                time_elapsed = datetime.now() - last_update
+                if time_elapsed < STALE_THRESHOLD:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"任务仍在活跃运行中（上次更新: {time_elapsed.seconds//60}分钟前），请稍后再试或使用中断接口"
+                    )
+            
+            # 更新状态为INTERRUPTED
+            await db.execute(
+                update(WritingTask)
+                .where(WritingTask.id == task_id)
+                .values(status=TaskStatus.INTERRUPTED, end_time=datetime.now())
+            )
+            await db.commit()
+            
+            await db.refresh(task)
+            logger.info(f"已重置幽灵状态任务: task_id={task_id}, 新状态={task.status}")
+            
+            return ResponseModel(
+                success=True,
+                code=200,
+                message="已将任务状态从RUNNING重置为INTERRUPTED，可以调用 /resume 续传",
+                data=_build_task_response(task)
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"重置任务状态失败: task_id={task_id}, error={e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"重置任务状态失败: {str(e)}"
+            )

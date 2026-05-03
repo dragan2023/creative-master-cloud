@@ -196,8 +196,11 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                     logger.info(f"写作任务被中断: task_id={self.task.id}")
                     self.task.status = TaskStatus.INTERRUPTED
                     self.task.end_time = datetime.now()
-                    await db.commit()
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
+                    try:
+                        await db.commit()
+                        await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
+                    except Exception:
+                        logger.warning("任务中断时数据库提交失败,连接可能已关闭")
                 else:
                     logger.info(f"写作任务被中断: task_id={self.task_id}")
 

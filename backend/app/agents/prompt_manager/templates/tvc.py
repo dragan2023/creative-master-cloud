@@ -88,5 +88,5 @@ TEMPLATE = {
 该方案已经过全能创意大师修正完善。
 """,
     "variables": ["brand_product", "ad_purpose", "core_message", "audience_profile", "broadcast_platform", "style_tone", "duration", "mode", "generate_ai_prompt", "ai_platforms", "reference_video", "description"]
-},
+}
 

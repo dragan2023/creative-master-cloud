@@ -84,7 +84,7 @@ class GlobalStorylineIntegrityAnalyzer:
 
             logger.info("[故事线完整性分析] 成功获取LLM提供者，开始调用...")
 
-            outline_sample = global_outline[:15000]
+            outline_sample = global_outline  # 不再截断大纲，完整上下文有助于LLM准确分析
 
             prompt = f"""你是专业的故事结构分析师。
 
@@ -173,7 +173,7 @@ class GlobalStorylineIntegrityAnalyzer:
 
             logger.info("[故事线完整性分析] 成功获取LLM提供者，开始调用...")
 
-            outline_sample = global_outline[:15000]
+            outline_sample = global_outline  # 不再截断大纲，完整上下文有助于LLM准确分析
 
             prompt = f"""你是专业的剧情节奏分析师。
 

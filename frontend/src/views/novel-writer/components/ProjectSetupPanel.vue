@@ -147,10 +147,6 @@
           <el-icon><DataAnalysis /></el-icon>
           一致性检查报告
         </el-button>
-        <el-button text @click="$emit('build-knowledge-base')">
-          <el-icon><DataAnalysis /></el-icon>
-          构建知识库
-        </el-button>
         <el-button text @click="$emit('show-settings')">
           <el-icon><Setting /></el-icon>
           项目设置
@@ -202,9 +198,7 @@ defineEmits([
   'generate-directory',
   'show-knowledge-graph',
   'show-consistency-report',
-  'build-knowledge-base',
   'show-settings'
-  // 架构优化：移除 'generate-chapter-outlines', 'view-chapter-outlines'
 ])
 
 // ==================== Computed ====================

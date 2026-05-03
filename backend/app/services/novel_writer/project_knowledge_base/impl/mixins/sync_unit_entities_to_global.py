@@ -5,6 +5,8 @@ import re
 import os
 import time
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class SyncUnitEntitiesToGlobalMixin:
     """sync_unit_entities_to_global功能域"""
@@ -17,9 +19,12 @@ class SyncUnitEntitiesToGlobalMixin:
     ) -> Dict[str, Any]:
         """
         将单元图谱的实体增量同步到全局知识图谱
-
-        在章节生成后自动调用，确保新出现的实体和关系及时同步到全局图谱。
-        实现"正文优先"原则：以正文内容为准更新全局知识。
+        
+        ️ [知识图谱优化 v3.2] 此功能已禁用！
+        原因：持续同步导致全局图谱无限膨胀（100章可达3550+实体）
+        优化：全局图谱仅保留全局大纲实体（~50个），跨章检索通过向量库实现
+        
+        保留此方法仅为向后兼容，实际执行时会直接返回并记录警告日志。
 
         Args:
             project_id: 项目ID
@@ -27,7 +32,7 @@ class SyncUnitEntitiesToGlobalMixin:
             character_tracker: 人物状态追踪器（可选，用于更智能的同步）
 
         Returns:
-            同步结果摘要
+            同步结果摘要（始终返回success=False，表示未执行同步）
         """
         result = {
             "success": False,
@@ -45,67 +50,16 @@ class SyncUnitEntitiesToGlobalMixin:
                 "world_rules": 0,
                 "time_nodes": 0
             },
-            "error": None
+            "error": "功能已禁用：全局图谱仅保留大纲级实体，单元实体通过向量库检索"
         }
-
-        try:
-            # 1. 加载全局图谱
-            global_graph_path = self.get_graph_path(
-                project_id, unit_number=None)
-            if not os.path.exists(global_graph_path):
-                self.logger.warning(f"全局图谱不存在: {global_graph_path}")
-                result["error"] = "全局图谱不存在"
-                return result
-
-            global_graph = NovelKnowledgeGraph(persist_path=global_graph_path)
-            if not global_graph.load():
-                result["error"] = "加载全局图谱失败"
-                return result
-
-            # 2. 加载单元图谱
-            unit_graph_path = self.get_graph_path(project_id, unit_number)
-            if not os.path.exists(unit_graph_path):
-                self.logger.info(f"单元图谱不存在，跳过同步: {unit_graph_path}")
-                result["error"] = "单元图谱不存在"
-                return result
-
-            unit_graph = NovelKnowledgeGraph(persist_path=unit_graph_path)
-            if not unit_graph.load():
-                result["error"] = "加载单元图谱失败"
-                return result
-
-            # 3. 使用CharacterStateTracker进行智能同步
-            if character_tracker:
-                sync_result = character_tracker.sync_unit_to_global_graph(
-                    global_graph=global_graph,
-                    unit_graph=unit_graph,
-                    chapter_num=unit_number,
-                    sync_extended_entities=True
-                )
-                result["entities_synced"] = sync_result.get(
-                    "entities_synced", 0)
-                result["relations_synced"] = sync_result.get(
-                    "relations_synced", 0)
-                result["new_entities"] = sync_result.get("new_entities", [])
-                result["extended_entities"] = sync_result.get(
-                    "extended_entities_synced", {})
-            else:
-                # 简单同步逻辑（无追踪器时）
-                result = self._simple_sync_entities(
-                    global_graph, unit_graph, unit_number, result)
-
-            result["success"] = True
-
-            self.logger.info(
-                f"单元图谱增量同步完成: project={project_id}, unit={unit_number}, "
-                f"实体={result['entities_synced']}, 关系={result['relations_synced']}, "
-                f"新实体={len(result['new_entities'])}")
-
-        except Exception as e:
-            self.logger.error(
-                f"增量同步失败: project={project_id}, unit={unit_number}, error={str(e)}")
-            result["error"] = str(e)
-
+        
+        # 🆕 [知识图谱优化 v3.2] 直接返回，不执行同步
+        self.logger.warning(
+            f"[知识图谱优化 v3.2] sync_unit_entities_to_global已禁用: "
+            f"project_id={project_id}, unit_number={unit_number}, "
+            f"原因：防止全局图谱无限膨胀，单元实体通过向量库检索"
+        )
+        
         return result
 
 

@@ -10,7 +10,6 @@ from app.agents.orchestrator.api import (
     convert_file_url_to_content,
     extract_input_params_files,
     get_model_friendly_name,
-    get_agent_orchestrator,
     GenerateStreamContext,
 )
 
@@ -20,6 +19,5 @@ __all__ = [
     "convert_file_url_to_content",
     "extract_input_params_files",
     "get_model_friendly_name",
-    "get_agent_orchestrator",
     "GenerateStreamContext",
 ]

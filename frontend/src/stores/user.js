@@ -2,13 +2,14 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '@/api'
 import router from '@/router'
+import { getToken as getStoredToken, getUserInfo as getStoredUserInfo, saveAuthData, clearAuth } from '@/utils/authStorage'
 
 export const useUserStore = defineStore('user', () => {
-  // 用户信息
-  const userInfo = ref(JSON.parse(localStorage.getItem('userInfo') || 'null'))
+  // 用户信息（从集中化存储层初始化）
+  const userInfo = ref(getStoredUserInfo())
   
-  // Token
-  const token = ref(localStorage.getItem('token') || null)
+  // Token（从集中化存储层初始化）
+  const token = ref(getStoredToken())
 
   // 登录状态
   const isLoggedIn = computed(() => !!token.value && !!userInfo.value)
@@ -29,8 +30,7 @@ export const useUserStore = defineStore('user', () => {
       if (res.data) {
         token.value = res.data.access_token
         userInfo.value = res.data.user
-        localStorage.setItem('token', res.data.access_token)
-        localStorage.setItem('userInfo', JSON.stringify(res.data.user))
+        saveAuthData(res.data.access_token, res.data.user)
       }
       return res
     } catch (error) {
@@ -46,8 +46,7 @@ export const useUserStore = defineStore('user', () => {
       if (res.data) {
         token.value = res.data.access_token
         userInfo.value = res.data.user
-        localStorage.setItem('token', res.data.access_token)
-        localStorage.setItem('userInfo', JSON.stringify(res.data.user))
+        saveAuthData(res.data.access_token, res.data.user)
       }
       return res
     } catch (error) {
@@ -60,8 +59,7 @@ export const useUserStore = defineStore('user', () => {
   function logout() {
     token.value = null
     userInfo.value = null
-    localStorage.removeItem('token')
-    localStorage.removeItem('userInfo')
+    clearAuth()
     router.push('/login')
   }
 
@@ -70,7 +68,8 @@ export const useUserStore = defineStore('user', () => {
     try {
       const res = await authApi.getProfile()
       userInfo.value = res.data || res
-      localStorage.setItem('userInfo', JSON.stringify(res.data || res))
+      // 通过集中化存储层更新
+      saveAuthData(token.value, res.data || res)
       return res
     } catch (error) {
       console.error('获取用户信息失败:', error)
@@ -80,6 +79,11 @@ export const useUserStore = defineStore('user', () => {
       }
       throw error
     }
+  }
+
+  /** 获取当前 Token（供非组件上下文使用） */
+  function getToken() {
+    return token.value
   }
 
   // 注意：移除了自动检查登录状态的代码
@@ -96,6 +100,7 @@ export const useUserStore = defineStore('user', () => {
     login,
     register,
     logout,
-    fetchProfile
+    fetchProfile,
+    getToken
   }
 })

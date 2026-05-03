@@ -13,6 +13,8 @@ import time
 import random
 import base64
 from app.core.logger import get_logger, LoggerAdapter
+from app.agents.orchestrator.api import extract_input_params_files, convert_images_to_base64, GenerateStreamContext
+from app.core.config import get_settings
 
 
 class GenerateSyncMixin:
@@ -94,7 +96,7 @@ class GenerateSyncMixin:
             creative_seed = random.choice(creative_angles)
             creative_style_hint = random.choice(creative_styles)
             creative_id = random.randint(
-                settings.CREATIVE_ID_MIN, settings.CREATIVE_ID_MAX)
+                get_settings().CREATIVE_ID_MIN, get_settings().CREATIVE_ID_MAX)
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             system_prompt += f"""\n\n## 创意差异化指引

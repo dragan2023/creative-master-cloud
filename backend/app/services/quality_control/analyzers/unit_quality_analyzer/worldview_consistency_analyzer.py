@@ -28,6 +28,9 @@ v3.0 核心改动：
 from typing import Dict, List, Any, Optional
 from app.core.logger import get_logger
 from app.services.quality_control.llm_retry_helper import llm_call_with_retry
+from .unit_structure_analyzer import UnitStructureAnalyzer
+
+logger = get_logger(__name__)
 
 
 class WorldviewConsistencyAnalyzer:

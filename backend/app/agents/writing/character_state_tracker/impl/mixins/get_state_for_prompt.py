@@ -2,6 +2,8 @@
 from __future__ import annotations
 import re
 
+from app.agents.writing.character_state_tracker.api import CharacterStatus
+
 
 class GetStateForPromptMixin:
     """get_state_for_prompt功能域"""

@@ -28,6 +28,9 @@ v3.0 核心改动：
 from typing import Dict, List, Any, Optional
 from app.core.logger import get_logger
 from app.services.quality_control.llm_retry_helper import llm_call_with_retry
+from .unit_structure_analyzer import UnitStructureAnalyzer
+
+logger = get_logger(__name__)
 
 
 class UnitConsistencyAnalyzer:
@@ -393,6 +396,14 @@ class UnitConsistencyAnalyzer:
                 "metadata": result.get("metadata", {})
             }
 
+        except ImportError as e:
+            logger.debug(f"[一致性分析] 交叉验证模块未安装，跳过: {str(e)}")
+            return {
+                "issues": [],
+                "validation_scores": {},
+                "overall_score": 100.0,
+                "metadata": {"skipped": True, "reason": "module_not_found"}
+            }
         except Exception as e:
             logger.warning(f"[一致性分析] 交叉验证执行失败: {str(e)}")
             return {

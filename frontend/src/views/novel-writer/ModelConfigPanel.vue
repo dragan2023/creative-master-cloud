@@ -278,10 +278,12 @@ const providerOptions = ref([
   { 
     name: 'deepseek', 
     display_name: 'DeepSeek', 
-    api_base: 'https://api.deepseek.com/v1', 
+    api_base: 'https://api.deepseek.com', 
     models: [
-      { id: 'deepseek-chat', name: 'DeepSeek Chat' },
-      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' }
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+      { id: 'deepseek-chat', name: 'DeepSeek Chat (旧版，即将弃用)' },
+      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner (旧版，即将弃用)' }
     ]
   },
   { 

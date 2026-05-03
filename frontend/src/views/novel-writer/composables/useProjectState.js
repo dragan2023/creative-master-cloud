@@ -7,6 +7,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { novelWriterApi } from '@/api/novel-writer'
+import { getToken, getAuthHeaders } from '@/utils/authStorage'
 
 /**
  * 项目状态 Composable
@@ -204,11 +205,8 @@ export function useProjectState(props, emit) {
     return `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/novel-writer/projects/${projectId.value}/style-document`
   })
 
-  // 上传请求头
-  const uploadHeaders = computed(() => {
-    const token = localStorage.getItem('token')
-    return token ? { Authorization: `Bearer ${token}` } : {}
-  })
+  // 上传请求头（通过集中化存储层）
+  const uploadHeaders = computed(() => getAuthHeaders())
 
   // ==================== 方法 ====================
 
@@ -270,7 +268,7 @@ export function useProjectState(props, emit) {
     }
   }
 
-  // 构建知识库
+  // 构建知识库 - 基于项目大纲构建项目专属知识图谱，辅助AI进行正文生成
   async function handleBuildKnowledgeBase() {
     try {
       const res = await novelWriterApi.buildKnowledgeBase(projectId.value)
@@ -426,7 +424,7 @@ export function useProjectState(props, emit) {
       chapterOutlineEventSource.value.close()
     }
 
-    const token = localStorage.getItem('token')
+    const token = getToken()
     const url = novelWriterApi.getChapterOutlinesEventsUrl(
       projectId.value,
       token

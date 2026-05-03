@@ -2,6 +2,10 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import fs from 'fs'
+import { createRequire } from 'module'
+
+// 创建require函数（ESM环境兼容）
+const require = createRequire(import.meta.url)
 
 // 动态加载混淆插件（如果已安装）
 // 云端部署时启用强混淆，本地开发可禁用以加快构建速度
@@ -85,9 +89,27 @@ export default defineConfig(({ mode }) => {
         }
       },
       open: !env.BROWSER || env.BROWSER !== 'none',  // 容器内禁用自动打开
-      // HMR 配置（热模块替换）
-      // Docker 容器中需要配置 clientPort: 80
-      // 本地开发时使用默认配置即可
+      // 文件监听限制（防止终端损坏）
+      watch: {
+        // 排除不需要监听的目录，减少文件监听器压力
+        ignored: [
+          '**/backend/logs/**',
+          '**/backend/data/**',
+          '**/node_modules/**',
+          '**/dist/**',
+          '**/.git/**',
+          '**/__pycache__/**',
+          '**/*.log',
+          '**/*.zip',
+          '**/docs/**'
+        ],
+        // Windows 下适当降低轮询频率，避免句柄耗尽
+        interval: 800
+      },
+      // HMR 配置（热模块替换）- 关闭错误遮罩减少终端输出
+      hmr: {
+        overlay: false
+      }
     }
   }
 

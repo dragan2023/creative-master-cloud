@@ -10,11 +10,12 @@ from enum import Enum
 class GenerationModule(str, Enum):
     """生成模块"""
     SHORT_VIDEO = "short_video"
-    SCRIPT = "script"
     NOVEL = "novel"
     PRINT_AD = "print_ad"
     TVC = "tvc"
     ORIGINAL_IP = "original_ip"
+    MOVIE_OUTLINE = "movie_outline"  # 电影大纲
+    SERIES_OUTLINE = "series_outline"  # 剧集大纲
 
 
 class GenerationStatus(str, Enum):
@@ -58,28 +59,32 @@ class ShortVideoInput(BaseModel):
         None, description="其他自定义变量")
 
 
-# ==================== 剧本大纲 ====================
+# ==================== 电影大纲 ====================
 
-class ScriptInput(BaseModel):
-    """剧本大纲输入"""
+class MovieOutlineInput(BaseModel):
+    """电影大纲输入"""
     title: Optional[str] = Field(None, description="标题/主题")
-    series_type: str = Field(...,
-                             description="剧集类型(院线电影/网络电影/长剧/短剧/微电影/纪录片/动画电影/网络剧/竖屏剧)")
-    theme: str = Field(...,
-                       description="题材(爱情/喜剧/悬疑/科幻/奇幻/动作/剧情/历史/都市/青春/恐怖/犯罪/惊悚/灾难)")
+    movie_type: str = Field(
+        ...,
+        description="电影类型(院线电影/网络电影/微电影/纪录片/动画电影)")
+    theme: str = Field(
+        ...,
+        description="题材(爱情/喜剧/悬疑/科幻/奇幻/动作/剧情/历史/都市/青春/恐怖/犯罪/惊悚/灾难)")
     audience: str = Field(..., description="目标受众")
     platform: str = Field(
-        default="爱奇艺", description="投放平台(央视/地方卫视/爱奇艺/腾讯视频/优酷/芒果TV/B站/抖音/快手/西瓜视频/红果短剧/河马剧场/Netflix/HBO/Disney+/院线发行/电影节展映)")
+        default="院线发行",
+        description="投放平台(院线发行/电影节展映/爱奇艺/腾讯视频/优酷/芒果TV/B站/抖音/快手/Netflix/HBO/Disney+)")
     reference_works: Optional[str] = Field(None, description="对标作品(可填写作品名称)")
     synopsis: str = Field(..., description="故事梗概")
-    episode_count: Optional[str] = Field(None, description="集数")
+    scene_count: Optional[str] = Field(
+        None, description="场景/场次数（如：80场，留空AI自动估算）")
     custom_outline: Optional[str] = Field(
         None, description="自写大纲URL（用户上传的文本文件）")
-    # 剧本专业配置参数（与正文生成板块对齐）
-    episode_duration_range: Optional[str] = Field(
-        default="30-45分钟", description="每集时长区间（如：5-15分钟）")
-    scenes_per_episode_range: Optional[str] = Field(
-        default="AI自动设计", description="每集场景数范围")
+    # 电影专业配置参数
+    duration_range: Optional[str] = Field(
+        default="90-120分钟", description="整片时长区间（如：90-120分钟）")
+    scene_count_range: Optional[str] = Field(
+        default="AI自动设计", description="场景数范围（如：80-150场）")
     format_standard: Optional[str] = Field(
         default="标准格式", description="剧本格式标准")
     dialogue_narration_ratio: Optional[str] = Field(
@@ -90,6 +95,113 @@ class ScriptInput(BaseModel):
     script_mode: Optional[str] = Field(
         default="real",
         description="剧本模式(real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成)")
+    # 风格参数
+    style_ids: Optional[List[str]] = Field(
+        default=None,
+        description="电影风格ID列表，最多3个")
+    style_names: Optional[List[str]] = Field(
+        default=None,
+        description="电影风格名称列表")
+    style_intensity: Optional[float] = Field(
+        default=0.7,
+        description="风格强度(0.0-1.0)")
+    style_guide: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="融合后的风格指南")
+    # 多维电影风格参数（新增）
+    script_style_dimensions: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="电影风格维度选择数据(如：{导演风格: [{name:'张艺谋'}], ...})")
+    script_style_names: Optional[List[str]] = Field(
+        default=None,
+        description="选中的电影风格名称扁平化列表")
+    script_style_intensity: Optional[float] = Field(
+        default=0.7,
+        description="剧本风格强度(0.0-1.0)")
+    script_style_type: Optional[str] = Field(
+        default=None,
+        description="风格类型：'movie'")
+    # 标题风格
+    title_style: Optional[str] = Field(
+        default=None,
+        description="标题风格ID")
+    title_style_name: Optional[str] = Field(
+        default=None,
+        description="标题风格中文名称")
+
+
+# ==================== 剧集大纲（从剧本大纲拆分）====================
+
+class SeriesOutlineInput(BaseModel):
+    """剧集大纲输入"""
+    title: Optional[str] = Field(None, description="标题/主题")
+    series_type: str = Field(
+        ...,
+        description="剧集类型(电视剧/网络剧/短剧/微短剧/竖屏剧/长剧)")
+    theme: str = Field(
+        ...,
+        description="题材(爱情/喜剧/悬疑/科幻/奇幻/动作/剧情/历史/都市/青春/恐怖/犯罪/惊悚/灾难)")
+    audience: str = Field(..., description="目标受众")
+    platform: str = Field(
+        default="爱奇艺",
+        description="投放平台(央视/地方卫视/爱奇艺/腾讯视频/优酷/芒果TV/B站/抖音/快手/西瓜视频/红果短剧/河马剧场/Netflix/HBO/Disney+)")
+    reference_works: Optional[str] = Field(None, description="对标作品(可填写作品名称)")
+    synopsis: str = Field(..., description="故事梗概")
+    episode_count: Optional[str] = Field(
+        None, description="总集数（如：24集，自定义填写）")
+    custom_outline: Optional[str] = Field(
+        None, description="自写大纲URL（用户上传的文本文件）")
+    # 剧集专业配置参数
+    episode_duration_range: Optional[str] = Field(
+        default="30-45分钟", description="每集时长区间（如：5-15分钟）")
+    scenes_per_episode_range: Optional[str] = Field(
+        default="AI自动设计", description="每集场景数范围（如：10-20场）")
+    format_standard: Optional[str] = Field(
+        default="标准格式", description="剧本格式标准")
+    dialogue_narration_ratio: Optional[str] = Field(
+        default="均衡", description="对白与叙述比例")
+    target_broadcast: Optional[str] = Field(
+        default="未指定", description="目标投放平台")
+    # 剧本模式（现实模式/虚拟模式）
+    script_mode: Optional[str] = Field(
+        default="real",
+        description="剧本模式(real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成)")
+    # 风格参数
+    style_ids: Optional[List[str]] = Field(
+        default=None,
+        description="剧集风格ID列表，最多3个")
+    style_names: Optional[List[str]] = Field(
+        default=None,
+        description="剧集风格名称列表")
+    style_intensity: Optional[float] = Field(
+        default=0.7,
+        description="风格强度(0.0-1.0)")
+    style_guide: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="融合后的风格指南")
+    # 多维剧集风格参数（新增）
+    script_style_dimensions: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="剧集风格维度选择数据(如：{风格流派: [{name:'谍战剧[中]'}], ...})")
+    script_style_names: Optional[List[str]] = Field(
+        default=None,
+        description="选中的剧集风格名称扁平化列表")
+    script_style_intensity: Optional[float] = Field(
+        default=0.7,
+        description="剧本风格强度(0.0-1.0)")
+    script_style_type: Optional[str] = Field(
+        default=None,
+        description="风格类型：'series'")
+    script_series_sub_type: Optional[str] = Field(
+        default=None,
+        description="剧集子类型：'long'(长篇电视剧) / 'short'(网络短剧)")
+    # 标题风格
+    title_style: Optional[str] = Field(
+        default=None,
+        description="标题风格ID")
+    title_style_name: Optional[str] = Field(
+        default=None,
+        description="标题风格中文名称")
 
 
 # ==================== 小说大纲 ====================
@@ -136,6 +248,7 @@ class PrintAdInput(BaseModel):
     size_spec: Optional[str] = Field(None, description="具体尺寸")
     publish_media: Optional[str] = Field(None, description="发布媒介")
     ai_platforms: Optional[str] = Field(default="豆包", description="AI提示词目标平台")
+    description: Optional[str] = Field(None, description="详细描述（用户对广告创意的详细要求说明，是生成的核心依据）")
     # 多模态支持
     images: Optional[List[str]] = Field(
         None, description="参考图片URL列表（支持上传或网络图片链接，最大50MB）")
@@ -273,18 +386,19 @@ class ActionStatsResponse(BaseModel):
 class OptimizeModule(str, Enum):
     """支持的优化模块"""
     SHORT_VIDEO = "short_video"
-    SCRIPT = "script"
     NOVEL = "novel"
     PRINT_AD = "print_ad"
     TVC = "tvc"
     ORIGINAL_IP = "original_ip"
+    MOVIE_OUTLINE = "movie_outline"
+    SERIES_OUTLINE = "series_outline"
 
 
 class OptimizeRequest(BaseModel):
     """提示词优化请求"""
     module: str = Field(
         ...,
-        description="模块名称（short_video/script/novel/print_ad/tvc/original_ip）"
+        description="模块名称（short_video/script/novel/print_ad/tvc/original_ip/movie_outline/series_outline）"
     )
     original_text: str = Field(
         ...,
@@ -353,14 +467,8 @@ class FinalizeRequest(BaseModel):
 # ==================== 单元概述质控相关 ====================
 
 class UnitSummariesQCRequest(BaseModel):
-    """单元概述质控请求"""
+    """单元概述质控请求（v3.0：仅自动修正模式）"""
     content_type: str = Field(..., description="内容类型（novel/script等）")
     global_outline: str = Field(default="", description="全局大纲内容")
     unit_summaries: Dict[str, Any] = Field(..., description="单元概述字典")
-    enable_auto_revise: bool = Field(default=True, description="是否启用自动修正")
     temperature: float = Field(default=0.7, description="LLM温度参数")
-    # v2.4新增：直接修正模式参数
-    issue_id: Optional[str] = Field(
-        default=None, description="问题ID（直接修正模式，不重新检测）")
-    quality_report: Optional[Dict[str, Any]] = Field(
-        default=None, description="质控报告（直接修正模式必须提供）")

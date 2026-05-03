@@ -2,6 +2,8 @@
 import re
 import os
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class GetCharacterStatesForWritingMixin:
     """get_character_states_for_writing功能域"""

@@ -201,7 +201,7 @@ class GlobalCharacterWorldviewAnalyzer:
 
             logger.info("[人物与世界观分析] 成功获取LLM提供者，开始调用...")
 
-            outline_sample = global_outline[:15000]
+            outline_sample = global_outline  # 不再截断大纲，完整上下文有助于LLM准确分析
 
             prompt = f"""你是专业的人物关系分析师。
 

@@ -10,6 +10,7 @@ import json
 import re
 import asyncio
 from app.models.generation import Generation, GenerationModule, GenerationStatus, GenerationRevisionHistory
+from app.core.config import get_settings
 
 
 class RevisionMixin:
@@ -244,7 +245,7 @@ class RevisionMixin:
         try:
             # 使用流式生成修正内容，设置动态max_tokens确保内容完整
             safe_output_limit = min(
-                llm_provider.get_max_output_tokens(), settings.MAX_LLM_OUTPUT_TOKENS)
+                llm_provider.get_max_output_tokens(), get_settings().MAX_LLM_OUTPUT_TOKENS)
             revised_content = []
             async for chunk in llm_provider.generate_stream(
                 prompt=revision_prompt,

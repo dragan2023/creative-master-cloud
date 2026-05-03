@@ -4,6 +4,10 @@ from typing import Dict
 from typing import Any
 import re
 from app.services.outline_generator.api.constants import ENABLE_QUALITY_CONTROL
+import os
+
+# 环境变量控制：是否启用原子化逐章生成模式（默认启用）
+_ENABLE_ATOMIC_MODE = os.environ.get("ATOMIC_CHAPTER_MODE", "1") == "1"
 
 
 class UnitSummaryStreamMixin:
@@ -18,10 +22,10 @@ class UnitSummaryStreamMixin:
         episode_duration_range: str = None,
         provider: str = None,
         model: str = None,
-        temperature: float = 0.7,
+        temperature: float = 0.5,  # 调整为0.5,平衡创造性与遵循性（v2.6）
         user_id: int = None,
         enable_quality_control: bool = True,
-        qc_mode: str = "manual",  # 新增: 质控模式 (manual/auto)
+        qc_mode: str = "auto",  # 质控模式（v3.0：仅自动模式）
         cancel_event=None,
         # 续生成参数
         existing_content: str = "",
@@ -29,7 +33,11 @@ class UnitSummaryStreamMixin:
         start_from_unit: int = 1,
         # 标题风格参数（新增）
         title_style: str = None,
-        title_style_name: str = None
+        title_style_name: str = None,
+        # 原子化模式参数（新增）
+        atomic_mode: bool = None,
+        # GraphRAG知识库增强（v4.1新增）
+        project_id: int = None,
     ) -> AsyncGenerator[str, None]:
         """
         流式生成单元简要概述（第二阶段）
@@ -61,6 +69,42 @@ class UnitSummaryStreamMixin:
             SSE 事件字符串
         """
         try:
+            # 判断是否使用原子化模式
+            use_atomic = atomic_mode if atomic_mode is not None else _ENABLE_ATOMIC_MODE
+
+            if use_atomic:
+                # 原子化逐章流式生成
+                self.logger.info(
+                    f"[单元概述流式] 使用原子化逐章生成模式")
+
+                # 获取LLM提供商
+                llm_provider = await self.llm_manager.get_provider_from_db(
+                    self.db, user_id, provider)
+                if not llm_provider:
+                    raise ValueError(f"未找到LLM提供商: {provider}")
+
+                async for event in self.generate_all_chapters_atomic_stream(
+                    global_outline=global_outline,
+                    unit_count=unit_count,
+                    content_type=content_type,
+                    user_id=user_id,
+                    llm_provider=llm_provider,
+                    temperature=temperature,
+                    series_type=series_type,
+                    episode_duration_range=episode_duration_range,
+                    title_style=title_style,
+                    title_style_name=title_style_name,
+                    start_from_unit=start_from_unit,
+                    existing_parsed=existing_parsed,
+                    cancel_event=cancel_event,
+                    project_id=project_id,
+                ):
+                    yield event
+                return
+
+            # 原有流式生成模式（回退）
+            self.logger.info(
+                f"[单元概述流式] 使用原有全量生成模式（非原子化）")
             # 检测是否为续生成模式
             is_resume = bool(
                 existing_content and existing_parsed and start_from_unit > 1)
@@ -89,6 +133,11 @@ class UnitSummaryStreamMixin:
                     content_type=content_type
                 )
 
+                # 添加unit_label到续生成模式
+                unit_label_resume = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                    content_type, "章"
+                )
+
                 filled_prompt = self._build_resume_prompt(
                     module_name=module_name,
                     global_outline=global_outline,
@@ -99,8 +148,16 @@ class UnitSummaryStreamMixin:
                     series_type=series_type,
                     episode_duration_range=episode_duration_range,
                     title_style=title_style,  # 传递标题风格参数
-                    title_style_name=title_style_name  # 传递标题风格名称
+                    title_style_name=title_style_name,  # 传递标题风格名称
+                    unit_label=unit_label_resume  # 新增：传递单元标签
                 )
+
+                # 续生成模式也需要追加章节边界识别机制（v2.3）
+                # 注意：_build_resume_prompt 内部已经包含了章节边界识别机制（第186-241行）
+                # 但为了确保LLM接收到完整约束，这里添加日志验证
+                self.logger.info(f"[单元概述流式-续生成] 提示词长度: {len(filled_prompt)} 字符")
+                self.logger.info(f"[单元概述流式-续生成] 是否包含章节边界识别: {'章节边界识别' in filled_prompt}")
+                self.logger.info(f"[单元概述流式-续生成] 全局大纲长度: {len(global_outline)} 字符")
 
                 units_to_generate = unit_count - start_from_unit + 1
                 self.logger.info(
@@ -109,12 +166,16 @@ class UnitSummaryStreamMixin:
                 )
             else:
                 # 全新生成模式
+                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                    content_type, "章"
+                )
                 input_params = {
                     "global_outline": global_outline,
                     "chapter_count": str(unit_count),
                     "episode_count": str(unit_count),
                     "series_type": series_type or "网剧",
-                    "episode_duration_range": episode_duration_range or "30-45分钟"
+                    "episode_duration_range": episode_duration_range or "30-45分钟",
+                    "unit_label": unit_label_stream  # 新增：单元标签变量
                 }
 
                 # 生成标题风格指导文本（新增）
@@ -138,6 +199,111 @@ class UnitSummaryStreamMixin:
                 filled_prompt = self.prompt_manager.render_prompt(
                     prompt_template, input_params, module_name
                 )
+                
+                # 章节边界识别机制（v4.0正向版）- 放在全局大纲之前
+                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                    content_type, "章"
+                )
+                boundary_constraint_stream = f"""# 章节边界指引（请首先阅读）
+
+## 全局大纲中的分章结构
+
+全局大纲包含【分章大纲】部分，其中为每个章节分配了专属内容。在开始创作之前，请先做以下工作：
+
+### 第一步：定位分章大纲
+在全局大纲中找到【分章大纲】部分，这是每个章节最细粒度的内容分配。
+
+### 第二步：建立章节内容映射
+为每个章节建立明确的内容归属，例如：
+
+| 章节范围 | 本章专属内容 |
+|---------|------------|
+| 第1-10章 | 主角初入江湖，结识伙伴 |
+| 第11-30章 | 江湖历练，逐渐成长 |
+| 第91-98章 | 战前部署，各方势力集结 |
+| 第99-100章 | 平播之战一触即发。第一部完。 |
+
+### 第三步：逐章细化原则
+- 每一章只展开其编号范围内分章大纲分配的内容
+- 第98章只写到"战前准备完毕，即将开战"为止
+- 第99章开始才展开平播之战的实际过程
+- 如果分章大纲中某个事件在第50章才出现，在第30章时仅为该事件做铺垫和伏笔
+
+### 核心创作原则
+你的创造性体现在**如何写**（场景描写、对话设计、情感渲染），而非**写什么**（事件、角色、结果——这些由分章大纲决定）。
+
+---
+
+# 全局大纲（请据此创作）
+
+"""
+                
+                # 前置边界约束
+                filled_prompt = boundary_constraint_stream + filled_prompt
+                
+                # 添加章节范围指引（v4.0正向版）
+                filled_prompt += f"""
+
+---
+
+## 章节范围指引
+
+### 当前任务
+- **本次任务**：生成第1-{unit_count}{unit_label}的概述（第1批）
+- **后续批次**：第{unit_count + 1}{unit_label}及之后会在后续批次中生成
+
+### 生成规则
+1. 从第1{unit_label}开始，按顺序逐章生成到第{unit_count}{unit_label}
+2. 恰好生成{unit_count}个章节，编号连续：1, 2, 3, ..., {unit_count}
+3. 后续章节的内容将留到对应批次再详细展开
+
+### 内容分配原则
+- 根据全局大纲中第1-{unit_count}{unit_label}的情节分配逐一展开
+- 每个章节只展开其编号范围内分章大纲分配的内容
+- 严格按照分章大纲中的时间线和事件顺序展开
+- 为后续章节留下合理的发展空间
+
+### 逐章细化指南（核心）
+
+你的任务是**将分章大纲细化为详细的章节概述**，以下原则帮助你在正确的范围内创作：
+
+1. **忠于大纲内容**
+   - 分章大纲中已列出的事件，你负责细化、展开和丰富
+   - 分章大纲中的人物、地点、事件走向均已确定，你负责将它们写得更生动
+
+2. **尊重内容归属**
+   - 每个章节只涵盖其编号范围内分章大纲分配的内容
+   - 例如：分章大纲中"第99-100章：平播之战一触即发"意味着第98章写到"战前准备完毕"即可
+   - 例如：分章大纲中某个事件在第50章才出现，在第5章时只需为该事件做铺垫
+
+3. **创造性范围**
+   - 你可以发挥创造力的地方：场景如何描写、对话如何设计、情感如何渲染
+   - 由分章大纲决定的地方：发生什么事件、谁参与、事件的结果
+
+4. **逐章自查指南**
+   - 本章的编号范围在分章大纲中对应什么内容？
+   - 我写的内容是否恰好覆盖了这些内容？
+   - 下一章将展开的事件，本章是否做好了合理的铺垫和过渡？
+
+### 输出格式
+```
+第1章 [章节标题]
+梗概：[本章情节概述]
+...
+
+第2章 [章节标题]
+梗概：[本章情节概述]
+...
+
+（继续直到第{unit_count}章）
+```
+"""
+                
+                # 添加日志验证
+                self.logger.info(f"[单元概述流式-全新生成] 提示词长度: {len(filled_prompt)} 字符")
+                self.logger.info(f"[单元概述流式-全新生成] 是否包含章节边界识别: {'章节边界识别' in filled_prompt}")
+                self.logger.info(f"[单元概述流式-全新生成] 全局大纲长度: {len(global_outline)} 字符")
+                
                 units_to_generate = unit_count
 
             self.logger.info(
@@ -215,6 +381,17 @@ class UnitSummaryStreamMixin:
                     content_type
                 )
 
+                # v3.4诊断: 续生成解析为空时告警
+                if not new_parsed and new_content:
+                    self.logger.error(
+                        f"[单元概述续生成] ❌ 新内容解析失败！"
+                        f"LLM生成了{len(new_content)}字符，但解析器返回0个单元")
+                    yield self._format_sse("workflow", {
+                        "type": "error",
+                        "message": "续生成内容解析失败，请检查后端日志"
+                    })
+                    return
+
                 # 为新生成的章节添加续生成标记
                 # 注意：LLM已经生成了正确的绝对章节号（第51-100章），不需要调整
                 adjusted_new_parsed = {}
@@ -275,9 +452,23 @@ class UnitSummaryStreamMixin:
             else:
                 # 全新生成模式
                 full_content = new_content
+                # v3.4诊断: 记录生成内容长度
+                self.logger.info(
+                    f"[单元概述流式] 生成完成，内容长度: {len(full_content)} 字符")
                 full_parsed = self.parse_unit_summaries(
                     full_content, unit_count, content_type
                 )
+                # v3.4诊断: 解析为空但有内容时告警
+                if not full_parsed and full_content:
+                    self.logger.error(
+                        f"[单元概述流式] ❌ 解析失败！LLM生成了{len(full_content)}字符，"
+                        f"但解析器返回0个单元。请检查日志中[单元概述解析]的诊断信息")
+                    # 发送错误事件给前端，而不是静默显示"已完成"
+                    yield self._format_sse("workflow", {
+                        "type": "error",
+                        "message": "单元概述生成后解析失败，请检查后端日志。建议重试或更换模型。"
+                    })
+                    return
 
             # ==================== 截断检测(已禁用) ====================
             # 注意: 截断检测已禁用,现在使用分段生成机制替代

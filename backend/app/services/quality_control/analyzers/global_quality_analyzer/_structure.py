@@ -146,7 +146,7 @@ class GlobalStructureAnalyzer:
             logger.info("[宏观结构分析] 成功获取LLM提供者，开始调用...")
 
             # 截取大纲前15000字用于LLM分析(避免超长)
-            outline_sample = global_outline[:15000]
+            outline_sample = global_outline  # 不再截断大纲，完整上下文有助于LLM准确分析
 
             prompt = f"""你是专业的小说结构分析师。
 

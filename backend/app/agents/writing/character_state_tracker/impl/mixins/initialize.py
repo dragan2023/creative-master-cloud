@@ -7,6 +7,8 @@ from typing import Any
 import re
 import os
 
+from app.agents.writing.character_state_tracker.api import CharacterState, CharacterStatus
+
 
 class InitializeMixin:
     """initialize功能域"""

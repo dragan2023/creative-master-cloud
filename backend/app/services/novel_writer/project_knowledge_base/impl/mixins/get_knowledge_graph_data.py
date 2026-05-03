@@ -5,6 +5,8 @@ from typing import Any
 import re
 import os
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class GetKnowledgeGraphDataMixin:
     """get_knowledge_graph_data功能域"""

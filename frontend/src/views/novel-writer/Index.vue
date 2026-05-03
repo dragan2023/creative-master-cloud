@@ -135,6 +135,22 @@
           <el-input v-model="projectForm.genre" placeholder="如：言情、悬疑、科幻" />
         </el-form-item>
 
+        <!-- v4.2：知识图谱继承 -->
+        <el-form-item label="继承知识图谱">
+          <el-input-number
+            v-model="projectForm.inheritKbId"
+            :min="1"
+            placeholder="粘贴四阶段生成的图谱ID"
+            controls-position="right"
+            style="width: 100%"
+          />
+          <div class="form-tip kb-inherit-tip">
+            <el-icon><InfoFilled /></el-icon>
+            在创意生成页面构建知识图谱后，复制图谱ID粘贴到此处即可继承
+            <br />留空则创建不带知识图谱的项目
+          </div>
+        </el-form-item>
+
         <el-form-item label="生成配置">
           <el-collapse>
             <el-collapse-item title="高级设置" name="advanced">
@@ -391,465 +407,114 @@
 
 <script setup>
 import { ref, computed, onMounted, onActivated } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, MoreFilled, Notebook, Film, VideoCamera, Setting } from '@element-plus/icons-vue'
-import { novelWriterApi } from '@/api/novel-writer'
+import { Plus, MoreFilled, Notebook, Film, VideoCamera, Setting, InfoFilled } from '@element-plus/icons-vue'
 
-const router = useRouter()
+// 组合式函数
+import { useProjectList } from './composables/useProjectList'
+import { useProjectForm } from './composables/useProjectForm'
 
-// ==================== 常量配置 ====================
+// 常量配置
+import {
+  CONTENT_TYPE_HINTS,
+  NOVEL_PLATFORM_OPTIONS,
+  FORMAT_STANDARD_OPTIONS,
+  DIALOGUE_RATIO_OPTIONS,
+  TARGET_BROADCAST_OPTIONS,
+  getSeriesDurationMin as cfgGetSeriesDurationMin,
+  getSeriesDurationMax as cfgGetSeriesDurationMax,
+  getSeriesDurationHint as cfgGetSeriesDurationHint,
+  getMovieDurationMin as cfgGetMovieDurationMin,
+  getMovieDurationMax as cfgGetMovieDurationMax,
+  getMovieDurationHint as cfgGetMovieDurationHint,
+  updateSeriesDurationByType,
+  updateMovieDurationByType
+} from './config/projectFormConfig'
 
-// 内容类型提示
-const CONTENT_TYPE_HINTS = {
-  'novel': '小说：根据大纲生成章节正文，每章约3000字',
-  'series_script': '剧集剧本：根据大纲生成分集剧本，支持电视剧/网络剧/短剧等',
-  'movie_script': '电影剧本：根据大纲生成场景剧本，支持院线电影/网络电影等'
-}
+// ==================== 项目列表 ====================
+const list = useProjectList()
+const {
+  projects,
+  loading,
+  total,
+  currentPage,
+  pageSize,
+  filterType,
+  filterStatus,
+  loadProjects,
+  goToProject,
+  goToModelConfig,
+  handleCommand: listHandleCommand,
+  getTypeLabel,
+  getTypeClass,
+  getUnitLabel,
+  getStatusType,
+  getStatusText,
+  getProgressStatus,
+  formatTime
+} = list
 
-// 小说配置默认值
-const DEFAULT_NOVEL_CONFIG = {
-  target_platform: '',
-  total_words: null,
-  words_per_chapter: 3000,
-  style_reference: '',
-  temperature: 0.8,
-  narrative_perspective: '第三人称',
-  tone: '正剧'
-}
-
-// 剧集剧本配置默认值
-// 注意：剧本以"时长"为核心指标，字数仅供参考
-const DEFAULT_SERIES_SCRIPT_CONFIG = {
-  series_type: '电视剧',
-  episode_duration_range: null,  // 根据剧集类型自动设置
-  scenes_per_episode_range: null,
-  format_standard: '标准格式',
-  dialogue_narration_ratio: '均衡',
-  target_broadcast: '',
-  episode_count: 24,
-  style_reference: '',
-  dialogue_style: '自然对话',
-  narrative_rhythm: '紧凑',
-  script_mode: 'real',  // 剧本模式：real=现实模式，virtual=虚拟模式
-  words_per_episode: null  // 可选参考，不作为控制指标
-}
-
-// 电影剧本配置默认值
-// 注意：电影剧本以"时长"为核心指标
-const DEFAULT_MOVIE_SCRIPT_CONFIG = {
-  movie_type: '院线电影',
-  total_duration: null,  // 根据电影类型自动设置
-  format_standard: '标准格式',
-  dialogue_narration_ratio: '均衡',
-  target_platform: '',
-  style_reference: '',
-  dialogue_style: '自然对话',
-  narrative_rhythm: '紧凑',
-  script_mode: 'real'  // 剧本模式：real=现实模式，virtual=虚拟模式
-}
-
-// 剧集类型对应的时长配置
-const SERIES_DURATION_CONFIG = {
-  '电视剧': { min: 40, max: 60, defaultMin: 45, defaultMax: 50, hint: '电视剧通常45-50分钟/集' },
-  '网络剧': { min: 20, max: 50, defaultMin: 30, defaultMax: 45, hint: '网络剧通常30-45分钟/集' },
-  '短剧': { min: 3, max: 20, defaultMin: 5, defaultMax: 15, hint: '短剧通常5-15分钟/集' },
-  '微短剧': { min: 1, max: 10, defaultMin: 3, defaultMax: 8, hint: '微短剧通常3-8分钟/集' },
-  '网剧': { min: 20, max: 50, defaultMin: 30, defaultMax: 45, hint: '网剧通常30-45分钟/集' },
-  '竖屏剧': { min: 1, max: 5, defaultMin: 1, defaultMax: 3, hint: '竖屏剧通常1-3分钟/集' }
-}
-
-// 电影类型对应的时长配置
-const MOVIE_DURATION_CONFIG = {
-  '院线电影': { default: 120, min: 60, max: 180, hint: '院线电影通常90-120分钟' },
-  '网络电影': { default: 90, min: 45, max: 120, hint: '网络电影通常60-90分钟' },
-  '微电影': { default: 30, min: 10, max: 60, hint: '微电影通常20-45分钟' },
-  '纪录片': { default: 90, min: 30, max: 180, hint: '纪录片时长灵活' },
-  '动画电影': { default: 90, min: 60, max: 120, hint: '动画电影通常80-100分钟' }
-}
-
-// 剧本格式标准选项
-const FORMAT_STANDARD_OPTIONS = [
-  { value: '标准格式', label: '标准格式', desc: '包含场景头、角色名、动作描述、对白等完整元素' },
-  { value: '简格式', label: '简格式', desc: '精简场景描述，突出对白核心' },
-  { value: '网络平台格式', label: '网络平台格式', desc: '适配流媒体平台，节奏快、信息密度高' },
-  { value: '短剧格式', label: '短剧格式', desc: '单场戏结构清晰，适合竖屏观看' }
-]
-
-// 对白与叙述比例选项
-const DIALOGUE_RATIO_OPTIONS = [
-  { value: '对话为主', label: '对话为主', desc: '60%以上为对白' },
-  { value: '均衡', label: '均衡', desc: '对白与动作描述各占约50%' },
-  { value: '叙述为主', label: '叙述为主', desc: '侧重场景描述' },
-  { value: '动作导向', label: '动作导向', desc: '以动作描述为主' }
-]
-
-// 投放平台选项
-const TARGET_BROADCAST_OPTIONS = [
-  '央视', '地方卫视', '爱奇艺', '腾讯视频', '优酷', '芒果TV', 'B站', '抖音', '快手', 'Netflix', '院线发行'
-]
-
-// 小说投放平台选项
-const NOVEL_PLATFORM_OPTIONS = [
-  '起点中文网', '晋江文学城', '番茄小说', '豆瓣阅读', '纵横中文网', '17K小说网', '飞卢小说', '其他'
-]
-
-// ==================== 数据状态 ====================
-
-const projects = ref([])
-const loading = ref(false)
-const total = ref(0)
-const currentPage = ref(1)
-const pageSize = ref(12)
-const filterType = ref('')
-const filterStatus = ref('')
-
-// 对话框
-const dialogVisible = ref(false)
-const editingProject = ref(null)
-const saving = ref(false)
-
-// 表单数据
-const projectForm = ref({
-  title: '',
-  content_type: 'novel',
-  genre: '',
-  // 小说配置
-  novel_config: { ...DEFAULT_NOVEL_CONFIG },
-  // 剧集剧本配置
-  series_script_config: { ...DEFAULT_SERIES_SCRIPT_CONFIG },
-  // 电影剧本配置
-  movie_script_config: { ...DEFAULT_MOVIE_SCRIPT_CONFIG },
-  // 知识库配置
-  kb_vertical_enabled: false,
-  kb_user_specific_enabled: false,
-  kb_manual_enabled: false,
-  graphrag_enabled: true
-})
+// ==================== 项目表单 ====================
+const form = useProjectForm(loadProjects)
+const {
+  dialogVisible,
+  editingProject,
+  saving,
+  projectForm,
+  showCreateDialog,
+  editProject,
+  saveProject,
+  deleteProject,
+  onContentTypeChange: formOnContentTypeChange
+} = form
 
 // ==================== 计算属性 ====================
-
 const contentTypeHint = computed(() => {
   return CONTENT_TYPE_HINTS[projectForm.value.content_type] || ''
 })
 
-// ==================== 方法 ====================
+// ==================== 包装函数（保持模板兼容性）====================
 
-// 获取类型标签
-function getTypeLabel(contentType) {
-  const labels = {
-    'novel': '小说',
-    'series_script': '剧集',
-    'movie_script': '电影',
-    'script': '剧本' // 兼容旧版
-  }
-  return labels[contentType] || '未知'
-}
-
-// 获取类型样式类
-function getTypeClass(contentType) {
-  const classes = {
-    'novel': 'novel',
-    'series_script': 'series-script',
-    'movie_script': 'movie-script',
-    'script': 'script' // 兼容旧版
-  }
-  return classes[contentType] || 'novel'
-}
-
-// 获取单位标签
-function getUnitLabel(contentType) {
-  const labels = {
-    'novel': '章',
-    'series_script': '集',
-    'movie_script': '场',
-    'script': '章'
-  }
-  return labels[contentType] || '章'
-}
-
-// 内容类型变更处理
-function onContentTypeChange(contentType) {
-  // 重置对应的配置
-  if (contentType === 'novel') {
-    projectForm.value.novel_config = { ...DEFAULT_NOVEL_CONFIG }
-  } else if (contentType === 'series_script') {
-    projectForm.value.series_script_config = { ...DEFAULT_SERIES_SCRIPT_CONFIG }
-    // 根据默认剧集类型设置时长
-    updateSeriesDurationByType(projectForm.value.series_script_config.series_type)
-  } else if (contentType === 'movie_script') {
-    projectForm.value.movie_script_config = { ...DEFAULT_MOVIE_SCRIPT_CONFIG }
-    // 根据默认电影类型设置时长
-    updateMovieDurationByType(projectForm.value.movie_script_config.movie_type)
-  }
-}
-
-// 剧集类型变更时自动设置时长范围
-function onSeriesTypeChange(seriesType) {
-  updateSeriesDurationByType(seriesType)
-}
-
-// 根据剧集类型更新时长范围
-function updateSeriesDurationByType(seriesType) {
-  const config = SERIES_DURATION_CONFIG[seriesType]
-  if (config) {
-    projectForm.value.series_script_config.episode_duration_range = [config.defaultMin, config.defaultMax]
-  }
-}
-
-// 电影类型变更时自动设置时长
-function onMovieTypeChange(movieType) {
-  updateMovieDurationByType(movieType)
-}
-
-// 根据电影类型更新时长
-function updateMovieDurationByType(movieType) {
-  const config = MOVIE_DURATION_CONFIG[movieType]
-  if (config) {
-    projectForm.value.movie_script_config.total_duration = config.default
-  }
-}
-
-// 获取剧集时长的最小值限制
-function getSeriesDurationMin() {
-  const seriesType = projectForm.value.series_script_config?.series_type || '电视剧'
-  const config = SERIES_DURATION_CONFIG[seriesType]
-  return config?.min || 1
-}
-
-// 获取剧集时长的最大值限制
-function getSeriesDurationMax() {
-  const seriesType = projectForm.value.series_script_config?.series_type || '电视剧'
-  const config = SERIES_DURATION_CONFIG[seriesType]
-  return config?.max || 120
-}
-
-// 获取剧集时长的提示信息
-function getSeriesDurationHint() {
-  const seriesType = projectForm.value.series_script_config?.series_type || '电视剧'
-  const config = SERIES_DURATION_CONFIG[seriesType]
-  return config?.hint || ''
-}
-
-// 获取电影时长的最小值限制
-function getMovieDurationMin() {
-  const movieType = projectForm.value.movie_script_config?.movie_type || '院线电影'
-  const config = MOVIE_DURATION_CONFIG[movieType]
-  return config?.min || 5
-}
-
-// 获取电影时长的最大值限制
-function getMovieDurationMax() {
-  const movieType = projectForm.value.movie_script_config?.movie_type || '院线电影'
-  const config = MOVIE_DURATION_CONFIG[movieType]
-  return config?.max || 180
-}
-
-// 获取电影时长的提示信息
-function getMovieDurationHint() {
-  const movieType = projectForm.value.movie_script_config?.movie_type || '院线电影'
-  const config = MOVIE_DURATION_CONFIG[movieType]
-  return config?.hint || ''
-}
-
-// 加载项目列表
-async function loadProjects() {
-  loading.value = true
-  try {
-    const res = await novelWriterApi.getProjects({
-      content_type: filterType.value,  // 使用新版参数
-      status: filterStatus.value,
-      page: currentPage.value,
-      page_size: pageSize.value
-    })
-    
-    if (res.success) {
-      projects.value = res.data.items
-      total.value = res.data.total
-    } else {
-      ElMessage.error(res.message || '加载项目列表失败')
-    }
-  } catch (error) {
-    ElMessage.error('加载项目列表失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-// 显示创建对话框
-function showCreateDialog() {
-  editingProject.value = null
-  projectForm.value = {
-    title: '',
-    content_type: 'novel',
-    genre: '',
-    novel_config: { ...DEFAULT_NOVEL_CONFIG },
-    series_script_config: { ...DEFAULT_SERIES_SCRIPT_CONFIG },
-    movie_script_config: { ...DEFAULT_MOVIE_SCRIPT_CONFIG },
-    kb_vertical_enabled: false,
-    kb_user_specific_enabled: false,
-    kb_manual_enabled: false,
-    graphrag_enabled: true
-  }
-  dialogVisible.value = true
-}
-
-// 编辑项目
-function editProject(project) {
-  editingProject.value = project
-  
-  // 获取内容类型
-  const contentType = project.content_type || (project.project_type === 'novel' ? 'novel' : 'series_script')
-  
-  projectForm.value = {
-    title: project.title,
-    content_type: contentType,
-    genre: project.genre || '',
-    // 从项目数据中获取配置
-    novel_config: project.novel_config || { ...DEFAULT_NOVEL_CONFIG },
-    series_script_config: project.series_script_config || { ...DEFAULT_SERIES_SCRIPT_CONFIG },
-    movie_script_config: project.movie_script_config || { ...DEFAULT_MOVIE_SCRIPT_CONFIG },
-    // 知识库配置
-    kb_vertical_enabled: project.knowledge_base_config?.kb_vertical_enabled || false,
-    kb_user_specific_enabled: project.knowledge_base_config?.kb_user_specific_enabled || false,
-    kb_manual_enabled: project.knowledge_base_config?.kb_manual_enabled || false,
-    graphrag_enabled: project.knowledge_base_config?.graphrag_enabled !== false
-  }
-  
-  dialogVisible.value = true
-}
-
-// 保存项目
-async function saveProject() {
-  if (!projectForm.value.title) {
-    ElMessage.warning('请输入项目标题')
-    return
-  }
-
-  saving.value = true
-  try {
-    const data = {
-      title: projectForm.value.title,
-      content_type: projectForm.value.content_type,
-      genre: projectForm.value.genre,
-      // 根据内容类型传递对应配置
-      novel_config: projectForm.value.content_type === 'novel' ? projectForm.value.novel_config : null,
-      series_script_config: projectForm.value.content_type === 'series_script' ? projectForm.value.series_script_config : null,
-      movie_script_config: projectForm.value.content_type === 'movie_script' ? projectForm.value.movie_script_config : null,
-      // 知识库配置
-      knowledge_base_config: {
-        kb_vertical_enabled: projectForm.value.kb_vertical_enabled,
-        kb_user_specific_enabled: projectForm.value.kb_user_specific_enabled,
-        kb_manual_enabled: projectForm.value.kb_manual_enabled,
-        graphrag_enabled: projectForm.value.graphrag_enabled,
-        kb_vertical_ids: [],
-        kb_user_specific_ids: [],
-        kb_manual_ids: []
-      }
-    }
-
-    if (editingProject.value) {
-      await novelWriterApi.updateProject(editingProject.value.id, data)
-      ElMessage.success('项目已更新')
-      dialogVisible.value = false
-      loadProjects()
-    } else {
-      const res = await novelWriterApi.createProject(data)
-      ElMessage.success('项目创建成功')
-      dialogVisible.value = false
-      await loadProjects()
-      router.push(`/novel-writer/${res.data.id}`)
-    }
-  } catch (error) {
-    ElMessage.error(editingProject.value ? '更新失败' : '创建失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-// 处理下拉菜单命令
 function handleCommand(command, project) {
-  if (command === 'edit') {
-    editProject(project)
-  } else if (command === 'delete') {
-    deleteProject(project)
-  }
+  listHandleCommand(command, project, { editProject, deleteProject })
 }
 
-// 删除项目
-async function deleteProject(project) {
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除项目"${project.title}"吗？删除后无法恢复。`,
-      '确认删除',
-      { type: 'warning' }
-    )
-
-    await novelWriterApi.deleteProject(project.id)
-    ElMessage.success('项目已删除')
-    loadProjects()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
-  }
+function onContentTypeChange(contentType) {
+  formOnContentTypeChange(contentType)
 }
 
-// 跳转到项目详情
-function goToProject(projectId) {
-  router.push(`/novel-writer/${projectId}`)
+function onSeriesTypeChange(seriesType) {
+  updateSeriesDurationByType(projectForm.value, seriesType)
 }
 
-// 跳转到模型配置页面
-function goToModelConfig() {
-  router.push('/novel-writer/model-config')
+function onMovieTypeChange(movieType) {
+  updateMovieDurationByType(projectForm.value, movieType)
 }
 
-// 辅助函数
-function getStatusType(status) {
-  const types = {
-    init: 'info',
-    directory: 'warning',
-    generating: 'primary',
-    completed: 'success',
-    failed: 'danger',
-    paused: 'warning'
-  }
-  return types[status] || 'info'
+function getSeriesDurationMin() {
+  return cfgGetSeriesDurationMin(projectForm.value)
 }
 
-function getStatusText(status) {
-  const texts = {
-    init: '初始化',
-    directory: '目录生成中',
-    generating: '生成中',
-    completed: '已完成',
-    failed: '失败',
-    paused: '已暂停'
-  }
-  return texts[status] || status
+function getSeriesDurationMax() {
+  return cfgGetSeriesDurationMax(projectForm.value)
 }
 
-function getProgressStatus(status) {
-  if (status === 'completed') return 'success'
-  if (status === 'failed') return 'exception'
-  return null
+function getSeriesDurationHint() {
+  return cfgGetSeriesDurationHint(projectForm.value)
 }
 
-function formatTime(timeStr) {
-  if (!timeStr) return ''
-  const date = new Date(timeStr)
-  const now = new Date()
-  const diff = now - date
-
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
-  if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`
-
-  return date.toLocaleDateString()
+function getMovieDurationMin() {
+  return cfgGetMovieDurationMin(projectForm.value)
 }
 
+function getMovieDurationMax() {
+  return cfgGetMovieDurationMax(projectForm.value)
+}
+
+function getMovieDurationHint() {
+  return cfgGetMovieDurationHint(projectForm.value)
+}
+
+// ==================== 生命周期 ====================
 onMounted(() => {
   loadProjects()
 })
@@ -868,6 +533,20 @@ onActivated(() => {
 .form-tip {
   margin-top: 8px;
   line-height: 1.5;
+}
+
+.kb-inherit-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.6;
+
+  .el-icon {
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
 }
 
 .page-header {

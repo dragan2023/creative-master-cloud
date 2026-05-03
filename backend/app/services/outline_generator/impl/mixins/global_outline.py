@@ -8,6 +8,142 @@ import re
 from app.agents.orchestrator import extract_input_params_files
 
 
+def _build_script_style_guidance(
+    script_style_type: str,
+    script_style_dimensions: Dict,
+    script_style_names: List[str],
+    script_style_intensity: float,
+    script_series_sub_type: str = None
+) -> str:
+    """
+    构建剧本多维风格指导文本
+
+    Args:
+        script_style_type: 风格类型 'movie' 或 'series'
+        script_style_dimensions: 维度数据 dict，如 {'导演风格': [{'name': '张艺谋'}], ...}
+        script_style_names: 选中的风格名称扁平化列表
+        script_style_intensity: 风格强度 0.0-1.0
+        script_series_sub_type: 剧集子类型 'long' 或 'short'
+
+    Returns:
+        格式化的风格指导字符串
+    """
+    # 安全处理 None 值
+    safe_intensity = script_style_intensity if script_style_intensity is not None else 0.7
+    intensity_pct = int(safe_intensity * 100)
+
+    if script_style_type == 'movie':
+        header = "## 电影风格指导"
+        content_type_label = "电影创作风格"
+    else:
+        sub_label = "（长剧）" if script_series_sub_type == 'long' else "（短剧）" if script_series_sub_type == 'short' else ""
+        header = f"## 剧集风格指导{sub_label}"
+        content_type_label = "剧集创作风格"
+
+    # 构建维度列表
+    dimension_lines = []
+    for dim_name, styles in script_style_dimensions.items():
+        if styles and len(styles) > 0:
+            style_names_in_dim = [
+                (s.get('name') or str(s)) if isinstance(s, dict) else str(s)
+                for s in styles
+            ]
+            style_names_str = '、'.join(style_names_in_dim)
+            dimension_lines.append(f"- **{dim_name}**：{style_names_str}")
+
+    dimensions_text = '\n'.join(dimension_lines) if dimension_lines else '- （未选择具体风格）'
+
+    # 构建全部选中风格列表
+    all_names = '、'.join(script_style_names) if script_style_names else '无'
+
+    return f"""
+{header}
+
+你已选择以下{content_type_label}：
+{dimensions_text}
+- **风格强度**：{intensity_pct}%
+
+**应用规则**：
+1. 全局大纲的撰写必须体现所选风格的特征
+2. 人物设定、场景设计、故事结构都要符合所选风格特点
+3. 视觉风格建议应反映所选风格的审美取向（如色彩方案、画面质感、节奏感等）
+4. 对白风格应与所选台词风格保持一致
+
+**风格融合说明**：
+已选风格（{all_names}）应在创作中自然融合，不应生硬堆砌
+- 主风格维度（第一个维度）作为创作基调
+- 其他维度风格作为调味元素渐进式融合
+
+**注意事项**：
+- 风格强度{intensity_pct}%意味着风格特征的明显程度
+- 强度越高，风格特征越突出
+- 但大纲仍需保持结构清晰，不要因追求风格而牺牲可读性
+"""
+
+
+def _resolve_style_guidance(
+    input_params: Dict[str, Any],
+    style_ids: List[str],
+    style_names: List[str],
+    style_intensity: float,
+    style_guide: Dict = None
+) -> str:
+    """
+    从 input_params 中解析风格指导文本（统一入口，消除重复代码）
+
+    优先检测剧本多维风格（script_style_dimensions），
+    回退到小说文风参数（style_ids/style_names），
+    最后使用默认提示。
+
+    Args:
+        input_params: 用户输入参数字典
+        style_ids: 小说文风ID列表
+        style_names: 小说文风名称列表
+        style_intensity: 小说文风强度
+        style_guide: 融合后的风格指南
+
+    Returns:
+        格式化的风格指导字符串
+    """
+    script_style_dimensions = input_params.get('script_style_dimensions')
+    script_style_names = input_params.get('script_style_names', [])
+    script_style_intensity = input_params.get('script_style_intensity', 0.7)
+    script_style_type = input_params.get('script_style_type')
+    script_series_sub_type = input_params.get('script_series_sub_type')
+
+    if script_style_dimensions and script_style_names and len(script_style_names) > 0:
+        # 剧本多维风格指导
+        return _build_script_style_guidance(
+            script_style_type=script_style_type,
+            script_style_dimensions=script_style_dimensions,
+            script_style_names=script_style_names,
+            script_style_intensity=script_style_intensity,
+            script_series_sub_type=script_series_sub_type
+        )
+    elif style_ids and len(style_ids) > 0:
+        return f"""
+## 文风应用指南
+
+你已选择以下写作风格进行融合创作：
+- 主风格：{style_names[0] if len(style_names) > 0 else '无'}
+- 辅风格：{', '.join(style_names[1:]) if len(style_names) > 1 else '无'}
+- 风格强度：{style_intensity * 100:.0f}%
+
+**应用规则**：
+1. 全局大纲的撰写必须体现所选文风的特征
+2. 人物设定、世界观描述、故事结构都要符合文风特点
+3. 语言风格参考：
+{style_guide.get('style_library_guide', '') if style_guide else ''}
+
+**注意事项**：
+- 文风强度{style_intensity * 100:.0f}%意味着文风特征的明显程度
+- 强度越高，文风特征越突出
+- 但大纲仍需保持结构清晰，不要因追求文风而牺牲可读性
+"""
+    else:
+        return "（用户未选择特定风格，请使用标准创作风格）"
+
+
 class GlobalOutlineMixin:
     """全局大纲生成"""
 
@@ -60,30 +196,14 @@ class GlobalOutlineMixin:
                 raise ValueError(f"未找到提示词模板: {module_name}")
 
             # 渲染提示词（填充变量）
-            # 合并input_params和文风参数
-            # 生成文风指导
-            if style_ids and len(style_ids) > 0:
-                style_guidance = f"""
-## 文风应用指南
-
-你已选择以下写作风格进行融合创作：
-- 主风格：{style_names[0] if len(style_names) > 0 else '无'}
-- 辅风格：{', '.join(style_names[1:]) if len(style_names) > 1 else '无'}
-- 风格强度：{style_intensity * 100:.0f}%
-
-**应用规则**：
-1. 全局大纲的撰写必须体现所选文风的特征
-2. 人物设定、世界观描述、故事结构都要符合文风特点
-3. 语言风格参考：
-{style_guide.get('style_library_guide', '') if style_guide else ''}
-
-**注意事项**：
-- 文风强度{style_intensity * 100:.0f}%意味着文风特征的明显程度
-- 强度越高，文风特征越突出
-- 但大纲仍需保持结构清晰，不要因追求文风而牺牲可读性
-"""
-            else:
-                style_guidance = "（用户未选择特定文风，请使用标准创作风格）"
+            # 生成风格指导（统一入口，支持剧本多维风格和小说文风两种模式）
+            style_guidance = _resolve_style_guidance(
+                input_params=input_params,
+                style_ids=style_ids,
+                style_names=style_names,
+                style_intensity=style_intensity,
+                style_guide=style_guide
+            )
 
             render_params = {
                 **input_params,
@@ -205,30 +325,14 @@ class GlobalOutlineMixin:
             if not prompt_template:
                 raise ValueError(f"未找到提示词模板: {module_name}")
 
-            # 合并input_params和文风参数
-            # 生成文风指导
-            if style_ids and len(style_ids) > 0:
-                style_guidance = f"""
-## 文风应用指南
-
-你已选择以下写作风格进行融合创作：
-- 主风格：{style_names[0] if len(style_names) > 0 else '无'}
-- 辅风格：{', '.join(style_names[1:]) if len(style_names) > 1 else '无'}
-- 风格强度：{style_intensity * 100:.0f}%
-
-**应用规则**：
-1. 全局大纲的撰写必须体现所选文风的特征
-2. 人物设定、世界观描述、故事结构都要符合文风特点
-3. 语言风格参考：
-{style_guide.get('style_library_guide', '') if style_guide else ''}
-
-**注意事项**：
-- 文风强度{style_intensity * 100:.0f}%意味着文风特征的明显程度
-- 强度越高，文风特征越突出
-- 但大纲仍需保持结构清晰，不要因追求文风而牺牲可读性
-"""
-            else:
-                style_guidance = "（用户未选择特定文风，请使用标准创作风格）"
+            # 生成风格指导（统一入口，支持剧本多维风格和小说文风两种模式）
+            style_guidance = _resolve_style_guidance(
+                input_params=input_params,
+                style_ids=style_ids,
+                style_names=style_names,
+                style_intensity=style_intensity,
+                style_guide=style_guide
+            )
 
             render_params = {
                 **input_params,

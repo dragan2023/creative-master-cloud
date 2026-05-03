@@ -4,6 +4,8 @@ from typing import List
 from typing import Any
 import re
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class ExtractAndStoreCharacterStatesMixin:
     """extract_and_store_character_states功能域"""
@@ -49,6 +51,8 @@ class ExtractAndStoreCharacterStatesMixin:
             knowledge_graph.load()
 
             # 提取人物状态实体
+            from app.tools.novel_graph_rag.impl.entity_extractor_generator import NovelEntityExtractor
+            
             extractor = NovelEntityExtractor(llm_provider=llm_provider)
             state_result = await extractor.extract_character_states(
                 chapter_content=chapter_content,

@@ -210,5 +210,5 @@ TEMPLATE = {
 现在，请根据以上指令，为用户创作脚本。
 """,
     "variables": ["topic", "audience", "description", "platform", "style", "duration", "mode", "generate_ai_prompt", "generate_storyboard_images", "ai_platforms", "reference_video", "reference_materials"]
-},
+}
 

@@ -78,5 +78,5 @@ TEMPLATE = {
 该方案已经过全能创意大师修正完善。
 """,
     "variables": ["design_category", "brand_product", "ad_purpose", "core_message", "audience_profile", "contact_scene", "style_tone", "copy_content", "size_spec", "publish_media", "ai_platforms", "description"]
-},
+}
 

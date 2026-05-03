@@ -3,6 +3,8 @@ from typing import Dict
 from typing import Any
 import re
 
+from app.tools.novel_graph_rag.constants import FORBIDDEN_RELATION_TYPES
+
 
 class AddRelationMixin:
     """add_relation功能域"""

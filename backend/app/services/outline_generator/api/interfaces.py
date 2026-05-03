@@ -51,7 +51,7 @@ class OutlineGeneratorProtocol(ABC):
         temperature: float = 0.7,
         user_id: int = None,
         enable_quality_control: bool = True,
-        qc_mode: str = "manual",
+        qc_mode: str = "auto",
         cancel_event=None,
     ) -> Dict[str, Any]:
         """生成单元概述"""
@@ -70,7 +70,7 @@ class OutlineGeneratorProtocol(ABC):
         temperature: float = 0.7,
         user_id: int = None,
         enable_quality_control: bool = True,
-        qc_mode: str = "manual",
+        qc_mode: str = "auto",
         cancel_event=None,
     ) -> AsyncGenerator[str, None]:
         """流式生成单元概述"""
@@ -137,26 +137,4 @@ class OutlineGeneratorProtocol(ABC):
         """基于质量报告修正全局大纲"""
         ...
 
-    @abstractmethod
-    async def analyze_unit_summaries_quality_manual(
-        self,
-        unit_summaries: Dict[str, Dict[str, Any]],
-        global_outline: str,
-        content_type: str,
-        user_id: int = None,
-    ) -> Dict[str, Any]:
-        """手动触发单元概述质量检测"""
-        ...
 
-    @abstractmethod
-    async def revise_unit_summaries_quality(
-        self,
-        unit_summaries: Dict[str, Dict[str, Any]],
-        quality_report: Dict[str, Any],
-        global_outline: str,
-        content_type: str,
-        temperature: float = 0.7,
-        user_id: int = None,
-    ) -> Dict[str, Any]:
-        """对单元概述执行质量修正"""
-        ...

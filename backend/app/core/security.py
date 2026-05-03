@@ -120,13 +120,14 @@ class APIKeyEncryption:
         """获取 Fernet 实例（延迟初始化）"""
         if self._fernet is None:
             settings = get_settings()
-            # 使用 SECRET_KEY 派生加密密钥
-            salt = b'creative_master_salt_v1'  # 固定盐值（生产环境应从安全配置读取）
+            # 使用配置中的加密盐值（支持安全配置，变更需注意已加密数据的兼容性）
+            salt_str = settings.ENCRYPTION_SALT or "creative_master_salt_v1"
+            salt = salt_str.encode()
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
                 length=32,
                 salt=salt,
-                iterations=100000,
+                iterations=100000,  # 保持与已有加密数据兼容
             )
             key = base64.urlsafe_b64encode(kdf.derive(settings.SECRET_KEY.encode()))
             self._fernet = Fernet(key)

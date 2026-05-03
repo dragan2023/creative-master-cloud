@@ -16,7 +16,7 @@ class UnitSummaryResumeMixin:
         truncation_info: Dict[str, Any],
         content_type: str,
         llm_provider,
-        temperature: float = 0.7
+        temperature: float = 0.3,  # 降低到0.3，减少创造性，增强遵循性（v2.5）
     ) -> Dict[str, Any]:
         """
         接续生成被截断或缺失的单元概述
@@ -176,7 +176,7 @@ class UnitSummaryResumeMixin:
         missing_units: List[int],
         content_type: str,
         llm_provider,
-        temperature: float = 0.7,
+        temperature: float = 0.3,  # 降低到0.3，减少创造性，增强遵循性（v2.5）
         max_batch_size: int = 20  # 新增:批量大小限制
     ) -> str:
         """
@@ -331,7 +331,7 @@ class UnitSummaryResumeMixin:
         missing_units: List[int],
         content_type: str,
         llm_provider,
-        temperature: float = 0.7
+        temperature: float = 0.3,  # 降低到0.3，减少创造性，增强遵循性（v2.5）
     ) -> str:
         """
         生成一批单元概述(内部方法,不含重试逻辑)

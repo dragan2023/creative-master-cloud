@@ -7,8 +7,8 @@
 @author: 周金磊
 @contact: QQ：7527149（添加时请说明来意）
 """
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
@@ -78,14 +78,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     Returns:
         JWT Token字符串
     """
-    import jwt
-
+    from jose import jwt
+    
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
         to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -97,6 +97,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 @router.post("/register", response_model=ResponseModel[TokenResponse])
 async def register(
     data: UserRegister,
+    response: Response,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -156,6 +157,18 @@ async def register(
 
     logger.info(f"用户注册成功: {user.username}, 租户: {tenant.name}")
 
+    # 设置 HttpOnly Cookie
+    cookie_max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        max_age=cookie_max_age,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        path="/"
+    )
+
     return ResponseModel(
         data=TokenResponse(
             access_token=access_token,
@@ -177,12 +190,14 @@ async def register(
 @router.post("/login", response_model=ResponseModel[TokenResponse])
 async def login(
     data: UserLogin,
+    response: Response,
     db: AsyncSession = Depends(get_db)
 ):
     """
     用户登录
 
     验证用户名/邮箱和密码，返回JWT Token
+    同时设置 HttpOnly Cookie 以增强安全性
     """
     # 查找用户
     result = await db.execute(
@@ -221,6 +236,18 @@ async def login(
     )
 
     logger.info(f"用户登录成功: {user.username}")
+
+    # 设置 HttpOnly Cookie（安全迁移：同时保留响应体中的 token 以兼容旧前端）
+    cookie_max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        max_age=cookie_max_age,
+        httponly=True,
+        secure=False,  # 生产环境应设为 True（需要 HTTPS）
+        samesite="lax",
+        path="/"
+    )
 
     return ResponseModel(
         data=TokenResponse(
@@ -369,11 +396,11 @@ async def change_password(
 # ==================== 退出登录 ====================
 
 @router.post("/logout", response_model=ResponseModel)
-async def logout():
+async def logout(response: Response):
     """
-    退出登录
+    退出登录 - 清除HttpOnly Cookie
 
-    JWT是无状态的，服务端不维护Token状态
-    客户端需要自行删除Token
+    客户端仍需自行清理localStorage中的Token（兼容旧版）
     """
+    response.delete_cookie(key="access_token", path="/")
     return ResponseModel(message="退出成功")

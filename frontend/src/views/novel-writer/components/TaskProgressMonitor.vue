@@ -378,6 +378,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useWritingTaskStore } from '@/stores/writingTask'
 import { AGENT_ROLE_LABELS } from '../composables/useWritingTask'
+import { getSceneStatusType, getSceneStatusLabel, formatNumber, formatTime } from '../utils/contentHelpers'
 
 const props = defineProps({
   // WebSocket连接状态
@@ -548,43 +549,6 @@ function getUnitStatusLabel(status) {
     failed: '失败'
   }
   return labelMap[status] || status
-}
-
-function getSceneStatusType(status) {
-  const typeMap = {
-    pending: 'info',
-    writing: 'primary',
-    reviewing: 'warning',
-    completed: 'success',
-    failed: 'danger'
-  }
-  return typeMap[status] || 'info'
-}
-
-function getSceneStatusLabel(status) {
-  const labelMap = {
-    pending: '等待中',
-    writing: '写作中',
-    reviewing: '审阅中',
-    completed: '已完成',
-    failed: '失败'
-  }
-  return labelMap[status] || status
-}
-
-function formatNumber(num) {
-  if (!num) return '0'
-  return num.toLocaleString()
-}
-
-function formatTime(timestamp) {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
 }
 
 function calculateEfficiency() {

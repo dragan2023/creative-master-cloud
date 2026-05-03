@@ -1,0 +1,8 @@
+module: 小说写作
+
+scenarios:
+  - name: 访问写作工作台
+    type: normal_flow
+    steps:
+      - navigate: /novel-writer
+      - wait: 2000

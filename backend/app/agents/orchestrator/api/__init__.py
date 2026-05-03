@@ -6,6 +6,8 @@ from typing import AsyncGenerator, Dict, Any, Optional, List
 import base64
 import mimetypes
 import os
+from app.core.config import PRESET_MODELS, get_settings
+from app.tools.file_parser import get_file_parser
 
 @dataclass
 class GenerateStreamContext:
@@ -266,8 +268,3 @@ def get_model_friendly_name(provider: str, model_id: str) -> str:
 
     # 如果找不到映射，返回原ID
     return model_id
-
-def get_agent_orchestrator() -> AgentOrchestrator:
-    """获取 Agent 编排器实例"""
-    return agent_orchestrator
-

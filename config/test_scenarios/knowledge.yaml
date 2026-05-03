@@ -1,0 +1,8 @@
+module: 知识库
+
+scenarios:
+  - name: 访问知识库
+    type: normal_flow
+    steps:
+      - navigate: /knowledge
+      - wait: 2000

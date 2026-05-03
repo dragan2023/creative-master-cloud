@@ -2712,8 +2712,8 @@ async def _build_knowledge_base_task(
                         "message": f"构建失败: {str(e)}"
                     }
                     await db.commit()
-            except Exception:
-                pass
+            except Exception as inner_e:
+                logger.warning(f"更新知识库状态失败: {inner_e}")
 
 
 @router.get("/projects/{project_id}/knowledge-base-status")

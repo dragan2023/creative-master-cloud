@@ -133,8 +133,9 @@ async def _create_streaming_endpoint(
     # 映射模块名称到枚举
     module_map = {
         'short_video': GenerationModule.SHORT_VIDEO,
-        'script': GenerationModule.SCRIPT,
         'novel': GenerationModule.NOVEL,
+        'movie_outline': GenerationModule.MOVIE_OUTLINE,
+        'series_outline': GenerationModule.SERIES_OUTLINE,
         'print_ad': GenerationModule.PRINT_AD,
         'tvc': GenerationModule.TVC,
         'original_ip': GenerationModule.ORIGINAL_IP
@@ -170,16 +171,27 @@ async def _create_streaming_endpoint(
     has_error = False  # 标记是否有异常发生
 
     async def event_generator():
+        nonlocal has_error  # [修复] 必须在闭包内声明 nonlocal，否则 except 块中的
+        # has_error = True 会创建局部变量，导致 finally 块读取外层变量（始终为 False）
+
+        # [修复] 创建独立的数据库会话，因为依赖注入的 db 会话在视图函数
+        # 返回 StreamingResponse 后就会被关闭，而流式生成器还需要使用数据库。
+        # 见：get_db() 的 finally 块在 yield 之后立即关闭会话。
+        from app.core.database import async_session_maker
+        stream_db = async_session_maker()
         try:
+            # 使用独立会话重建 state_manager（原 state_manager 绑定了已关闭的 db）
+            stream_state_manager = GenerationStateManager(stream_db, generation.id)
+
             # 保存"生成中"状态
-            await state_manager.save_stage(
+            await stream_state_manager.save_stage(
                 stage='generating',
                 stage_data={'progress': 0},
                 status=GenerationStatus.PROCESSING
             )
 
             async for chunk in orchestrator.generate_stream(
-                db=db,
+                db=stream_db,
                 module=module,
                 user_id=user_id,
                 input_params=input_params,
@@ -205,7 +217,7 @@ async def _create_streaming_endpoint(
                     logger.info(f"生成任务被立即取消: {session_id}")
                     # 保存"已取消"状态
                     try:
-                        await state_manager.save_stage(
+                        await stream_state_manager.save_stage(
                             stage='generating',
                             stage_data={
                                 'partial_content': ''.join(content_buffer),
@@ -221,7 +233,7 @@ async def _create_streaming_endpoint(
                     logger.info(f"生成任务被取消(Redis): {session_id}")
                     # 保存"已取消"状态
                     try:
-                        await state_manager.save_stage(
+                        await stream_state_manager.save_stage(
                             stage='generating',
                             stage_data={
                                 'partial_content': ''.join(content_buffer),
@@ -249,7 +261,7 @@ async def _create_streaming_endpoint(
                             total_length = sum(len(t) for t in content_buffer)
                             if total_length > 0 and total_length % 500 < len(text):
                                 try:
-                                    await state_manager.save_stage(
+                                    await stream_state_manager.save_stage(
                                         stage='generating',
                                         stage_data={
                                             # 假设5000字符完成
@@ -273,7 +285,7 @@ async def _create_streaming_endpoint(
             has_error = True  # 标记有异常
             # 保存"失败"状态
             try:
-                await state_manager.save_stage(
+                await stream_state_manager.save_stage(
                     stage='generating',
                     stage_data={
                         'partial_content': ''.join(content_buffer),
@@ -295,7 +307,7 @@ async def _create_streaming_endpoint(
             # 如果内容完整且没有异常，保存"完成"状态
             if content_buffer and not has_error:
                 try:
-                    await state_manager.save_stage(
+                    await stream_state_manager.save_stage(
                         stage='completed',
                         stage_data={
                             'content': ''.join(content_buffer),
@@ -305,6 +317,12 @@ async def _create_streaming_endpoint(
                     )
                 except Exception as e:
                     logger.error(f"保存完成状态失败: {e}")
+
+            # 关闭独立的数据库会话
+            try:
+                await stream_db.close()
+            except Exception as close_err:
+                logger.debug(f"关闭流式数据库会话异常(可忽略): {close_err}")
 
     return StreamingResponse(
         event_generator(),

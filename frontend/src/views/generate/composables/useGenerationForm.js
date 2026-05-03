@@ -5,6 +5,7 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { generateApi } from '@/api'
+import { getAuthHeaders } from '@/utils/authStorage'
 
 // 风格类型配置（两级，独立选择）
 export const styleTypes = [
@@ -29,10 +30,16 @@ export const styleTypes = [
 // 题材类型选项
 export const genres = ['爱情', '喜剧', '悬疑', '科幻', '奇幻', '动作', '剧情', '历史', '都市', '青春', '恐怖', '犯罪', '惊悚', '灾难']
 
-// 剧集类型选项
+// 剧集类型选项（旧剧本大纲用，保留向后兼容）
 export const seriesTypes = ['院线电影', '网络电影', '长剧', '短剧', '微电影', '纪录片', '动画电影', '网络剧', '竖屏剧']
 
-// 剧集类型对应的时长配置
+// 电影大纲 - 电影类型选项
+export const movieTypes = ['院线电影', '网络电影', '微电影', '纪录片', '动画电影']
+
+// 剧集大纲 - 剧集类型选项
+export const seriesTypesOnly = ['电视剧', '网络剧', '短剧', '微短剧', '竖屏剧', '长剧']
+
+// 剧集类型对应的时长配置（旧剧本大纲用）
 export const SERIES_DURATION_CONFIG = {
   '院线电影': { min: 90, max: 150, defaultMin: 100, defaultMax: 120, hint: '院线电影通常90-120分钟' },
   '网络电影': { min: 60, max: 120, defaultMin: 80, defaultMax: 100, hint: '网络电影通常80-100分钟' },
@@ -43,6 +50,25 @@ export const SERIES_DURATION_CONFIG = {
   '动画电影': { min: 80, max: 120, defaultMin: 90, defaultMax: 100, hint: '动画电影通常90-100分钟' },
   '网络剧': { min: 20, max: 50, defaultMin: 30, defaultMax: 45, hint: '网络剧通常30-45分钟/集' },
   '竖屏剧': { min: 2, max: 10, defaultMin: 3, defaultMax: 5, hint: '竖屏剧通常3-5分钟/集' }
+}
+
+// 电影大纲 - 电影类型对应的整片时长配置
+export const MOVIE_DURATION_CONFIG = {
+  '院线电影': { min: 90, max: 180, defaultMin: 100, defaultMax: 120, hint: '院线电影通常90-120分钟' },
+  '网络电影': { min: 60, max: 120, defaultMin: 80, defaultMax: 100, hint: '网络电影通常80-100分钟' },
+  '微电影': { min: 5, max: 40, defaultMin: 15, defaultMax: 30, hint: '微电影通常15-30分钟' },
+  '纪录片': { min: 60, max: 150, defaultMin: 80, defaultMax: 120, hint: '纪录片通常80-120分钟' },
+  '动画电影': { min: 80, max: 120, defaultMin: 90, defaultMax: 100, hint: '动画电影通常90-100分钟' }
+}
+
+// 剧集大纲 - 剧集类型对应的每集时长配置
+export const SERIES_EPISODE_DURATION_CONFIG = {
+  '电视剧': { min: 40, max: 60, defaultMin: 45, defaultMax: 50, hint: '电视剧通常45-50分钟/集' },
+  '网络剧': { min: 20, max: 50, defaultMin: 30, defaultMax: 45, hint: '网络剧通常30-45分钟/集' },
+  '短剧': { min: 3, max: 20, defaultMin: 5, defaultMax: 15, hint: '短剧通常5-15分钟/集' },
+  '微短剧': { min: 1, max: 5, defaultMin: 2, defaultMax: 3, hint: '微短剧通常2-3分钟/集' },
+  '竖屏剧': { min: 2, max: 10, defaultMin: 3, defaultMax: 5, hint: '竖屏剧通常3-5分钟/集' },
+  '长剧': { min: 40, max: 60, defaultMin: 45, defaultMax: 50, hint: '长剧通常45-50分钟/集' }
 }
 
 // 投放平台选项
@@ -67,6 +93,11 @@ export function useGenerationForm(type, router) {
     series_type: '',
     reference_works: '',
     episode_count: '',
+    // 电影大纲新增字段
+    movie_type: '',
+    scene_count: '',
+    duration_range: [90, 120],
+    scene_count_range: '',
     custom_outline: '',
     custom_outline_name: '',
     // 剧本专用配置参数
@@ -135,12 +166,9 @@ export function useGenerationForm(type, router) {
   const imageFileList = ref([])
   const imageUrlInput = ref('')
   
-  // 上传URL和Headers
+  // 上传URL和Headers（通过集中化存储层）
   const uploadUrl = computed(() => `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/generate/upload`)
-  const uploadHeaders = computed(() => {
-    const token = localStorage.getItem('token')
-    return token ? { Authorization: `Bearer ${token}` } : {}
-  })
+  const uploadHeaders = computed(() => getAuthHeaders())
 
   // 大纲上传状态
   const uploading_outline = ref(false)
@@ -155,7 +183,7 @@ export function useGenerationForm(type, router) {
   const optimizeTarget = ref('')
 
   // 是否使用两阶段生成模式
-  const useTwoStageMode = computed(() => type.value === 'novel' || type.value === 'script')
+  const useTwoStageMode = computed(() => type.value === 'novel' || type.value === 'movie-outline' || type.value === 'series-outline')
 
   // 组合风格类型字符串
   const combinedStyleTypes = computed(() => {
@@ -169,6 +197,24 @@ export function useGenerationForm(type, router) {
     const seriesType = form.value.series_type
     if (seriesType && SERIES_DURATION_CONFIG[seriesType]) {
       return SERIES_DURATION_CONFIG[seriesType].hint
+    }
+    return ''
+  })
+
+  // 电影类型时长提示
+  const movieDurationHint = computed(() => {
+    const mt = form.value.movie_type
+    if (mt && MOVIE_DURATION_CONFIG[mt]) {
+      return MOVIE_DURATION_CONFIG[mt].hint
+    }
+    return ''
+  })
+
+  // 剧集类型（剧集大纲）时长提示
+  const seriesEpisodeDurationHint = computed(() => {
+    const st = form.value.series_type
+    if (st && SERIES_EPISODE_DURATION_CONFIG[st]) {
+      return SERIES_EPISODE_DURATION_CONFIG[st].hint
     }
     return ''
   })
@@ -417,7 +463,7 @@ export function useGenerationForm(type, router) {
     }
   }
 
-  // 剧集类型变化处理
+  // 剧集类型变化处理（旧剧本大纲）
   const handleSeriesTypeChange = (value) => {
     if (value && SERIES_DURATION_CONFIG[value]) {
       const config = SERIES_DURATION_CONFIG[value]
@@ -425,6 +471,36 @@ export function useGenerationForm(type, router) {
       if (value === '短剧' || value === '竖屏剧') {
         form.value.format_standard = '短剧格式'
       } else if (value === '网络剧' || value === '网络电影') {
+        form.value.format_standard = '网络平台格式'
+      } else {
+        form.value.format_standard = '标准格式'
+      }
+    }
+  }
+
+  // 电影类型变化处理（电影大纲）
+  const handleMovieTypeChange = (value) => {
+    if (value && MOVIE_DURATION_CONFIG[value]) {
+      const config = MOVIE_DURATION_CONFIG[value]
+      form.value.duration_range = [config.defaultMin, config.defaultMax]
+      if (value === '纪录片') {
+        form.value.format_standard = '纪录片格式'
+      } else if (value === '网络电影' || value === '微电影') {
+        form.value.format_standard = '网络平台格式'
+      } else {
+        form.value.format_standard = '标准格式'
+      }
+    }
+  }
+
+  // 剧集类型变化处理（剧集大纲）
+  const handleSeriesOutlineTypeChange = (value) => {
+    if (value && SERIES_EPISODE_DURATION_CONFIG[value]) {
+      const config = SERIES_EPISODE_DURATION_CONFIG[value]
+      form.value.episode_duration_range = [config.defaultMin, config.defaultMax]
+      if (value === '短剧' || value === '竖屏剧' || value === '微短剧') {
+        form.value.format_standard = '短剧格式'
+      } else if (value === '网络剧') {
         form.value.format_standard = '网络平台格式'
       } else {
         form.value.format_standard = '标准格式'
@@ -454,7 +530,8 @@ export function useGenerationForm(type, router) {
     try {
       const moduleMap = {
         'short-video': 'short_video',
-        'script': 'script',
+        'movie-outline': 'movie_outline',
+        'series-outline': 'series_outline',
         'novel': 'novel',
         'print-ad': 'print_ad',
         'tvc': 'tvc',
@@ -618,6 +695,8 @@ export function useGenerationForm(type, router) {
     useTwoStageMode,
     combinedStyleTypes,
     seriesDurationHint,
+    movieDurationHint,
+    seriesEpisodeDurationHint,
     
     // 方法
     beforeUpload,
@@ -635,6 +714,8 @@ export function useGenerationForm(type, router) {
     parseImageUrls,
     handleVideoModeChange,
     handleSeriesTypeChange,
+    handleMovieTypeChange,
+    handleSeriesOutlineTypeChange,
     handleOptimizePrompt,
     saveFormData,
     restoreFormData,

@@ -42,12 +42,25 @@ MODULE_REGISTRY: Dict[str, ModuleConfig] = {
         supports_images=False,
         supports_videos=True,  # 支持参考视频
     ),
-    # 剧本大纲
-    "script": ModuleConfig(
-        module_id="script",
-        display_name="剧本大纲",
-        api_path="/api/v1/generate/script/stream",
-        kb_category="script",
+    # 电影大纲
+    "movie_outline": ModuleConfig(
+        module_id="movie_outline",
+        display_name="电影大纲",
+        api_path="/api/v1/generate/movie-outline/stream",
+        kb_category="movie-outline",
+        supports_knowledge=True,
+        supports_search=True,
+        supports_trending=True,
+        supports_mcp=True,
+        supports_images=False,
+        supports_videos=False,
+    ),
+    # 剧集大纲
+    "series_outline": ModuleConfig(
+        module_id="series_outline",
+        display_name="剧集大纲",
+        api_path="/api/v1/generate/series-outline/stream",
+        kb_category="series-outline",
         supports_knowledge=True,
         supports_search=True,
         supports_trending=True,
@@ -201,8 +214,10 @@ def get_modules_by_feature(feature: str) -> List[ModuleConfig]:
 # 向后兼容的常量定义（用于硬编码场景）
 # 推荐使用 get_module_config() 函数获取配置
 MODULE_SHORT_VIDEO = "short_video"
-MODULE_SCRIPT = "script"
+MODULE_SCRIPT = "script"  # [DEPRECATED] 剧本大纲已移除，保留用于向后兼容
 MODULE_NOVEL = "novel"
 MODULE_PRINT_AD = "print_ad"
 MODULE_TVC = "tvc"
 MODULE_ORIGINAL_IP = "original_ip"
+MODULE_MOVIE_OUTLINE = "movie_outline"
+MODULE_SERIES_OUTLINE = "series_outline"

@@ -14,3 +14,5 @@ from .get_character_states_for_writing import GetCharacterStatesForWritingMixin
 from .get_all_character_states_for_chapter import GetAllCharacterStatesForChapterMixin
 from .sync_unit_entities_to_global import SyncUnitEntitiesToGlobalMixin
 from .detect_and_merge_new_entities import DetectAndMergeNewEntitiesMixin
+from .inherit_knowledge_graph import InheritKnowledgeGraphMixin
+from .repair_kb_vector_store import RepairKbVectorStoreMixin

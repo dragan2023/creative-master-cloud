@@ -167,6 +167,14 @@
     </div>
 
     <template #footer>
+      <el-button @click="handleDownloadOriginal" :disabled="!originalContent">
+        <el-icon><Download /></el-icon>
+        下载原始稿
+      </el-button>
+      <el-button @click="handleDownloadRevised" :disabled="!revisedContent">
+        <el-icon><Download /></el-icon>
+        下载修正稿
+      </el-button>
       <el-button @click="handleCancel">保留原始内容</el-button>
       <el-button type="primary" @click="handleConfirm">应用修正</el-button>
     </template>
@@ -176,7 +184,7 @@
 <script setup>
 import { computed, watch, nextTick, ref } from 'vue'
 import { diffChars } from 'diff'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const props = defineProps({
@@ -282,6 +290,47 @@ function handleConfirm() {
 function handleCancel() {
   emit('cancel')
   nextTick(() => { dialogVisible.value = false })
+}
+
+/**
+ * v3.1新增：下载原始稿
+ */
+function handleDownloadOriginal() {
+  const content = props.originalContent
+  if (!content) {
+    ElMessage.warning('原始内容为空，无法下载')
+    return
+  }
+  downloadMarkdownFile(content, 'unit_summaries_original.md')
+  ElMessage.success('原始稿已下载')
+}
+
+/**
+ * v3.1新增：下载修正稿
+ */
+function handleDownloadRevised() {
+  const content = props.revisedContent
+  if (!content) {
+    ElMessage.warning('修正内容为空，无法下载')
+    return
+  }
+  downloadMarkdownFile(content, 'unit_summaries_revised.md')
+  ElMessage.success('修正稿已下载')
+}
+
+/**
+ * v3.1新增：下载Markdown文件
+ */
+function downloadMarkdownFile(content, filename) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 /**

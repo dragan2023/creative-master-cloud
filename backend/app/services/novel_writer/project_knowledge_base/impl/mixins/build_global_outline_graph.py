@@ -3,12 +3,25 @@ from typing import Dict
 from typing import Optional
 from typing import Any
 from datetime import datetime
+import os
 import re
 import time
+
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+from app.tools.novel_graph_rag.constants import FORBIDDEN_RELATION_TYPES
 
 
 class BuildGlobalOutlineGraphMixin:
     """build_global_outline_graph功能域"""
+    
+    # 宏观实体类型（全局大纲级别）
+    MACRO_ENTITY_TYPES = {"世界观", "设定", "大事件", "主线剧情", "核心设定", "背景", "规则"}
+
+    # 文档类型：全局大纲
+    DOC_TYPE_GLOBAL = "global"
+
+    # 文档类型：单元大纲
+    DOC_TYPE_UNIT = "unit"
 
     async def build_global_outline_graph(
         self,
@@ -98,11 +111,26 @@ class BuildGlobalOutlineGraphMixin:
             # 2. 创建知识图谱（使用正文板块专属的独立系统）
             await report_progress("creating_graph", 15, "正在创建知识图谱结构...")
             graph_path = self.get_graph_path(project_id, unit_number=None)
+            
+            # 🆕 [知识图谱优化 v3.1] 每次构建全局图谱时清空旧数据，避免膨胀
+            # 删除旧图谱文件（如果存在）
+            if os.path.exists(graph_path):
+                self.logger.info(f"[全局图谱优化] 检测到旧图谱文件，将清空重建: {graph_path}")
+                try:
+                    os.remove(graph_path)
+                    self.logger.info(f"[全局图谱优化] 已删除旧图谱文件")
+                except Exception as remove_error:
+                    self.logger.warning(f"[全局图谱优化] 删除旧图谱文件失败: {remove_error}")
+            
+            # 创建新的知识图谱实例（从空开始）
             knowledge_graph = NovelKnowledgeGraph(persist_path=graph_path)
+            self.logger.info(f"[全局图谱优化] 创建全新的全局图谱实例")
 
             # 3. 使用LLM提取实体和关系（使用正文板块专属的独立提取器）
             await report_progress("extracting", 20, "正在提取实体和关系...")
             if llm_provider:
+                from app.tools.novel_graph_rag.impl.entity_extractor_generator import NovelEntityExtractor
+                
                 # 使用正文板块专属的LLM实体提取器
                 await report_progress("llm_extraction", 25, "正在使用LLM提取实体...")
                 extractor = NovelEntityExtractor(llm_provider=llm_provider)
@@ -148,9 +176,45 @@ class BuildGlobalOutlineGraphMixin:
                 else:
                     self.logger.info("实体消歧完成: 未发现需要合并的别名实体")
 
-            # 5. 添加实体到图谱（支持分层结构）
+            # 5. 添加实体到图谱（支持分层结构 + 严格类型过滤）
             await report_progress("adding_entities", 55, f"正在添加{len(entities)}个实体到图谱...")
             entity_map = {}
+            
+            #  [知识图谱优化 v3.2] 严格过滤单元实体类型
+            # 全局图谱只保留宏观层面的实体，拒绝任何单元级别的实体
+            forbidden_unit_entity_types = {
+                "地点状态", "章节事件", "道具状态", "伏笔", "群体", "设施",
+                "设施状态变化", "设施归属变更", "设施物理状态",
+                "事件状态变化", "事件影响", "事件因果链", "详细事件",
+                "群体组织", "群体状态变化", "群体成员变动", "群体关系变化",
+                "道具物品", "道具状态变化", "道具归属变更", "道具功能使用",
+                "伏笔回收", "世界规则", "规则引用", "规则例外", "世界观规则",
+                "时间节点", "时间流逝",
+                "身份变化", "位置变化", "关系变化",  # 这些是人物状态的子类型，不应作为独立实体
+                "性格发展", "心理状态", "能力成长", "行为模式"  # 人物属性类型
+            }
+            
+            filtered_entities = []
+            for entity in entities:
+                entity_type = entity.get("type", "")
+                entity_text = entity.get("text", entity.get("name", ""))
+                
+                if entity_type in forbidden_unit_entity_types:
+                    self.logger.warning(
+                        f"[全局图谱过滤] 拒绝单元实体: '{entity_text}' (类型: {entity_type})"
+                    )
+                    continue
+                
+                filtered_entities.append(entity)
+            
+            if len(filtered_entities) < len(entities):
+                self.logger.info(
+                    f"[全局图谱过滤] 实体过滤完成: 原始{len(entities)}个 → 过滤后{len(filtered_entities)}个 "
+                    f"(移除了{len(entities) - len(filtered_entities)}个单元实体)"
+                )
+            
+            entities = filtered_entities
+            
             for i, entity in enumerate(entities):
                 # 提取实体属性
                 entity_text = entity.get("text", entity.get("name", ""))
@@ -291,6 +355,15 @@ class BuildGlobalOutlineGraphMixin:
 
             # 批量添加到向量库（带验证）
             await report_progress("storing_vectors", 85, f"正在存储{len(documents)}个文档到向量库...")
+            
+            # 🆕 [知识图谱优化 v3.1] 清空向量库中旧的全局大纲文档，避免重复
+            try:
+                # 删除整个集合并重建（最简单可靠的方式）
+                self.vector_store.delete_collection(collection_name)
+                self.logger.info(f"[全局图谱优化] 已删除旧向量集合: {collection_name}")
+            except Exception as clear_error:
+                self.logger.warning(f"[全局图谱优化] 清空旧向量集合失败（不影响构建）: {clear_error}")
+            
             vector_result = {"success": True, "verified": False}
             if documents:
                 try:
@@ -332,6 +405,51 @@ class BuildGlobalOutlineGraphMixin:
             result["entity_count"] = len(entities)
             result["relation_count"] = len(relations)
             result["graph_path"] = graph_path
+
+            # 🆕 [知识图谱优化 v3.1] 全局图谱质量监控
+            # 检测逻辑: 不限制实体总数,而是检测是否混入了单元实体
+            unit_entity_types = {"地点状态", "章节事件", "道具状态", "伏笔", "群体", "设施"}
+            unit_entities = []
+            
+            # entities 是 list 而不是 dict，需要遍历 list
+            if isinstance(entities, list):
+                for entity in entities:
+                    entity_type = entity.get("type", "")
+                    entity_text = entity.get("text", entity.get("name", ""))
+                    if entity_type in unit_entity_types:
+                        unit_entities.append((entity_text, entity_type))
+            elif isinstance(entities, dict):
+                # 兼容旧的 dict 格式
+                for entity_id, entity_data in entities.items():
+                    entity_type = entity_data.get("type", "")
+                    if entity_type in unit_entity_types:
+                        unit_entities.append((entity_id, entity_type))
+            
+            if unit_entities:
+                self.logger.error(
+                    f"[全局图谱防护] 构建完成后仍发现单元实体混入: {len(unit_entities)}个, "
+                    f"类型: {set(t for _, t in unit_entities)}, "
+                    f"总实体数: {len(entities)}, 总关系数: {len(relations)}"
+                )
+                self.logger.error(
+                    f"[全局图谱防护] 混入的单元实体列表: "
+                    f"{[(text, type_) for text, type_ in unit_entities[:10]]}"
+                )
+                result["warning"] = f"全局图谱混入{len(unit_entities)}个单元实体，建议立即执行清理脚本"
+            else:
+                self.logger.info(
+                    f"[全局图谱监控] 图谱质量正常: "
+                    f"实体数={len(entities)}, 关系数={len(relations)}, "
+                    f"未发现单元实体混入"
+                )
+            
+            # 🆕 [知识图谱优化 v3.2] 添加实体总数告警（非阻塞）
+            if len(entities) > 500:
+                self.logger.warning(
+                    f"[全局图谱监控] 全局图谱实体数异常: {len(entities)}个 (正常应<200个), "
+                    f"可能存在数据异常或重复构建问题"
+                )
+                result["warning"] = f"全局图谱实体数过多({len(entities)}个)，建议检查"
 
             await report_progress("completed", 100,
                                   f"知识库构建完成: {len(entities)}个实体, {len(relations)}个关系")

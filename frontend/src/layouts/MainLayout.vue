@@ -129,6 +129,7 @@ import { useUserStore, useAppStore } from '@/stores'
 import { DocumentChecked, Setting, SwitchButton } from '@element-plus/icons-vue'
 import { updateApi } from '@/api'
 import { APP_VERSION } from '@/config/version'
+import { getToken, getUserInfo } from '@/utils/authStorage'
 
 const router = useRouter()
 const route = useRoute()
@@ -182,9 +183,9 @@ onMounted(async () => {
   await fetchCurrentVersion()
   
   // 验证用户状态：如果 token 存在但 userInfo 不存在，尝试获取用户信息
-  const token = localStorage.getItem('token')
-  const userInfoStr = localStorage.getItem('userInfo')
-  if (token && !userInfoStr) {
+  const token = getToken()
+  const userInfoData = getUserInfo()
+  if (token && !userInfoData) {
     console.log('[MainLayout] 检测到 token 存在但 userInfo 缺失，尝试获取用户信息')
     try {
       await userStore.fetchProfile()

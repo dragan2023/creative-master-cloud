@@ -5,9 +5,17 @@ from datetime import datetime
 import re
 import time
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class BuildUnitOutlineGraphMixin:
     """build_unit_outline_graph功能域"""
+
+    # 文档类型：全局大纲
+    DOC_TYPE_GLOBAL = "global"
+
+    # 文档类型：单元大纲
+    DOC_TYPE_UNIT = "unit"
 
     async def build_unit_outline_graph(
         self,
@@ -47,6 +55,8 @@ class BuildUnitOutlineGraphMixin:
 
             # 2. 提取实体和关系（使用正文板块专属的独立提取器）
             if llm_provider:
+                from app.tools.novel_graph_rag.impl.entity_extractor_generator import NovelEntityExtractor
+                
                 extractor = NovelEntityExtractor(llm_provider=llm_provider)
 
                 extraction_result = await extractor.extract_with_llm(unit_outline_content)

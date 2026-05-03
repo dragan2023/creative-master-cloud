@@ -201,8 +201,13 @@ class KnowledgeGraph:
             node_id = node.pop("id")
             self.graph.add_node(node_id, **node)
             self.entity_index[node.get("text", "")].append(node_id)
-            self._node_counter = max(
-                self._node_counter, int(node_id.split("_")[-1]) + 1)
+            # 兼容两种节点ID格式：entity_数字 和 UUID
+            if node_id.startswith("entity_"):
+                try:
+                    self._node_counter = max(
+                        self._node_counter, int(node_id.split("_")[-1]) + 1)
+                except (ValueError, IndexError):
+                    pass
 
         for edge in data.get("edges", []):
             source = edge.pop("source")

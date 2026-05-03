@@ -9,6 +9,8 @@ import re
 import time
 import copy
 
+from app.agents.writing.character_state_tracker.api import CharacterState, CharacterStatus, ChapterSnapshot
+
 
 class RecordChapterSnapshotMixin:
     """record_chapter_snapshot功能域"""

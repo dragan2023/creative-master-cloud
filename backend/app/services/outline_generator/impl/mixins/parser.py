@@ -29,6 +29,9 @@ class ParserMixin:
             解析后的单元概述字典
         """
         result = {}
+        content_len = len(content) if content else 0
+        self.logger.info(
+            f"[单元概述解析] 开始解析, content_type={content_type}, 内容长度={content_len}")
 
         try:
             # 根据内容类型选择解析模式
@@ -39,6 +42,14 @@ class ParserMixin:
 
             self.logger.info(
                 f"[单元概述解析] 解析完成，预期: {expected_count}，实际: {len(result)}")
+
+            # v3.4诊断日志: 解析结果为0但有内容时，记录原始内容样本
+            if len(result) == 0 and content_len > 0:
+                sample = content[:500].replace('\n', '\\n')
+                self.logger.warning(
+                    f"[单元概述解析] ⚠️ 解析结果为零！内容长度={content_len}字符，"
+                    f"前500字符样本: {sample}"
+                )
 
         except Exception as e:
             self.logger.error(f"[单元概述解析] 解析失败: {str(e)}")
@@ -51,22 +62,66 @@ class ParserMixin:
         content: str,
         expected_count: int
     ) -> Dict[str, Dict[str, Any]]:
-        """解析小说章节概述"""
+        """解析小说章节概述（v3.4: 多格式回退解析）"""
         result = {}
         import uuid
 
-        # 匹配章节标题和内容
-        # 格式：### 第X章：[章节标题]
-        chapter_pattern = r'###\s*第(\d+)章[：:]\s*(.+?)(?:\n|$)'
-        matches = re.findall(chapter_pattern, content)
+        # ==================== 多层回退正则以适应不同标题风格 ====================
+        # 优先匹配标准格式，失败后依次尝试宽松格式
+        chapter_patterns = [
+            # 第0层: 标准格式 ### 第N章：[标题] 或 ### 第N章: [标题]
+            (r'###\s*第(\d+)章[：:]\s*(.+?)(?:\n|$)', 'standard_colon'),
+            # 第1层: 空格分隔 ### 第N章 [标题]
+            (r'###\s*第(\d+)章\s+(.+?)(?:\n|$)', 'standard_space'),
+            # 第2层: 无前缀 第N章[：:][标题]
+            (r'(?:^|\n)\s*第(\d+)章[：:]\s*(.+?)(?:\n|$)', 'no_prefix_colon'),
+            # 第3层: 无前缀+空格 第N章 [标题]
+            (r'(?:^|\n)\s*第(\d+)章\s+(.+?)(?:\n|$)', 'no_prefix_space'),
+            # 第4层: ### 第N回：[标题]（古典章回体使用"回"代替"章"）
+            (r'###\s*第(\d+)回[：:]\s*(.+?)(?:\n|$)', 'classical_hui'),
+            # 第5层: 中文数字 ### 第[一二三四五六七八九十百千]+章[：:]
+            (r'###\s*第([一二三四五六七八九十百千\d]+)章[：:]\s*(.+?)(?:\n|$)', 'chinese_numeral'),
+        ]
+
+        matches = []
+        matched_layer = None
+
+        for pattern, layer_name in chapter_patterns:
+            raw_matches = re.findall(pattern, content, re.MULTILINE)
+            if raw_matches:
+                matches = raw_matches
+                matched_layer = layer_name
+                self.logger.info(
+                    f"[单元概述解析] 使用'{layer_name}'模式匹配到{len(matches)}个章节")
+                break
+
+        # 诊断日志: 所有模式均未匹配
+        if not matches:
+            self.logger.warning(
+                f"[单元概述解析] ⚠️ 所有正则模式均未匹配到章节！"
+                f" 内容长度={len(content)}字符"
+            )
+            return result
 
         for match in matches:
-            chapter_num = int(match[0])
+            # 处理中文数字转换
+            raw_num = match[0]
+            if matched_layer == 'chinese_numeral' and not raw_num.isdigit():
+                chapter_num = self._chinese_to_arabic(raw_num)
+            else:
+                chapter_num = int(raw_num)
             chapter_title = match[1].strip()
 
             # 提取章节概要
-            start_marker = f"第{chapter_num}章"
-            end_marker = f"第{chapter_num + 1}章" if chapter_num < expected_count else None
+            # v3.4: 兼容古典章回体(回)的start_marker
+            if matched_layer == 'classical_hui':
+                unit_char = '回'
+                end_char = '回'
+            else:
+                unit_char = '章'
+                end_char = '章'
+            start_marker = f"第{chapter_num}{unit_char}"
+            end_marker = f"第{chapter_num + 1}{end_char}" if chapter_num < expected_count else None
 
             start_idx = content.find(start_marker)
             if start_idx == -1:
@@ -461,6 +516,59 @@ class ParserMixin:
         self.logger.info(f"[大纲保存] 文件已保存: {file_path}")
 
         return file_path
+
+    @staticmethod
+    def _chinese_to_arabic(chinese_num: str) -> int:
+        """
+        将中文数字字符串转换为阿拉伯整数
+
+        支持: 一~九、十~九十、百~九百、千~九千、万
+        例如: "一" -> 1, "十" -> 10, "二十五" -> 25, "一百二十三" -> 123
+
+        Args:
+            chinese_num: 中文数字字符串
+
+        Returns:
+            阿拉伯整数
+        """
+        if not chinese_num:
+            return 1
+        if chinese_num.isdigit():
+            return int(chinese_num)
+
+        cn_num_map = {
+            '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
+            '两': 2,
+        }
+        cn_unit_map = {
+            '十': 10, '百': 100, '千': 1000, '万': 10000,
+        }
+
+        result = 0
+        section = 0  # 当前节(万以下)
+
+        for char in chinese_num:
+            if char in cn_num_map:
+                section = cn_num_map[char]
+            elif char in cn_unit_map:
+                unit = cn_unit_map[char]
+                if section == 0:
+                    section = 1
+                if unit >= 10000:
+                    result = (result + section) * unit
+                    section = 0
+                else:
+                    section *= unit
+                    if unit >= 10:
+                        result += section
+                        section = 0
+            else:
+                # 无法识别的字符，跳过
+                pass
+
+        result += section
+        return result if result > 0 else 1
 
     # ==================== 续生成辅助方法 ====================
 

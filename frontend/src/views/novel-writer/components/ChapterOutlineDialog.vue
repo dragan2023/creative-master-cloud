@@ -69,6 +69,8 @@
 </template>
 
 <script setup>
+import { formatTime } from '../utils/contentHelpers'
+
 defineProps({
   visible: {
     type: Boolean,
@@ -81,16 +83,6 @@ defineProps({
 })
 
 defineEmits(['update:visible', 'edit'])
-
-function formatTime(timestamp) {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
-}
 </script>
 
 <style lang="scss" scoped>

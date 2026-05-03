@@ -1,9 +1,13 @@
-"""
-批量生成任务状态管理器
-用于追踪和持久化生成任务状态，支持跨会话查询和取消
-支持 Redis 不可用时使用内存令牌作为后备
-同时同步任务状态到数据库，确保服务器重启后状态不丢失
-支持 SSE 实时推送任务状态更新
+"""批量生成任务状态管理器（GenerationTaskManager）
+
+用于追踪和持久化生成任务状态，支持跨会话查询和取消。
+支持 Redis 不可用时使用内存令牌作为后备。
+同时同步任务状态到数据库，确保服务器重启后状态不丢失。
+支持 SSE 实时推送任务状态更新。
+
+区别说明:
+    - 本模块: 批量生成任务的状态管理（进度追踪、取消、持久化）
+    - writing_engine/task_manager.py: 写作任务的CRUD服务（数据库操作）
 
 @date: 2026-04-02
 @version: v3.0.0
@@ -14,16 +18,18 @@ import json
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-from sqlalchemy import select
-
 from app.core.redis_client import redis_manager
 from app.core.logger import get_logger
-from app.models import NovelProject
-from app.repositories.novel_project import NovelProjectRepository
 from app.services.task_manager_sse import (
     subscribe_task_events,
     unsubscribe_task_events,
     notify_task_update,
+)
+from app.services.task_manager_db import (
+    set_novel_project_repo,
+    sync_task_to_db,
+    get_task_from_db,
+    clear_task_in_db,
 )
 
 logger = get_logger("task_manager")
@@ -51,19 +57,10 @@ from app.services.task_manager_cancel import (
     trigger_memory_cancel,
     is_memory_cancelled,
 )
-
-# Repository 实例（注入方式设置，用于替代直连 async_session_maker）
-_novel_project_repo: Optional[NovelProjectRepository] = None
-
-
-def set_novel_project_repo(repo: NovelProjectRepository):
-    """设置 NovelProjectRepository 实例（由启动注入）"""
-    global _novel_project_repo
-    _novel_project_repo = repo
-
-
-
-
+from app.services.task_manager_steps import (
+    update_task_step as _update_task_step_impl,
+    notify_intervention_request as _notify_intervention_request_impl,
+)
 
 
 class TaskManager:
@@ -249,7 +246,7 @@ class TaskManager:
         await redis_manager.set(key, json.dumps(task), expire=TaskManager.TASK_EXPIRE_SECONDS)
 
         # 同步到数据库
-        await TaskManager._sync_task_to_db(project_id, task)
+        await sync_task_to_db(project_id, task)
 
         # 通知所有 SSE 订阅者新任务已创建
         await notify_task_update(project_id, task)
@@ -278,7 +275,7 @@ class TaskManager:
             return json.loads(task_json)
 
         # Redis 中没有，尝试从数据库恢复
-        task = await TaskManager._get_task_from_db(project_id)
+        task = await get_task_from_db(project_id)
         if task:
             # 服务器重启后，数据库中 running 的任务实际上已中断
             # main.py 启动时会将其改为 failed，但此处做二次兜底
@@ -335,7 +332,7 @@ class TaskManager:
         await redis_manager.set(key, json.dumps(task), expire=TaskManager.TASK_EXPIRE_SECONDS)
 
         # 同步到数据库
-        await TaskManager._sync_task_to_db(project_id, task)
+        await sync_task_to_db(project_id, task)
 
         # 通知所有 SSE 订阅者任务状态更新
         await notify_task_update(project_id, task)
@@ -365,67 +362,7 @@ class TaskManager:
         Returns:
             更新后的任务信息
         """
-        task = await TaskManager.get_task(project_id)
-        if not task:
-            return None
-
-        now = datetime.now()
-        current_step = {
-            "key": step_key,
-            "message": step_message,
-            "status": step_status,
-            "icon": step_icon,
-            "timestamp": now.isoformat()
-        }
-
-        # 更新当前步骤
-        task["current_step"] = current_step
-
-        # 如果步骤完成，添加到历史记录
-        if step_status == "done":
-            # 计算步骤耗时
-            step_duration_ms = 0
-            # 查找同key的running步骤开始时间
-            steps_history = task.get("steps_history", [])
-            for prev_step in reversed(steps_history):
-                if prev_step.get("key") == step_key and prev_step.get("status") == "running":
-                    try:
-                        start_time = datetime.fromisoformat(
-                            prev_step["timestamp"])
-                        step_duration_ms = int(
-                            (now - start_time).total_seconds() * 1000)
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"解析步骤时间失败: {e}")
-                        pass
-                    break
-
-            current_step["duration_ms"] = step_duration_ms
-            steps_history.append(current_step)
-            task["steps_history"] = steps_history[-20:]  # 只保留最近20条
-        elif step_status == "running":
-            # 添加running状态到历史
-            steps_history = task.get("steps_history", [])
-            steps_history.append(current_step)
-            task["steps_history"] = steps_history[-20:]
-        elif step_status == "error":
-            # 错误步骤也添加到历史
-            steps_history = task.get("steps_history", [])
-            steps_history.append(current_step)
-            task["steps_history"] = steps_history[-20:]
-
-        # 更新当前处理项名称
-        if item_name:
-            task["current_item_name"] = item_name
-
-        task["updated_at"] = now.isoformat()
-
-        key = TaskManager._get_task_key(project_id)
-        await redis_manager.set(key, json.dumps(task), expire=TaskManager.TASK_EXPIRE_SECONDS)
-
-        # 通知所有 SSE 订阅者步骤更新
-        await notify_task_update(project_id, task)
-
-        return task
+        return await _update_task_step_impl(project_id, step_key, step_message, step_status, step_icon, item_name)
 
     @staticmethod
     async def complete_task(project_id: int, success: bool = True) -> Optional[Dict[str, Any]]:
@@ -445,7 +382,7 @@ class TaskManager:
         if task:
             logger.info(f"任务完成: project_id={project_id}, status={status}")
             # 同步到数据库
-            await TaskManager._sync_task_to_db(project_id, task)
+            await sync_task_to_db(project_id, task)
         return task
 
     @staticmethod
@@ -474,29 +411,7 @@ class TaskManager:
             project_id: 项目ID
             intervention_info: 干预请求信息
         """
-        # 获取当前任务
-        task = await TaskManager.get_task(project_id)
-        if not task:
-            logger.warning(f"推送干预请求失败: 未找到任务 project_id={project_id}")
-            return
-
-        # 构建干预请求事件
-        event_data = {
-            "type": "intervention_request",
-            "project_id": project_id,
-            "intervention": intervention_info,
-            "task": task,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        # 通过SSE推送干预请求
-        await notify_task_update(project_id, {
-            **task,
-            "intervention_request": intervention_info
-        })
-
-        logger.info(
-            f"干预请求已推送: project_id={project_id}, chapter={intervention_info.get('chapter_number')}")
+        await _notify_intervention_request_impl(project_id, intervention_info)
 
     @staticmethod
     async def delete_task(project_id: int) -> bool:
@@ -513,7 +428,7 @@ class TaskManager:
         result = await redis_manager.delete(key)
 
         # 同时清除数据库中的任务状态
-        await TaskManager._clear_task_in_db(project_id)
+        await clear_task_in_db(project_id)
 
         return result > 0
 

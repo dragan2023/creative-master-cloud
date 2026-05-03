@@ -2,6 +2,8 @@
 from __future__ import annotations
 import re
 
+from app.agents.writing.character_state_tracker.api import RelationshipChange
+
 
 class AddRelationshipChangeMixin:
     """add_relationship_change功能域"""

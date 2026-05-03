@@ -1,13 +1,19 @@
 """
-单元大纲独立存储模型
+单元大纲独立存储模型（P1状态：迁移暂停）
 
 将大型JSON字段(unit_summaries/episode_outlines/scene_outlines/chapter_outlines)
 迁移到独立表，支持增量查询/更新，避免100+章项目单行数据过大。
 
-过渡期策略：
-- 写入时双写（独立表+JSON字段）
-- 读取时优先独立表，降级JSON字段
-- 下个大版本移除JSON字段
+当前状态（2026-04-27）:
+- 独立表已创建但暂未启用写入
+- 所有大纲仍通过JSON字段存储（chapter_outlines等）
+- 双写策略暂停，待下个版本完整迁移
+
+迁移计划:
+- Phase 1: 创建表结构（已完成）
+- Phase 2: 双写测试（暂停）
+- Phase 3: 单写迁移（待定）
+- Phase 4: 移除JSON字段（待定）
 
 @date: 2026-04-19
 @version: v1.0.0

@@ -86,10 +86,10 @@ def downgrade():
     else:
         try:
             op.drop_constraint('uq_writing_units_task_unit', 'writing_units', type_='unique')
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Could not drop constraint 'uq_writing_units_task_unit': {e}")
         
         try:
             op.drop_constraint('uq_writing_scenes_unit_scene', 'writing_scenes', type_='unique')
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Could not drop constraint 'uq_writing_scenes_unit_scene': {e}")

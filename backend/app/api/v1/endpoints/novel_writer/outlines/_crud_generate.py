@@ -539,7 +539,7 @@ async def generate_chapter_outlines(
         except ValueError as e:
             raise ValidationException(str(e))
 
-        global_outline_summary = global_outline[:3000] if len(global_outline) > 3000 else global_outline
+        global_outline_summary = global_outline  # 不再截断大纲，LLM 上下文由模型自行处理
 
         generated = []
         failed = []

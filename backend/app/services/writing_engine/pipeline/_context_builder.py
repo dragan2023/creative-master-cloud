@@ -67,8 +67,9 @@ class ContextBuilderMixin(PipelineConfigMixin):
                         if outline_data.get("chapters"):
                             outline = outline_data
                             logger.info(f"[上下文构建] 从项目加载大纲，章节数: {len(outline_data.get('chapters', []))}")
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
+                    except (json.JSONDecodeError, AttributeError) as e:
+                        logger.warning(f"[上下文构建] 大纲JSON解析失败，使用raw_content: {e}")
+                        outline = {"raw_content": project.outline_content}
 
             if not task_config.get("unit_summaries") and project.unit_summaries:
                 task_config["unit_summaries"] = project.unit_summaries

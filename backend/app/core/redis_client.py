@@ -237,8 +237,3 @@ redis_manager = RedisManager()
 async def get_redis() -> redis.Redis:
     """获取 Redis 客户端"""
     return await redis_manager.get_client()
-
-
-async def get_redis() -> redis.Redis:
-    """获取 Redis 客户端"""
-    return await redis_manager.get_client()

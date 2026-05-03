@@ -132,6 +132,16 @@
       </el-table>
     </div>
     
+    <!-- 新手引导对话框 -->
+    <OnboardingDialogs
+      :show-welcome="onboarding.showWelcomeDialog.value"
+      :show-api-guide="onboarding.showAPIGuideDialog.value"
+      :show-celebration="onboarding.showFirstGenCelebration.value"
+      @welcome-complete="onboarding.completeWelcome()"
+      @api-guide-complete="onboarding.completeAPIGuide()"
+      @skip-all="onboarding.skipAll()"
+    />
+    
     <!-- 资源链接 -->
     <div class="resources-section">
       <h2 class="section-title">
@@ -197,9 +207,12 @@ import { historyApi, systemApi } from '@/api'
 import { CREATIVE_MODULES } from '@/config'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { APP_VERSION } from '@/config/version'
+import { useOnboarding } from '@/composables/useOnboarding'
+import OnboardingDialogs from './components/OnboardingDialogs.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
+const onboarding = useOnboarding()
 
 // 从父组件注入版本号，失败时使用本地版本
 const currentVersion = inject('currentVersion', ref(APP_VERSION))
@@ -211,6 +224,8 @@ const exiting = ref(false)
 
 onMounted(async () => {
   await fetchRecentGenerations()
+  // 初始化新手引导
+  onboarding.initOnboarding()
 })
 
 async function fetchRecentGenerations() {
@@ -234,7 +249,6 @@ function viewHistory(id) {
 // 模块名称映射（后端返回下划线格式）
 const moduleNameMap = {
   'short_video': '短视频脚本',
-  'script': '剧本大纲',
   'novel': '小说大纲',
   'print_ad': '平面广告',
   'tvc': 'TVC广告脚本'
@@ -247,7 +261,6 @@ function getTypeName(type) {
 function getTagType(type) {
   const typeMap = {
     'short_video': 'danger',
-    'script': 'success',
     'novel': 'primary',
     'print_ad': 'warning',
     'tvc': 'info'

@@ -8,11 +8,12 @@
 """
 import re
 import json
+import os
 import asyncio
 from typing import Dict, Any, Optional, List
 
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from app.core.database import get_db
 from app.core.exceptions import (
     ValidationException,
     GenerationException,
+    ResourceNotFoundException,
 )
 from app.core.logger import get_logger
 from app.models import User
@@ -37,7 +39,7 @@ logger = get_logger(__name__)
 
 class GlobalOutlineRequest(BaseModel):
     """全局大纲生成请求"""
-    content_type: str  # novel/script
+    content_type: str  # novel/movie_outline/series_outline
     input_params: Dict[str, Any]
     provider: Optional[str] = None
     model: Optional[str] = None
@@ -58,18 +60,18 @@ class GlobalOutlineRequest(BaseModel):
 
 class UnitSummariesRequest(BaseModel):
     """单元概述生成请求"""
-    content_type: str  # novel/script
+    content_type: str  # novel/movie_outline/series_outline
     global_outline: str
     unit_count: int
     series_type: Optional[str] = None  # 剧本类型专用
     episode_duration_range: Optional[str] = None  # 剧本类型专用
     provider: Optional[str] = None
     model: Optional[str] = None
-    temperature: float = 0.7
+    temperature: float = 0.5  # 调整为0.5,平衡创造性与遵循性（v2.6）
     enable_quality_control: bool = True  # 是否启用质量管控
 
-    # 新增: 质控模式 (manual=手动模式, auto=自动模式)
-    qc_mode: str = "manual"  # 默认手动模式
+    # 质控模式（v3.0：仅自动模式）
+    qc_mode: str = "auto"
 
     # 续生成参数（可选）
     existing_content: Optional[str] = None  # 已生成的内容
@@ -80,10 +82,21 @@ class UnitSummariesRequest(BaseModel):
     title_style: Optional[str] = None
     title_style_name: Optional[str] = None
 
+    # GraphRAG知识库增强（可选，v4.1新增）
+    project_id: Optional[int] = None  # 项目ID，用于知识图谱检索增强
+
+
+class BuildKnowledgeGraphRequest(BaseModel):
+    """构建知识图谱请求（v4.2：二阶段流程内建）"""
+    global_outline: str  # 全局大纲内容
+    content_type: str  # novel / movie_outline / series_outline
+    title: str  # 项目标题
+    genre: str = "玄幻"  # 题材标签
+
 
 class LogicCheckRequest(BaseModel):
     """逻辑检测请求"""
-    content_type: str  # novel/script
+    content_type: str  # novel/movie_outline/series_outline
     global_outline: str
     unit_summaries: Dict[str, Any]  # 单元概述字典
     provider: Optional[str] = None
@@ -92,7 +105,7 @@ class LogicCheckRequest(BaseModel):
 
 class GlobalOutlineReviseRequest(BaseModel):
     """全局大纲流式修订请求"""
-    content_type: str  # novel/script
+    content_type: str  # novel/movie_outline/series_outline
     current_content: str  # 当前大纲内容
     user_feedback: str  # 用户修改意见
     revision_history: Optional[List[Dict[str, Any]]] = []  # 修订历史
@@ -172,7 +185,14 @@ def register_outline_routes(router: APIRouter):
 
         try:
             # 1. 查找最近的generation记录
-            module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+            if data.content_type == 'novel':
+                module_enum = GenerationModule.NOVEL
+            elif data.content_type == 'movie_outline':
+                module_enum = GenerationModule.MOVIE_OUTLINE
+            elif data.content_type == 'series_outline':
+                module_enum = GenerationModule.SERIES_OUTLINE
+            else:
+                raise ValueError(f"不支持的内容类型: {data.content_type}")
             state = await GenerationStateManager.get_latest_generation(
                 db, current_user.id, module_enum.value, days=7
             )
@@ -258,7 +278,14 @@ def register_outline_routes(router: APIRouter):
         if not state:
             # 如果没有找到，创建一个新的
             from app.models.generation import Generation, GenerationModule, GenerationStatus
-            module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+            if data.content_type == 'novel':
+                module_enum = GenerationModule.NOVEL
+            elif data.content_type == 'movie_outline':
+                module_enum = GenerationModule.MOVIE_OUTLINE
+            elif data.content_type == 'series_outline':
+                module_enum = GenerationModule.SERIES_OUTLINE
+            else:
+                raise ValueError(f"不支持的内容类型: {data.content_type}")
             generation = Generation(
                 user_id=current_user.id,
                 module=module_enum,
@@ -384,7 +411,14 @@ def register_outline_routes(router: APIRouter):
         from app.utils.generation_state_manager import GenerationStateManager
 
         # 创建generation记录
-        module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+        if data.content_type == 'novel':
+            module_enum = GenerationModule.NOVEL
+        elif data.content_type == 'movie_outline':
+            module_enum = GenerationModule.MOVIE_OUTLINE
+        elif data.content_type == 'series_outline':
+            module_enum = GenerationModule.SERIES_OUTLINE
+        else:
+            raise ValueError(f"不支持的内容类型: {data.content_type}")
         generation = Generation(
             user_id=current_user.id,
             module=module_enum,
@@ -498,7 +532,8 @@ def register_outline_routes(router: APIRouter):
                 user_id=current_user.id,
                 enable_quality_control=data.enable_quality_control,
                 title_style=data.title_style,
-                title_style_name=data.title_style_name
+                title_style_name=data.title_style_name,
+                project_id=data.project_id,
             )
 
             if result["success"]:
@@ -522,6 +557,93 @@ def register_outline_routes(router: APIRouter):
             logger.error(f"单元概述生成失败: {str(e)}")
             raise GenerationException(f"生成失败: {str(e)}")
 
+    @router.post("/outline/build-knowledge-graph")
+    async def build_knowledge_graph(
+        data: BuildKnowledgeGraphRequest,
+        background_tasks: BackgroundTasks,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """
+        构建知识图谱（v4.2：二阶段流程内建）
+
+        在全局大纲确认后、单元概述生成前调用。
+        创建Stub项目并后台构建全局大纲知识图谱，返回项目ID。
+        构建进度可通过 GET /projects/{project_id}/knowledge-base-status 查询。
+        """
+        from app.models.novel_project import NovelProject
+        from app.models.novel_project import ProjectType, ProjectStatus
+        from app.services.novel_writer.project_knowledge_base import ProjectKnowledgeBase
+        from ..novel_writer.utils import generate_project_code, get_project_data_dir
+        from datetime import datetime
+
+        try:
+            # 1. 创建Stub项目
+            content_type_map = {
+                "novel": "novel",
+                "movie_outline": "movie_script",
+                "series_outline": "series_script",
+            }
+            ct_value = content_type_map.get(data.content_type, "novel")
+
+            project_code = generate_project_code()
+            project_dir = get_project_data_dir(project_code)
+
+            project = NovelProject(
+                user_id=current_user.id,
+                title=data.title,
+                project_type=ProjectType.NOVEL if ct_value == "novel" else ProjectType.SCRIPT,
+                content_type=ct_value,
+                genre=data.genre,
+                outline_content=data.global_outline,  # 填充大纲内容
+                global_outline_content=data.global_outline,  # 两阶段大纲
+                generation_config={"temperature": 0.8},
+                knowledge_base_config={},
+                project_code=project_code,
+                architecture_file=os.path.join(project_dir, f"{project_code}_architecture.txt"),
+                directory_file=os.path.join(project_dir, f"{project_code}_directory.json"),
+                summary_file=os.path.join(project_dir, f"{project_code}_summary.txt"),
+                characters_file=os.path.join(project_dir, f"{project_code}_characters.json"),
+                vectorstore_path=os.path.join(project_dir, f"{project_code}_vectorstore"),
+                chapters_dir=os.path.join(project_dir, "chapters"),
+                status=ProjectStatus.INIT,
+                kb_status="building",
+                kb_build_progress={
+                    "stage": "initializing",
+                    "progress": 0,
+                    "message": "正在初始化知识库...",
+                    "started_at": datetime.now().isoformat()
+                },
+            )
+
+            db.add(project)
+            await db.commit()
+            await db.refresh(project)
+
+            logger.info(
+                f"[知识图谱构建] Stub项目创建成功: project_id={project.id}, "
+                f"title={data.title}")
+
+            # 2. 启动后台构建任务
+            background_tasks.add_task(
+                _build_kb_from_outline_task,
+                project_id=project.id,
+                outline_content=data.global_outline,
+            )
+
+            return ResponseModel(
+                success=True,
+                message="知识图谱构建任务已启动",
+                data={
+                    "project_id": project.id,
+                    "kb_status": "building"
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"启动知识图谱构建失败: {str(e)}")
+            raise GenerationException(f"构建失败: {str(e)}")
+
     @router.post("/outline/units/stream")
     async def generate_unit_summaries_stream(
         data: UnitSummariesRequest,
@@ -539,7 +661,14 @@ def register_outline_routes(router: APIRouter):
         from app.utils.generation_state_manager import GenerationStateManager
 
         # 1. 查找最近的generation记录
-        module_enum = GenerationModule.NOVEL if data.content_type == 'novel' else GenerationModule.SCRIPT
+        if data.content_type == 'novel':
+            module_enum = GenerationModule.NOVEL
+        elif data.content_type == 'movie_outline':
+            module_enum = GenerationModule.MOVIE_OUTLINE
+        elif data.content_type == 'series_outline':
+            module_enum = GenerationModule.SERIES_OUTLINE
+        else:
+            raise ValueError(f"不支持的内容类型: {data.content_type}")
         state = await GenerationStateManager.get_latest_generation(
             db, current_user.id, module_enum.value, days=7
         )
@@ -605,7 +734,9 @@ def register_outline_routes(router: APIRouter):
                     start_from_unit=data.start_from_unit,
                     # 标题风格参数
                     title_style=data.title_style,
-                    title_style_name=data.title_style_name
+                    title_style_name=data.title_style_name,
+                    # GraphRAG知识库增强（v4.1新增）
+                    project_id=data.project_id,
                 ):
                     # 检查是否被取消
                     if cancel_event.is_set():
@@ -722,7 +853,7 @@ def register_outline_routes(router: APIRouter):
         - global_outline: 全局大纲内容
         """
         from app.models.novel_project import NovelProject
-        from app.core.exceptions import NotFoundException
+        from app.core.exceptions import ResourceNotFoundException
         from sqlalchemy import select
 
         # 获取项目
@@ -734,7 +865,7 @@ def register_outline_routes(router: APIRouter):
         project = result.scalar_one_or_none()
 
         if not project:
-            raise NotFoundException(f"项目不存在: {project_id}")
+            raise ResourceNotFoundException(f"项目不存在: {project_id}")
 
         # 获取已有的单元概述数据
         existing_parsed = project.unit_summaries or {}
@@ -767,7 +898,7 @@ def register_outline_routes(router: APIRouter):
         existing_content_parts = []
         content_type = getattr(project, 'content_type', 'novel')
         unit_label = '章' if content_type == 'novel' else '集' if content_type in (
-            'series_script', 'script') else '场'
+            'series_script', 'series_outline') else '场'
 
         for unit_num, unit_data in sorted(existing_parsed.items(), key=lambda x: int(x[0])):
             title = unit_data.get("title", "")
@@ -806,13 +937,12 @@ def register_outline_routes(router: APIRouter):
         db: AsyncSession = Depends(get_db)
     ):
         """
-        对单元概述执行质量检测和修正（手动触发）
+        对单元概述执行自动质量检测和修正（v3.0重构）
 
-        流程（参照全局大纲质控）：
-        1. 如果传入了issue_id：直接针对该问题进行修正（不重新检测）
-        2. 否则：调用LLM检测质量问题
-        3. 如果发现critical问题且enable_auto_revise=True，自动调用LLM修正
-        4. 返回质控报告 + 修正后内容 + 变更列表（用于前端高亮对比）
+        一体化流程：
+        1. 五维度质控分析（unit_structure / unit_character / unit_consistency / unit_timeline_space / unit_ooc）
+        2. 发现问题后自动调用LLM进行整体修正
+        3. 返回质控报告 + 修正后内容 + 变更列表
         """
         try:
             # 参数验证
@@ -832,106 +962,43 @@ def register_outline_routes(router: APIRouter):
 
             generator = get_outline_generator(db)
 
-            # 检查是否传入了issue_id（直接修正模式）
-            issue_id = getattr(data, 'issue_id', None)
-            quality_report = None
+            logger.info(
+                f"[单元概述自动质控] 开始一体化质控检测与修正，单元数: {len(data.unit_summaries)}")
 
-            if issue_id:
-                # v2.4新增：直接修正模式，不重新检测
-                logger.info(f"[单元概述质控] 直接修正模式，问题ID: {issue_id}")
-                if not hasattr(data, 'quality_report') or not data.quality_report:
-                    from app.core.exceptions import ValidationException
-                    raise ValidationException("直接修正模式需要提供quality_report参数")
+            # 调用一体化自动质控修正方法
+            result = await generator._auto_qc_and_revise_unit_summaries(
+                unit_summaries=data.unit_summaries,
+                global_outline=data.global_outline,
+                content_type=data.content_type,
+                user_id=current_user.id,
+                temperature=data.temperature if hasattr(data, 'temperature') else 0.7
+            )
 
-                quality_report = data.quality_report
-                # 筛选出要修正的问题
-                all_issues = [issue for issue in quality_report.get(
-                    "issues", []) if issue.get("id") == issue_id]
+            logger.info(
+                f"[单元概述自动质控] 完成，得分: {result['quality_report'].get('overall_score', 0) if result['quality_report'] else 'N/A'}, "
+                f"修正单元数: {len(result.get('changes', []))}, "
+                f"问题数: {result.get('issues_count', 0)}"
+            )
 
-                if not all_issues:
-                    from app.core.exceptions import ValidationException
-                    raise ValidationException(f"未找到问题ID: {issue_id}")
-
-                # v2.4新增: 在quality_report中添加issue_id标记,供提示词构建时识别
-                quality_report["issue_id"] = issue_id
-
-                logger.info(
-                    f"[单元概述质控] 找到问题: {all_issues[0].get('description', '')[:100]}...")
-            else:
-                # 原有逻辑：完整质控检测
-                logger.info(f"[单元概述质控] 开始LLM质量检测，单元数: {len(data.unit_summaries)}")
-
-                quality_report = await generator.analyze_unit_summaries_quality_manual(
-                    unit_summaries=data.unit_summaries,
-                    global_outline=data.global_outline,
-                    content_type=data.content_type,
-                    user_id=current_user.id
-                )
-
-                logger.info(f"[单元概述质控] 检测完成，总分: {quality_report.get('overall_score', 0)}, "
-                            f"问题数: {len(quality_report.get('issues', []))}")
-
-                # 步骤2: 检查是否有问题需要修正（所有级别：critical + major + minor）
-                all_issues = quality_report.get("issues", [])
-
-            revised_content = None
-            revised_parsed = None
-            changes = []
-
-            if all_issues and data.enable_auto_revise:
-                logger.info(f"[单元概述质控] 发现{len(all_issues)}个问题，执行LLM自动修正...")
-
-                # 构建完整的单元概述文本（修正前）
-                unit_label = "章" if data.content_type == "novel" else "集"
-                original_content_parts = []
-                for unit_num, unit_data in sorted(data.unit_summaries.items(), key=lambda x: int(x[0])):
-                    title = unit_data.get("title", "")
-                    full_content = unit_data.get(
-                        "full_content", "") or unit_data.get("summary", "")
-                    original_content_parts.append(
-                        f"### 第{unit_num}{unit_label}：{title}\n{full_content}")
-                original_content = "\n\n".join(original_content_parts)
-
-                # v2.4新增：直接修正模式下，只传递要修正的问题
-                targeted_quality_report = quality_report.copy()
-                if issue_id:
-                    targeted_quality_report["issues"] = all_issues
-                    logger.info(f"[单元概述质控] 直接修正模式，只修正问题: {issue_id}")
-
-                # 调用LLM修正（参照全局大纲的修正流程）
-                revision_result = await generator.revise_unit_summaries_quality(
-                    unit_summaries=data.unit_summaries,
-                    quality_report=targeted_quality_report,
-                    global_outline=data.global_outline,
-                    content_type=data.content_type,
-                    temperature=data.temperature,
-                    user_id=current_user.id
-                )
-
-                revised_content = revision_result.get("revised_content")
-                revised_parsed = revision_result.get("revised_parsed")
-                changes = revision_result.get("changes", [])
-
-                logger.info(f"[单元概述质控] LLM修正完成，修正前长度: {len(original_content)}, "
-                            f"修正后长度: {len(revised_content) if revised_content else 0}")
-
-            # 步骤3: 返回完整结果（用于前端对比显示）
+            # 返回完整结果
             return ResponseModel(
                 success=True,
-                message="质控检测完成",
+                message="质控检测与修正完成",
                 data={
-                    "quality_report": quality_report,
-                    "revised_content": revised_content,
-                    "revised_parsed": revised_parsed,
-                    "changes": changes,
-                    "has_issues": len(all_issues) > 0,
-                    "issues_count": len(all_issues),
-                    "auto_revised": len(changes) > 0
+                    "quality_report": result.get("quality_report"),
+                    "revised_content": result.get("revised_content"),
+                    "revised_parsed": result.get("revised_parsed"),
+                    "original_content": result.get("original_content"),
+                    "original_parsed": result.get("original_parsed"),
+                    "changes": result.get("changes", []),
+                    "has_issues": result.get("has_issues", False),
+                    "issues_count": result.get("issues_count", 0),
+                    "auto_revised": result.get("auto_revised", False)
                 }
             )
 
         except Exception as e:
-            logger.error(f"[单元概述质控] 失败: {str(e)}", exc_info=True)
+            logger.error(f"[单元概述自动质控] 失败: {str(e)}", exc_info=True)
             from app.core.exceptions import GenerationException
             raise GenerationException(f"质控失败: {str(e)}")
 
@@ -1003,3 +1070,147 @@ def register_outline_routes(router: APIRouter):
         except Exception as e:
             logger.error(f"逻辑检测失败: {str(e)}")
             raise GenerationException(f"检测失败: {str(e)}")
+
+    @router.post("/outline/repair-kb-collection/{project_id}")
+    async def repair_kb_vector_collection(
+        project_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """
+        修复知识图谱向量库（v4.3：HNSW索引损坏自动修复）
+
+        当 ChromaDB HNSW 索引因异常关闭而损坏（Nothing found on disk），
+        从知识图谱 JSON 文件重建向量库。也支持手动触发修复。
+        """
+        from app.services.novel_writer.project_knowledge_base import ProjectKnowledgeBase
+        from app.models.novel_project import NovelProject
+        from sqlalchemy import select
+
+        try:
+            # 校验项目归属
+            query = select(NovelProject).where(
+                NovelProject.id == project_id,
+                NovelProject.user_id == current_user.id
+            )
+            result = await db.execute(query)
+            project = result.scalar_one_or_none()
+
+            if not project:
+                raise ResourceNotFoundException(f"项目不存在: {project_id}")
+
+            kb_manager = ProjectKnowledgeBase(db=db)
+            repair_result = await kb_manager.repair_kb_vector_store(project_id)
+
+            if repair_result["success"]:
+                logger.info(
+                    f"用户 {current_user.id} 修复向量库成功: "
+                    f"project_id={project_id}, "
+                    f"entities={repair_result['entity_count']}, "
+                    f"relations={repair_result['relation_count']}"
+                )
+                return ResponseModel(
+                    success=True,
+                    data=repair_result,
+                    message=repair_result["message"]
+                )
+            else:
+                return ResponseModel(
+                    success=False,
+                    data=repair_result,
+                    message=repair_result["message"]
+                )
+
+        except ResourceNotFoundException:
+            raise
+        except Exception as e:
+            logger.error(f"修复向量库失败: {str(e)}")
+            raise GenerationException(f"修复失败: {str(e)}")
+
+
+# ==================== 后台任务 ====================
+
+async def _build_kb_from_outline_task(project_id: int, outline_content: str):
+    """后台构建知识图谱任务（v4.2：二阶段流程内建）
+
+    从全局大纲构建知识图谱，更新项目状态。
+    复用 ProjectKnowledgeBase.build_global_outline_graph()。
+    """
+    from app.models.novel_project import NovelProject
+    from sqlalchemy import select
+    from app.services.novel_writer.project_knowledge_base import ProjectKnowledgeBase
+    from app.agents.llm_manager import llm_manager
+    from app.core.database import async_session_maker
+    from datetime import datetime
+    import time
+
+    async with async_session_maker() as db:
+        try:
+            query = select(NovelProject).where(NovelProject.id == project_id)
+            result = await db.execute(query)
+            project = result.scalar_one_or_none()
+
+            if not project:
+                logger.error(f"[KB构建任务] 项目不存在: project_id={project_id}")
+                return
+
+            kb_manager = ProjectKnowledgeBase(db=db)
+
+            # 获取LLM提供者（用于实体提取）
+            llm_provider = None
+            try:
+                llm_provider = await llm_manager.get_provider_from_db(
+                    db, project.user_id)
+            except Exception as e:
+                logger.warning(f"[KB构建任务] 获取LLM提供者失败: {e}")
+
+            # 构建全局大纲图谱
+            build_result = await kb_manager.build_global_outline_graph(
+                project_id=project_id,
+                outline_content=outline_content,
+                llm_provider=llm_provider,
+                project=project,
+            )
+
+            if build_result.get("success"):
+                project.kb_status = "ready"
+                project.project_kb_collection = kb_manager.get_collection_name(
+                    project_id)
+                project.global_outline_graph_path = build_result.get("graph_path")
+                project.kb_build_progress = {
+                    "stage": "completed",
+                    "progress": 100,
+                    "message": "知识图谱构建完成",
+                    "entity_count": build_result.get("entity_count", 0),
+                    "relation_count": build_result.get("relation_count", 0),
+                    "completed_at": datetime.now().isoformat(),
+                }
+                logger.info(
+                    f"[KB构建任务] 完成: project_id={project_id}, "
+                    f"entities={build_result.get('entity_count')}, "
+                    f"relations={build_result.get('relation_count')}")
+            else:
+                project.kb_status = "failed"
+                project.kb_build_progress = {
+                    "stage": "failed",
+                    "progress": 0,
+                    "message": f"构建失败: {build_result.get('error', '未知错误')}",
+                }
+                logger.error(
+                    f"[KB构建任务] 失败: project_id={project_id}, "
+                    f"error={build_result.get('error')}")
+
+            await db.commit()
+
+        except Exception as e:
+            logger.error(f"[KB构建任务] 异常: project_id={project_id}, error={e!r}")
+            try:
+                project.kb_status = "failed"
+                project.kb_build_progress = {
+                    "stage": "failed",
+                    "progress": 0,
+                    "message": f"构建异常: {str(e)}",
+                }
+                await db.commit()
+            except Exception:
+                pass

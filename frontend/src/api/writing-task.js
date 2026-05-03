@@ -16,6 +16,7 @@
 
 import api from '@/api'
 import { API_BASE_URL } from '@/config'
+import { getWsAuthQuery } from '@/utils/authStorage'
 
 /**
  * 写作任务API
@@ -233,6 +234,12 @@ export function connectWritingTaskWS(taskId, callbacks = {}) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
     wsUrl = `${protocol}//${host}/api/v1/writing-tasks/${taskId}/ws`
+  }
+  
+  // 添加认证token到WebSocket URL（通过集中化存储层）
+  const authQuery = getWsAuthQuery()
+  if (authQuery) {
+    wsUrl += `${wsUrl.includes('?') ? '&' : '?'}${authQuery}`
   }
   
   console.log('[WritingTask WS] 连接URL:', wsUrl)

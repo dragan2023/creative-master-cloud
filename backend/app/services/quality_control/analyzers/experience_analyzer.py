@@ -195,11 +195,11 @@ class ExperienceAnalyzer:
             for i in range(0, len(chapters_data), batch_size):
                 batch = chapters_data[i:i+batch_size]
 
-                # 提取每章的精彩片段(前500字)
+                # 提取每章内容（完整内容以确保不遗漏任何精彩片段）
                 chapter_excerpts = []
                 for ch in batch:
                     content = ch.get("content", "")
-                    excerpt = content[:500] if len(content) > 500 else content
+                    excerpt = content  # 不再截断，确保金句分析覆盖全文
                     chapter_excerpts.append({
                         "chapter": ch["chapter_number"],
                         "title": ch.get("title", ""),

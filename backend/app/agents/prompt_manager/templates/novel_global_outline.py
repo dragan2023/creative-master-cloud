@@ -430,5 +430,5 @@ TEMPLATE = {
 该方案已经过全能创意大师修正完善。
 """,
     "variables": ["length", "genre", "target_platform", "tone", "synopsis", "theme", "unique_selling_point", "chapter_count", "custom_outline", "style_ids", "style_names", "style_intensity", "style_guide", "style_guidance"]
-},
+}
 

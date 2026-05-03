@@ -131,8 +131,7 @@ def _build_project_response(project) -> NovelProjectResponse:
         project_code=project.project_code,
         total_tokens=project.total_tokens,
         total_duration_ms=project.total_duration_ms,
-        outline_content=project.outline_content[:500] + "..." if project.outline_content and len(
-            project.outline_content) > 500 else project.outline_content,
+        outline_content=project.outline_content,
         outline_word_count=len(project.outline_content.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "")) if project.outline_content else 0,
         unit_summaries=project.unit_summaries if hasattr(project, 'unit_summaries') else None,
         unit_summaries_status=project.unit_summaries_status if hasattr(project, 'unit_summaries_status') else None,

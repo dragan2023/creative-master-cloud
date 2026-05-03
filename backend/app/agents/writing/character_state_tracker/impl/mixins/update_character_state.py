@@ -5,6 +5,8 @@ from typing import Optional
 from typing import Any
 import re
 
+from app.agents.writing.character_state_tracker.api import CharacterState, CharacterStatus
+
 
 class UpdateCharacterStateMixin:
     """update_character_state功能域"""

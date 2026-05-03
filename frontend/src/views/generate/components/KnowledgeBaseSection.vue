@@ -229,7 +229,7 @@ async function loadKnowledgeBases() {
 
 // 按类别分组知识库
 function categorizeKnowledgeBases(kbs) {
-  const verticalCategories = ['short-video', 'script', 'novel', 'print-ad', 'tvc']
+  const verticalCategories = ['short-video', 'novel', 'print-ad', 'tvc', 'movie-outline', 'series-outline']
   kbCategories.value.vertical.list = kbs.filter(kb => verticalCategories.includes(kb.category))
   kbCategories.value.userSpecific.list = kbs.filter(kb => kb.category === 'user-specific')
   kbCategories.value.manual.list = kbs.filter(kb => kb.category === 'manual')
@@ -240,7 +240,7 @@ async function loadKbByCategory(category) {
   loadingKbByCategory.value[category] = true
   try {
     if (category === 'vertical') {
-      const verticalCategories = ['short-video', 'script', 'novel', 'print-ad', 'tvc']
+      const verticalCategories = ['short-video', 'novel', 'print-ad', 'tvc', 'movie-outline', 'series-outline']
       const allResults = []
       for (const cat of verticalCategories) {
         const res = await knowledgeApi.list({ status: 'ready', category: cat })

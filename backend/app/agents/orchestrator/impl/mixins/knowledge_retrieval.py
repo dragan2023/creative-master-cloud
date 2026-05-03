@@ -11,6 +11,17 @@ from app.models.knowledge_base import KnowledgeBase, KnowledgeBaseType, Knowledg
 class KnowledgeRetrievalMixin:
     """知识库检索与分类"""
 
+    # 模块名 → 知识库业务分类 映射表
+    MODULE_CATEGORY_MAP = {
+        "short_video": KnowledgeBaseCategory.SHORT_VIDEO,
+        "novel": KnowledgeBaseCategory.NOVEL,
+        "novel_global_outline": KnowledgeBaseCategory.NOVEL_WRITING,
+        "novel_unit_summaries": KnowledgeBaseCategory.NOVEL_WRITING,
+        "print_ad": KnowledgeBaseCategory.PRINT_AD,
+        "tvc": KnowledgeBaseCategory.TVC,
+        "original_ip": KnowledgeBaseCategory.GENERAL,
+    }
+
     def _sort_knowledge_bases_by_priority(
         self,
         kb_list: List[KnowledgeBase],

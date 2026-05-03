@@ -41,6 +41,15 @@ class ExportCharacterProfilesToKnowledgeGraphMixin:
                     profiles_to_export.append(profile)
 
             for profile in profiles_to_export:
+                # 添加类型检查：确保profile是字典而不是字符串
+                if isinstance(profile, str):
+                    self.logger.warning(f"跳过无效的人物设定（字符串类型）: {profile[:50]}...")
+                    continue
+                
+                if not isinstance(profile, dict):
+                    self.logger.warning(f"跳过无效的人物设定（类型={type(profile).__name__}）")
+                    continue
+                    
                 char_name = profile.get("name", "")
                 if not char_name:
                     continue

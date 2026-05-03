@@ -78,6 +78,31 @@ PRESET_MODELS = {
         "doc_url": "https://console.volcengine.com/ark"
     },
 
+    # ==================== DeepSeek（官方）====================
+    "deepseek": {
+        "name": "DeepSeek (官方)",
+        "provider": "deepseek",
+        "notice": "DeepSeek 官方 API，base_url 为 https://api.deepseek.com。deepseek-chat/reasoner 将于 2026/07/24 弃用，请使用 V4 系列。",
+        "models": [
+            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "context": "1M",
+                "vision": False, "type": "text", "max_output_tokens": 32768,
+                "description": "旗舰模型，1M上下文，最强推理能力，支持思考模式（reasoning_effort参数）"},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "context": "1M",
+                "vision": False, "type": "text", "max_output_tokens": 32768,
+                "description": "快速模型，1M上下文，高性价比。非思考模式等效旧deepseek-chat，思考模式等效旧deepseek-reasoner"},
+            # 旧版兼容（2026/07/24 弃用）
+            {"id": "deepseek-chat", "name": "DeepSeek Chat (旧版→V4 Flash)", "context": "128K",
+                "vision": False, "type": "text", "max_output_tokens": 32768,
+                "description": "⚠️ 将于2026/07/24弃用，对应V4 Flash非思考模式"},
+            {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner (旧版→V4 Flash)", "context": "128K",
+                "vision": False, "type": "text", "max_output_tokens": 32768,
+                "description": "⚠️ 将于2026/07/24弃用，对应V4 Flash思考模式"},
+        ],
+        "default_model": "deepseek-v4-flash",
+        "api_base": "https://api.deepseek.com",
+        "doc_url": "https://api-docs.deepseek.com"
+    },
+
     # ==================== 硅基流动 ====================
     "siliconflow": {
         "name": "硅基流动 (SiliconFlow)",

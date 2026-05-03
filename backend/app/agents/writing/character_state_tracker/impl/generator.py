@@ -1,6 +1,9 @@
 """CharacterStateTracker - 主类（组合所有Mixin）"""
 from __future__ import annotations
+from typing import Dict, List, Set, Optional
+
 from app.core.logger import get_logger
+from app.agents.writing.character_state_tracker.api import CharacterState, ChapterSnapshot, RelationshipChange
 from app.agents.writing.character_state_tracker.impl.mixins import (
     InitializeMixin,
     GetCharacterStateMixin,

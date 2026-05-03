@@ -54,10 +54,14 @@
               :uploading-reference-materials="uploading_reference_materials"
               :reference-materials-upload-progress="reference_materials_upload_progress"
               :series-duration-hint="seriesDurationHint"
+              :movie-duration-hint="movieDurationHint"
+              :series-episode-duration-hint="seriesEpisodeDurationHint"
               :image-file-list="imageFileList"
               :image-url-input="imageUrlInput"
               @optimize="handleOptimizePrompt"
               @series-type-change="handleSeriesTypeChange"
+              @movie-type-change="handleMovieTypeChange"
+              @series-outline-type-change="handleSeriesOutlineTypeChange"
               @outline-upload-success="handleOutlineUploadSuccess"
               @outline-upload-error="handleOutlineUploadError"
               @outline-progress="handleOutlineProgress"
@@ -74,63 +78,6 @@
             
             <!-- 知识库增强区域 -->
             <KnowledgeBaseSection ref="knowledgeBaseSectionRef" />
-            
-            <!-- 质量管控配置区域 -->
-            <div class="quality-control-section">
-              <el-divider content-position="left">
-                <el-icon><Setting /></el-icon>
-                质量管控配置
-              </el-divider>
-                          
-              <el-form-item label="质控模式">
-                <el-radio-group v-model="qualityControlMode" @change="handleQualityModeChange">
-                  <el-radio-button 
-                    v-for="mode in qualityControlModes"
-                    :key="mode.key" 
-                    :value="mode.key"
-                    :title="mode.description"
-                  >
-                    <el-icon><component :is="mode.icon" /></el-icon>
-                    {{ mode.label }}
-                  </el-radio-button>
-                </el-radio-group>
-                <div class="mode-description">
-                  <el-tag :type="currentQualityMode.type" size="small">
-                    {{ currentQualityMode.timeEstimate }}
-                  </el-tag>
-                  <span class="desc-text">{{ currentQualityMode.description }}</span>
-                </div>
-              </el-form-item>
-              
-              <!-- 单元概述质控模式选择 -->
-              <el-form-item label="单元概述质控模式">
-                <el-radio-group v-model="unitSummariesQCMode">
-                  <el-radio value="manual">
-                    <el-icon><User /></el-icon>
-                    手动模式 (推荐)
-                    <span class="radio-desc">生成后手动触发质控,支持交互式修正</span>
-                  </el-radio>
-                  <el-radio value="auto">
-                    <el-icon><Cpu /></el-icon>
-                    自动模式
-                    <span class="radio-desc">生成后自动质控并修正,跳过人工确认</span>
-                  </el-radio>
-                </el-radio-group>
-              </el-form-item>
-              
-              <el-form-item v-if="qualityControlMode !== 'quick'" label="质控维度">
-                <el-checkbox-group v-model="qualityDimensions">
-                  <el-checkbox 
-                    v-for="dim in unitQualityDimensions" 
-                    :key="dim.key" 
-                    :label="dim.key"
-                  >
-                    <el-icon><component :is="dim.icon" /></el-icon>
-                    {{ dim.label }}
-                  </el-checkbox>
-                </el-checkbox-group>
-              </el-form-item>
-            </div>
             
             <!-- 提交按钮 -->
             <div class="form-actions">
@@ -208,12 +155,10 @@
       :auto-q-c-loading="autoQCLoading"
       :unit-summaries-q-c-loading="unitSummariesQCLoading"
       :unit-summaries-q-c-report="qcReportData"
-      :unit-summaries-q-c-mode="unitSummariesQCMode"
-      :enable-auto-revise="enableAutoRevise"
-      @update:enable-auto-revise="enableAutoRevise = $event"
       :truncation-info="truncationInfo"
       :is-continuing="isContinuing"
       :backend-resume-info="backendResumeInfo"
+      :creating-writing-project="creatingWritingProject"
       @stop="handleStop"
       @generate-unit-summaries="handleGenerateUnitSummaries"
       @cancel-unit-summaries="cancelUnitSummariesGeneration"
@@ -239,17 +184,19 @@
       @finalize-content="finalizeContent"
       @exit-revision="exitRevision"
       @update:revisionInput="revisionInput = $event"
+      @global-outline-qc="handleGlobalOutlineQC"
       @analyze-global-outline-qc="handleGlobalOutlineQC"
       @revise-global-outline="handleGlobalOutlineRevise"
       @update-quality-report="handleUpdateQualityReport"
       @update-unit-content="handleUpdateUnitContent"
       @quality-control="handleImportedUnitSummariesQC"
       @quality-control-unit-summaries="handleUnitSummariesQC"
-      @revise-unit-summaries-issue="handleUnitSummariesIssueRevise"
       @unit-summaries-feedback="handleUnitSummariesFeedback"
       @apply-unit-summaries-revision="handleApplyUnitSummariesRevision"
       @remove-unit-summaries-duplicates="handleRemoveUnitSummariesQCDuplicates"
       @resume-unit-summaries-from-backend="handleResumeUnitSummariesFromBackend"
+      @create-writing-project="handleCreateWritingProject"
+      @open-unit-diff="handleOpenUnitSummariesDiff"
     />
     
     <!-- v2.4新增：全局大纲修正对比对话框 -->
@@ -283,265 +230,71 @@
   </div>
 
   <!-- 导入已有大纲对话框 -->
-  <el-dialog
+  <ImportOutlineDialog
     v-model="showImportDialog"
-    title="导入已有大纲"
-    width="700px"
-    :close-on-click-modal="false"
-  >
-    <div class="import-dialog-content">
-      <el-radio-group v-model="importType" class="import-type-selector">
-        <el-radio value="global">
-          <div class="import-type-option">
-            <span class="title">仅全局大纲</span>
-            <span class="desc">导入全局大纲后，继续生成单元概述</span>
-          </div>
-        </el-radio>
-        <el-radio value="full">
-          <div class="import-type-option">
-            <span class="title">完整大纲</span>
-            <span class="desc">包含全局大纲和单元概述的完整内容</span>
-          </div>
-        </el-radio>
-      </el-radio-group>
-      
-      <div class="import-tips">
-        <el-icon><InfoFilled /></el-icon>
-        <span v-if="importType === 'global'">
-          请上传全局大纲文件（支持 .md、.txt、.docx 格式），系统将跳过第一阶段，直接进入审核修改阶段
-        </span>
-        <span v-else>
-          请上传完整大纲文件（包含全局大纲和单元概述），系统将尝试解析并跳转到完成阶段
-        </span>
-      </div>
-      
-      <!-- 文件上传区域 -->
-      <div class="file-upload-area">
-        <el-upload
-          class="outline-uploader"
-          drag
-          :action="outlineImportUploadUrl"
-          :headers="uploadHeaders"
-          :before-upload="beforeOutlineImportUpload"
-          :on-success="handleOutlineImportUploadSuccess"
-          :on-error="handleOutlineImportUploadError"
-          :on-progress="handleOutlineImportProgress"
-          :show-file-list="true"
-          :limit="1"
-          accept=".md,.txt,.docx,.doc"
-        >
-          <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-          <div class="el-upload__text">
-            将文件拖到此处，或<em>点击上传</em>
-          </div>
-          <template #tip>
-            <div class="el-upload__tip">
-              支持 .md、.txt、.docx、.doc 格式，文件大小不超过 10MB
-            </div>
-          </template>
-        </el-upload>
-        
-        <!-- 上传进度条 -->
-        <el-progress
-          v-if="importingOutline"
-          :percentage="importOutlineProgress"
-          :stroke-width="4"
-          class="upload-progress"
-        />
-      </div>
-    </div>
-    <template #footer>
-      <el-button @click="showImportDialog = false">取消</el-button>
-    </template>
-  </el-dialog>
+    v-model:import-type="importType"
+    :upload-url="outlineImportUploadUrl"
+    :upload-headers="uploadHeaders"
+    :importing="importingOutline"
+    :progress="importOutlineProgress"
+    @before-upload="beforeOutlineImportUpload"
+    @upload-success="handleOutlineImportUploadSuccess"
+    @upload-error="handleOutlineImportUploadError"
+    @upload-progress="handleOutlineImportProgress"
+  />
 
   <!-- 导入单元概述对话框 -->
-  <el-dialog
+  <ImportUnitSummariesDialog
     v-model="showImportUnitSummariesDialog"
-    title="导入已有单元概述"
-    width="700px"
-    :close-on-click-modal="false"
-  >
-    <div class="import-dialog-content">
-      <div class="import-tips">
-        <el-icon><InfoFilled /></el-icon>
-        <span>
-          请上传单元概述文件（支持 .md、.txt、.docx 格式）。
-          导入后将自动解析章节内容，您可以手动触发质控检测。
-        </span>
-      </div>
-      
-      <el-upload
-        class="import-uploader"
-        drag
-        :action="unitSummariesImportUploadUrl"
-        :before-upload="beforeUnitSummariesImportUpload"
-        :on-success="handleUnitSummariesImportUploadSuccess"
-        :on-error="handleUnitSummariesImportUploadError"
-        :on-progress="handleUnitSummariesImportProgress"
-        :show-file-list="false"
-        accept=".md,.txt,.docx,.doc"
-      >
-        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-        <div class="el-upload__text">
-          将文件拖到此处，或<em>点击上传</em>
-        </div>
-        <template #tip>
-          <div class="el-upload__tip">
-            支持 .md、.txt、.docx 格式，文件大小不超过 100MB
-          </div>
-        </template>
-      </el-upload>
-      
-      <div v-if="importingUnitSummaries" class="import-progress">
-        <el-progress :percentage="importUnitSummariesProgress" />
-        <span>正在上传并解析...</span>
-      </div>
-    </div>
-    <template #footer>
-      <el-button @click="showImportUnitSummariesDialog = false">取消</el-button>
-    </template>
-  </el-dialog>
+    :upload-url="unitSummariesImportUploadUrl"
+    :importing="importingUnitSummaries"
+    :progress="importUnitSummariesProgress"
+    @before-upload="beforeUnitSummariesImportUpload"
+    @upload-success="handleUnitSummariesImportUploadSuccess"
+    @upload-error="handleUnitSummariesImportUploadError"
+    @upload-progress="handleUnitSummariesImportProgress"
+  />
 
   <!-- 从指定单元开始对话框 -->
-  <el-dialog
+  <StartUnitDialog
     v-model="showStartUnitDialog"
-    title="从指定单元重新生成"
-    width="500px"
-    :close-on-click-modal="false"
-  >
-    <div class="start-unit-dialog-content">
-      <p class="start-unit-tip">
-        选择从哪个单元开始重新生成。该单元及之后的所有单元概述将被重新生成，之前的单元概述将保留。
-      </p>
-      <el-form-item label="起始单元编号">
-        <el-input-number
-          v-model="startFromUnit"
-          :min="1"
-          :max="type === 'novel' ? (parseInt(form.chapter_count) || 50) : (parseInt(form.episode_count) || 24)"
-          :step="1"
-        />
-      </el-form-item>
-      <p class="start-unit-warning">
-        <el-icon><WarningFilled /></el-icon>
-        注意：从第 {{ startFromUnit }} 单元开始的所有内容将被覆盖
-      </p>
-    </div>
-    <template #footer>
-      <el-button @click="showStartUnitDialog = false">取消</el-button>
-      <el-button type="primary" @click="handleGenerateFromUnit" :loading="unitSummariesGenerating">
-        开始生成
-      </el-button>
-    </template>
-  </el-dialog>
+    v-model:start-from-unit="startFromUnit"
+    :max-unit="startUnitMax"
+    :loading="unitSummariesGenerating"
+    @generate="handleGenerateFromUnit"
+  />
 
   <!-- 逻辑问题详情对话框 -->
-  <el-dialog
+  <LogicIssuesDialog
     v-model="showLogicIssuesDialog"
-    title="逻辑问题详情"
-    width="600px"
-  >
-    <div class="logic-issues-dialog">
-      <div v-for="(issue, index) in logicCheckResult?.issues" :key="index" class="issue-item">
-        <div class="issue-header">
-          <el-tag :type="issue.severity === 'high' ? 'danger' : issue.severity === 'medium' ? 'warning' : 'info'">
-            {{ issue.type }}
-          </el-tag>
-          <span class="issue-unit">单元 {{ issue.unit_number }}</span>
-        </div>
-        <p class="issue-description">{{ issue.description }}</p>
-      </div>
-    </div>
-    <template #footer>
-      <el-button type="primary" @click="showLogicIssuesDialog = false">确定</el-button>
-    </template>
-  </el-dialog>
+    :issues="logicCheckResult?.issues || []"
+  />
 
   <!-- 修正详情对话框 -->
-  <el-dialog
+  <RevisionDetailDialog
     v-model="showRevisionDetailDialog"
-    :title="`修正详情 - 第${currentRevisionUnit ? unitSummaries[currentRevisionUnit]?.unit_number : ''}${type === 'novel' ? '章' : '集'}`"
-    width="800px"
-    top="5vh"
-  >
-    <div v-if="currentRevisionUnit && unitSummaries[currentRevisionUnit]" class="revision-detail-container">
-      <!-- 修正信息 -->
-      <div class="revision-info-header">
-        <el-tag type="success">逻辑修正</el-tag>
-        <span class="revision-stats">
-          原文 <strong>{{ unitSummaries[currentRevisionUnit]?.original_summary?.length || 0 }}</strong> 字 
-          → 修正后 <strong>{{ unitSummaries[currentRevisionUnit]?.revised_summary?.length || 0 }}</strong> 字
-        </span>
-      </div>
-
-      <!-- 视图切换 -->
-      <div class="view-switch">
-        <el-radio-group v-model="revisionViewMode" size="small">
-          <el-radio-button value="diff">差异对比</el-radio-button>
-          <el-radio-button value="side">左右对照</el-radio-button>
-        </el-radio-group>
-      </div>
-
-      <!-- 差异对比视图 -->
-      <div v-if="revisionViewMode === 'diff'" class="diff-view">
-        <div class="diff-legend">
-          <span class="legend-item added"><span class="legend-color"></span>新增内容</span>
-          <span class="legend-item removed"><span class="legend-color"></span>删除内容</span>
-          <span class="legend-item unchanged"><span class="legend-color"></span>未修改</span>
-        </div>
-        <div class="diff-content" v-html="getRevisionDiffHtml(unitSummaries[currentRevisionUnit])"></div>
-      </div>
-
-      <!-- 左右对照视图 -->
-      <div v-else class="compare-view">
-        <div class="compare-panel">
-          <div class="panel-header">
-            <el-tag type="warning">原始内容</el-tag>
-            <span class="panel-word-count">{{ unitSummaries[currentRevisionUnit]?.original_summary?.length || 0 }} 字</span>
-          </div>
-          <div class="panel-content">
-            <el-input
-              :model-value="unitSummaries[currentRevisionUnit]?.original_summary"
-              type="textarea"
-              :rows="15"
-              readonly
-            />
-          </div>
-        </div>
-        
-        <div class="compare-panel">
-          <div class="panel-header">
-            <el-tag type="success">修正后内容</el-tag>
-            <span class="panel-word-count">{{ unitSummaries[currentRevisionUnit]?.revised_summary?.length || 0 }} 字</span>
-          </div>
-          <div class="panel-content">
-            <el-input
-              :model-value="unitSummaries[currentRevisionUnit]?.revised_summary"
-              type="textarea"
-              :rows="15"
-              readonly
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-    <template #footer>
-      <el-button @click="showRevisionDetailDialog = false">关闭</el-button>
-    </template>
-  </el-dialog>
+    :unit-data="currentRevisionUnitData"
+    :unit-number="currentRevisionUnitNumber"
+    :unit-label="currentRevisionUnitLabel"
+    v-model:view-mode="revisionViewMode"
+    :diff-html="currentRevisionDiffHtml"
+  />
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { UploadFilled, Setting, Lightning, CircleCheck, Rank, User, Cpu } from '@element-plus/icons-vue'
 import { CREATIVE_MODULES } from '@/config'
-import { generateApi, revisionApi, globalOutlineQCApi, unitSummariesQCApi } from '@/api'
+import { generateApi, revisionApi, globalOutlineQCApi, unitSummariesQCApi, novelWriterApi } from '@/api'
 import { useApiKeyStore } from '@/stores'
 import { API_BASE_URL } from '@/config'
 import { useUserStore } from '@/stores/user'
+import { getToken, getAuthHeaders, getSseAuthParams } from '@/utils/authStorage'
 import { applyDiffInstructions, validateDiffInstructions } from '@/utils/diffApplier'
+import { computeDiffHtml } from '@/utils/diffUtils'
+import { parseChapterCountFromOutline, parseUnitSummariesFromContent } from './utils/outlineParser'
+import { buildOutlineInputParams as buildOutlineParams } from './utils/buildRequestParams'
 
 // 导入子组件
 import FormFieldsSection from './components/FormFieldsSection.vue'
@@ -550,12 +303,21 @@ import WorkflowProgress from './components/WorkflowProgress.vue'
 import ResultViewer from './components/ResultViewer.vue'
 import GlobalOutlineReviseDialog from './components/GlobalOutlineReviseDialog.vue'
 import UnitSummariesReviseDialog from './components/UnitSummariesReviseDialog.vue'
+import ImportOutlineDialog from './components/ImportOutlineDialog.vue'
+import ImportUnitSummariesDialog from './components/ImportUnitSummariesDialog.vue'
+import StartUnitDialog from './components/StartUnitDialog.vue'
+import LogicIssuesDialog from './components/LogicIssuesDialog.vue'
+import RevisionDetailDialog from './components/RevisionDetailDialog.vue'
 
 // 导入composables
 import { useGenerationForm } from './composables/useGenerationForm'
-import { useStreamHandler } from './composables/useStreamHandler'
 import { useWorkflow } from './composables/useWorkflow'
 import { useGenerationRestore } from '@/composables/useGenerationRestore'
+import { useUnitSummariesGeneration } from './composables/useUnitSummariesGeneration'
+import { useRevisionMode } from './composables/useRevisionMode'
+import { useQualityControl } from './composables/useQualityControl'
+import { useImportLogic } from './composables/useImportLogic'
+import { useReviseHandlers } from './composables/useReviseHandlers'
 
 const router = useRouter()
 const route = useRoute()
@@ -599,6 +361,17 @@ function handleTitleStyleDataUpdate(data) {
 }
 
 const type = computed(() => route.params.type)
+// 前端路由参数（连字符格式）→ 后端 content_type（下划线格式）
+const backendContentType = computed(() => {
+  const map = {
+    'movie-outline': 'movie_outline',
+    'series-outline': 'series_outline',
+    'short-video': 'short_video',
+    'print-ad': 'print_ad',
+    'original-ip': 'original_ip'
+  }
+  return map[type.value] || type.value
+})
 const currentModule = computed(() => 
   CREATIVE_MODULES.find(m => m.key === type.value)
 )
@@ -621,6 +394,8 @@ const {
   useTwoStageMode,
   combinedStyleTypes,
   seriesDurationHint,
+  movieDurationHint,
+  seriesEpisodeDurationHint,
   beforeUpload,
   beforeOutlineUpload,
   handleOutlineProgress,
@@ -636,6 +411,8 @@ const {
   parseImageUrls,
   handleVideoModeChange,
   handleSeriesTypeChange,
+  handleMovieTypeChange,
+  handleSeriesOutlineTypeChange,
   handleOptimizePrompt,
   saveFormData,
   restoreFormData,
@@ -685,100 +462,6 @@ const expectedUnitCount = computed(() => {
   return formChapterCount || outlineChapterCount || (type.value === 'novel' ? 50 : 24)
 })
 
-// 质量管控配置
-const qualityControlMode = ref('standard')  // quick, standard, deep
-const qualityDimensions = ref(['unit_structure', 'unit_character', 'unit_consistency', 'unit_timeline_space', 'unit_ooc'])
-
-// 单元概述质控模式 (manual/auto) - 从localStorage恢复
-const savedQCMode = localStorage.getItem('unitSummariesQCMode')
-const unitSummariesQCMode = ref(savedQCMode || 'manual')  // 默认手动模式
-
-// 监听单元概述质控模式变化并保存
-watch(unitSummariesQCMode, (newMode) => {
-  localStorage.setItem('unitSummariesQCMode', newMode)
-  console.log('[GenerateForm] 单元概述质控模式已保存:', newMode)
-})
-
-// 质控模式配置
-const qualityControlModes = [
-  {
-    key: 'quick',
-    label: '快速',
-    icon: 'Lightning',
-    description: '仅规则引擎检测，零Token消耗，秒级返回',
-    timeEstimate: '< 1秒',
-    type: 'success'
-  },
-  {
-    key: 'standard',
-    label: '标准',
-    icon: 'CircleCheck',
-    description: '规则引擎 + LLM深度分析，推荐日常使用',
-    timeEstimate: '5-10秒',
-    type: 'primary'
-  },
-  {
-    key: 'deep',
-    label: '深度',
-    icon: 'Rank',
-    description: '全量LLM分析，最高精度，适合重要章节',
-    timeEstimate: '10-30秒',
-    type: 'warning'
-  }
-]
-
-// 单元概述质控维度配置
-const unitQualityDimensions = [
-  {
-    key: 'unit_structure',
-    label: '单元结构',
-    icon: 'Grid',
-    description: 'LLM深度检测单元长度、衔接流畅度、情节节奏'
-  },
-  {
-    key: 'unit_character',
-    label: '人物发展',
-    icon: 'User',
-    description: 'LLM深度检测人物状态变化、成长逻辑、关系一致性'
-  },
-  {
-    key: 'unit_consistency',
-    label: '大纲一致性',
-    icon: 'Connection',
-    description: 'LLM深度检测与全局大纲的偏离度、核心要素完整性'
-  },
-  {
-    key: 'unit_timeline_space',
-    label: '时间线空间',
-    icon: 'Location',
-    description: '检测人物位置逻辑、出场时间线、事件因果关系、状态连续性'
-  },
-  {
-    key: 'unit_ooc',
-    label: '人物OOC',
-    icon: 'Warning',
-    description: '检测人物是否违背人设（性格违背、动机矛盾、能力超纲）'
-  }
-]
-
-// 当前选中的质控模式信息
-const currentQualityMode = computed(() => {
-  return qualityControlModes.find(m => m.key === qualityControlMode.value) || qualityControlModes[1]
-})
-
-/**
- * 质控模式切换处理
- */
-function handleQualityModeChange(mode) {
-  console.log('[GenerateForm] 质控模式切换:', mode)
-  // quick模式不显示维度选择
-  if (mode === 'quick') {
-    qualityDimensions.value = []
-  } else {
-    qualityDimensions.value = ['unit_structure', 'unit_character', 'unit_consistency', 'unit_timeline_space', 'unit_ooc']
-  }
-}
-
 // 逻辑检测状态
 const logicChecking = ref(false)
 const logicCheckResult = ref(null)
@@ -791,6 +474,30 @@ const knowledgeRevising = ref(false)
 const showRevisionDetailDialog = ref(false)
 const currentRevisionUnit = ref(null)
 const revisionViewMode = ref('diff')
+
+// 修正详情对话框 - 计算属性
+const currentRevisionUnitData = computed(() => {
+  return currentRevisionUnit.value && unitSummaries.value 
+    ? unitSummaries.value[currentRevisionUnit.value] 
+    : null
+})
+const currentRevisionUnitNumber = computed(() => {
+  return currentRevisionUnitData.value?.unit_number || ''
+})
+const currentRevisionUnitLabel = computed(() => {
+  return type.value === 'novel' ? '章' : '集'
+})
+const currentRevisionDiffHtml = computed(() => {
+  if (!currentRevisionUnitData.value) return ''
+  return getRevisionDiffHtml(currentRevisionUnitData.value)
+})
+
+// StartUnitDialog - 最大单元数
+const startUnitMax = computed(() => {
+  return type.value === 'novel' 
+    ? (parseInt(form.value?.chapter_count) || 50) 
+    : (parseInt(form.value?.episode_count) || 24)
+})
 
 // 修订模式状态
 const isRevisionMode = ref(false)
@@ -824,7 +531,6 @@ const issuesFixed = ref(0)            // 修正的问题数量
 const importedOutline = ref(false)    // 是否为导入的大纲
 const autoQCLoading = ref(false)      // 自动质控加载状态
 const unitSummariesQCLoading = ref(false)  // 单元概述质控加载状态（手动触发）
-const enableAutoRevise = ref(true)    // 是否启用自动修正（用户可选择）
 
 // 全局大纲修正对比对话框 (v2.2新增)
 const showGlobalOutlineReviseDialog = ref(false)
@@ -845,6 +551,11 @@ const unitSummariesReviseData = ref({
   revisedContent: '',
   revisedParsed: null,
   qualityReport: null
+})
+// v3.1新增：原始版本快照（用于后续对比查看）
+const unitSummariesOriginalSnapshot = ref({
+  content: '',
+  parsed: null
 })
 
 // 灵活介入流程状态
@@ -870,8 +581,180 @@ const unitSummariesImportUploadUrl = computed(() =>
 // 后端断点信息（用于页面刷新后恢复续生成状态）
 const backendResumeInfo = ref(null)  // { can_resume, remaining_count, start_from_unit, existing_count, expected_count, global_outline, existing_parsed, existing_content }
 
+// P0改造新增：创建写作项目状态
+const creatingWritingProject = ref(false)
+
 // 知识库组件引用
 const knowledgeBaseSectionRef = ref(null)
+
+// ==================== 初始化 Composables ====================
+
+// 单元概述生成
+const {
+  handleGenerateUnitSummaries,
+  performLogicCheck,
+  cancelUnitSummariesGeneration,
+  handleResumeUnitSummaries,
+  handleContinueGeneration,
+  handleResumeUnitSummariesFromBackend,
+  openStartUnitDialog,
+  handleGenerateFromUnit
+} = useUnitSummariesGeneration({
+  type,
+  form,
+  globalOutlineContent,
+  generatedContent,
+  unitSummaries,
+  outlineStage,
+  currentSessionId,
+  currentEventSource,
+  unitSummariesGenerating,
+  globalOutlineGenerating,
+  showResult,
+  titleStyleData,
+  startFromUnit,
+  showStartUnitDialog,
+  expectedUnitCount,
+  backendResumeInfo,
+  logicChecking,
+  logicCheckResult,
+  handleWorkflowEvent,
+})
+
+
+// 修订模式
+const {
+  startRevision,
+  submitRevision,
+  finalizeContent,
+  exitRevision
+} = useRevisionMode({
+  type,
+  form,
+  useTwoStageMode,
+  isRevisionMode,
+  currentRevisionRound,
+  revisionInput,
+  revising,
+  revisionContent,
+  revisionMessages,
+  revisionHistory,
+  generationId,
+  currentGenerationId,
+  globalOutlineContent,
+  generatedContent,
+  knowledgeRevising,
+  buildOutlineInputParams: buildOutlineParams
+})
+
+// 质量控制
+const {
+  startQCSSESubscription,
+  stopQCSSEConnection,
+  handleImportedUnitSummariesQC,
+  handleUnitSummariesQC,
+  handleGlobalOutlineQC,
+  handleAutoGlobalOutlineRevise
+} = useQualityControl({
+  type,
+  form,
+  useTwoStageMode,
+  globalOutlineContent,
+  generatedContent,
+  unitSummaries,
+  editingGlobalOutline,
+  editingGlobalOutlineContent,
+  generationId,
+  importedOutline,
+  globalOutlineQCLoading,
+  globalOutlineQCReport,
+  qcProgress,
+  qcSSEConnection,
+  revisingIssueId,
+  qcApplied,
+  qcReportData,
+  issuesFixed,
+  autoQCLoading,
+  unitSummariesQCLoading,
+  showGlobalOutlineReviseDialog,
+  globalOutlineReviseData,
+  showUnitSummariesReviseDialog,
+  unitSummariesReviseData
+})
+
+// 导入逻辑
+const {
+  openImportDialog,
+  confirmImport,
+  beforeOutlineImportUpload,
+  handleOutlineImportUploadSuccess,
+  handleOutlineImportUploadError,
+  handleOutlineImportProgress,
+  openImportUnitSummariesDialog,
+  beforeUnitSummariesImportUpload,
+  handleUnitSummariesImportUploadSuccess,
+  handleUnitSummariesImportUploadError,
+  handleUnitSummariesImportProgress
+} = useImportLogic({
+  type,
+  globalOutlineContent,
+  generatedContent,
+  unitSummaries,
+  outlineStage,
+  showResult,
+  showImportDialog,
+  importType,
+  importContent,
+  importingOutline,
+  importOutlineProgress,
+  showImportUnitSummariesDialog,
+  importingUnitSummaries,
+  importUnitSummariesProgress,
+  importedUnitSummaries,
+  importedOutline,
+  qcApplied,
+  qcReportData,
+  issuesFixed
+})
+
+// 修正处理
+const {
+  getRevisionDiffHtml,
+  handleUnitSummariesFeedback,
+  handleApplyUnitSummariesRevision,
+  handleGlobalOutlineRevise,
+  handleConfirmGlobalOutlineRevise,
+  handleCancelGlobalOutlineRevise,
+  handleConfirmUnitSummariesRevise,
+  handleCancelUnitSummariesRevise,
+  handleOpenUnitSummariesDiff,
+  handleRemoveUnitSummariesQCDuplicates,
+  handleRemoveUnitSummariesDuplicates,
+  handleUpdateUnitContent,
+  updateGeneratedContentUnit,
+  parseUnitSummaries
+} = useReviseHandlers({
+  type,
+  useTwoStageMode,
+  globalOutlineContent,
+  generatedContent,
+  unitSummaries,
+  editingGlobalOutline,
+  editingGlobalOutlineContent,
+  generationId,
+  qcApplied,
+  qcReportData,
+  issuesFixed,
+  qcProgress,
+  showGlobalOutlineReviseDialog,
+  globalOutlineReviseData,
+  showUnitSummariesReviseDialog,
+  unitSummariesReviseData,
+  unitSummariesOriginalSnapshot,
+  revisingIssueId,
+  globalOutlineQCReport,
+  stopQCSSEConnection
+})
 
 onMounted(async () => {
   await apiKeyStore.fetchApiKeys()
@@ -955,7 +838,14 @@ watch(type, () => {
 
 // 处理生成
 async function handleGenerate() {
-  // 如果是小说或剧本大纲，使用两阶段生成
+  // 防重复提交：如果正在生成中，直接返回（急性子用户测试发现的问题）
+  if (generating.value) {
+    console.warn('[GenerateForm] 生成请求进行中，忽略重复提交')
+    ElMessage.warning('正在生成中，请勿重复点击')
+    return
+  }
+  
+  // 如果是小说/剧本/电影大纲/剧集大纲，使用两阶段生成
   if (useTwoStageMode.value) {
     // 获取知识库参数
     const kbParams = knowledgeBaseSectionRef.value?.getKbParams() || {}
@@ -996,7 +886,8 @@ async function handleGenerate() {
   try {
     const apiMethod = {
       'short-video': generateApi.shortVideo,
-      'script': generateApi.script,
+      'movie-outline': generateApi.movieOutline,
+      'series-outline': generateApi.seriesOutline,
       'novel': generateApi.novel,
       'print-ad': generateApi.printAd,
       'tvc': generateApi.tvc,
@@ -1032,11 +923,37 @@ async function handleGenerate() {
         enable_trending: kbParams.enableTrending,
         ...kbParams
       }
-    } else if (type.value === 'script') {
+    } else if (type.value === 'movie-outline') {
+      // NOTE: 当前 movie-outline 始终走两阶段模式（useTwoStageMode=true），
+      // 此分支为死代码。保留用于未来可能支持单阶段生成时参考参数映射。
       submitData = {
         title: form.value.title,
-        series_type: form.value.series_type || '网剧',
-        theme: form.value.genre || '都市',
+        movie_type: form.value.movie_type || '院线电影',
+        theme: Array.isArray(form.value.genre) ? form.value.genre.join('、') : (form.value.genre || '剧情'),
+        audience: form.value.target_audience,
+        platform: form.value.platform || '院线发行',
+        reference_works: form.value.reference_works || '无',
+        synopsis: form.value.description,
+        scene_count: form.value.scene_count || null,
+        custom_outline: form.value.custom_outline || null,
+        duration_range: `${form.value.duration_range[0]}-${form.value.duration_range[1]}分钟`,
+        scene_count_range: form.value.scene_count_range || 'AI自动设计',
+        format_standard: form.value.format_standard || '标准格式',
+        dialogue_narration_ratio: form.value.dialogue_narration_ratio || '均衡',
+        target_broadcast: form.value.target_broadcast || '未指定',
+        script_mode: form.value.script_mode || 'real',
+        enable_knowledge: kbParams.enableKnowledge,
+        enable_creative_search: kbParams.enableCreativeSearch,
+        enable_trending: kbParams.enableTrending,
+        ...kbParams
+      }
+    } else if (type.value === 'series-outline') {
+      // NOTE: 当前 series-outline 始终走两阶段模式（useTwoStageMode=true），
+      // 此分支为死代码。保留用于未来可能支持单阶段生成时参考参数映射。
+      submitData = {
+        title: form.value.title,
+        series_type: form.value.series_type || '电视剧',
+        theme: Array.isArray(form.value.genre) ? form.value.genre.join('、') : (form.value.genre || '都市'),
         audience: form.value.target_audience,
         platform: form.value.platform || '爱奇艺',
         reference_works: form.value.reference_works || '无',
@@ -1193,13 +1110,11 @@ async function handleStop() {
   ElMessage.warning('已中断生成')
 }
 
-// ==================== 两阶段大纲生成方法 ====================
+// ==================== 两阶段大纲生成（第一阶段） ====================
 
 // 开始两阶段生成（第一阶段：全局大纲）
-async function handleTwoStageGenerate() {
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
-  
+async function handleTwoStageGenerate(apiKeyStoreRef, routerRef, kbParams = {}) {
+  // API Key 检查
   if (!apiKeyStore.defaultKey) {
     const hasKeys = apiKeyStore.apiKeys.length > 0
     if (hasKeys) {
@@ -1211,11 +1126,12 @@ async function handleTwoStageGenerate() {
     return
   }
   
-  workflowSteps.value = [
-    { step: 'model', status: 'running', message: '正在加载AI模型...', icon: 'Cpu' }
-  ]
+  // 重置工作流程状态
+  workflowSteps.value = []
+  currentStep.value = ''
   workflowComplete.value = false
   
+  // 开始第一阶段
   outlineStage.value = 1
   globalOutlineGenerating.value = true
   globalOutlineContent.value = ''
@@ -1227,10 +1143,7 @@ async function handleTwoStageGenerate() {
     
     setTimeout(() => {
       if (globalOutlineGenerating.value) {
-        const modelIndex = workflowSteps.value.findIndex(s => s.step === 'model')
-        if (modelIndex >= 0) {
-          workflowSteps.value[modelIndex] = { step: 'model', status: 'done', message: '已加载模型', icon: 'Cpu' }
-        }
+        workflowSteps.value.push({ step: 'model', status: 'done', message: '已加载模型', icon: 'Cpu' })
         workflowSteps.value.push({ step: 'prompt', status: 'running', message: '正在准备提示词...', icon: 'Document' })
       }
     }, 500)
@@ -1244,13 +1157,18 @@ async function handleTwoStageGenerate() {
       }
     }, 1000)
     
+    const enableKnowledge = kbParams.enableKnowledge || false
+    const enableAutoQC = kbParams.enableAutoQC || false
+    
     const result = await generateApi.generateGlobalOutlineStream(
       {
-        content_type: type.value,
+        content_type: backendContentType.value,
         input_params: inputParams,
         provider: null,
         model: null,
-        temperature: 0.7
+        temperature: 0.7,
+        enable_knowledge: enableKnowledge,
+        enable_auto_qc: enableAutoQC
       },
       (chunk, fullContent) => {
         globalOutlineContent.value = fullContent
@@ -1262,59 +1180,14 @@ async function handleTwoStageGenerate() {
       (event) => {
         handleWorkflowEvent(event)
       },
-      (newContent, message, eventData) => {
-        // 处理replace_content事件（知识库修正后或质控修正后）
+      (newContent, message) => {
         globalOutlineContent.value = newContent
         generatedContent.value = newContent
-        
-        // v2.3新增：处理质控修正相关字段
-        if (eventData && eventData.qc_applied) {
-          qcApplied.value = true
-          issuesFixed.value = eventData.issues_fixed || 0
-          if (eventData.qc_report) {
-            qcReportData.value = eventData.qc_report
-          }
-          
-          // v2.4修复：自动质控修正后显示对比对话框
-          if (eventData.original_content && eventData.revised_content) {
-            console.log('[自动质控修正] 准备显示对比对话框...')
-            
-            globalOutlineReviseData.value = {
-              originalContent: eventData.original_content,
-              revisedContent: eventData.revised_content,
-              changes: eventData.qc_report?.issues || [],
-              issueId: 'auto_qc_generation',
-              issueDescription: `生成时自动质控修正 ${eventData.issues_fixed || 0} 个问题`,
-              originalLength: eventData.original_length || eventData.original_content.length,
-              revisedLength: eventData.revised_length || eventData.revised_content.length
-            }
-            
-            showGlobalOutlineReviseDialog.value = true
-            console.log('[自动质控修正] 对比对话框已显示')
-          }
-          
-          ElMessage.success(`已完成质量检测与修正，修正了${issuesFixed.value}个问题`)
-        } else if (message) {
-          ElMessage.success(message)
-        }
-      },
-      // v2.3新增：处理qc_report事件（无修正时）
-      (eventData) => {
-        if (eventData && eventData.qc_report) {
-          qcReportData.value = eventData.qc_report
-          qcApplied.value = eventData.qc_applied || false
-          issuesFixed.value = eventData.issues_fixed || 0
-        }
+        ElMessage.success(message || '内容已优化')
       }
     )
     
     if (result && !result.cancelled) {
-      const generateIndex = workflowSteps.value.findIndex(s => s.step === 'generate')
-      if (generateIndex >= 0) {
-        workflowSteps.value[generateIndex] = { step: 'generate', status: 'done', message: '全局大纲生成完成', icon: 'MagicStick' }
-      }
-      workflowComplete.value = true
-      
       outlineStage.value = 2
       ElMessage.success('全局大纲生成完成，请审核后继续生成单元概述')
     }
@@ -1332,864 +1205,7 @@ async function handleTwoStageGenerate() {
   }
 }
 
-// 构建大纲输入参数
-function buildOutlineInputParams() {
-  if (type.value === 'novel') {
-    const lengthMap = { 'short': '短篇', 'medium': '中篇', 'long': '长篇' }
-    return {
-      title: form.value.title || '',
-      length: lengthMap[form.value.length] || '中篇',
-      target_platform: form.value.target_platform || '起点',
-      synopsis: form.value.description,
-      chapter_count: form.value.chapter_count || '50',
-      custom_outline: form.value.custom_outline || '',
-      // 文风参数
-      style_ids: styleData.value.styleIds || [],
-      style_names: styleData.value.styleNames || [],
-      style_intensity: styleData.value.intensity || 0.7,
-      style_guide: styleData.value.styleGuide || null,
-      // 标题风格参数
-      title_style: titleStyleData.value.styleId || '',
-      title_style_name: titleStyleData.value.styleName || ''
-    }
-  } else if (type.value === 'script') {
-    return {
-      title: form.value.title || '',
-      series_type: form.value.series_type || '网剧',
-      theme: form.value.genre || '都市',
-      audience: form.value.target_audience || '年轻观众',
-      platform: form.value.platform || '爱奇艺',
-      reference_works: form.value.reference_works || '无',
-      synopsis: form.value.description,
-      episode_count: form.value.episode_count || '24',
-      custom_outline: form.value.custom_outline || '',
-      episode_duration_range: `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟`,
-      format_standard: form.value.format_standard || '标准格式',
-      dialogue_narration_ratio: form.value.dialogue_narration_ratio || '均衡',
-      script_mode: form.value.script_mode || 'real'
-    }
-  }
-  return {}
-}
-
-// 开始第二阶段：生成单元概述
-async function handleGenerateUnitSummaries() {
-  if (!globalOutlineContent.value) {
-    ElMessage.warning('请先生成全局大纲')
-    return
-  }
-  
-  // 智能获取章节数：优先使用表单值，其次从全局大纲中解析
-  const formChapterCount = type.value === 'novel' 
-    ? parseInt(form.value.chapter_count) || null
-    : parseInt(form.value.episode_count) || null
-  
-  const outlineChapterCount = formChapterCount ? null : parseChapterCountFromOutline(globalOutlineContent.value)
-  
-  // 默认值：表单未填写且大纲未解析到时使用默认值
-  const unitCount = formChapterCount || outlineChapterCount || (type.value === 'novel' ? 50 : 24)
-  
-  console.log(`[GenerateForm] 章节数计算:`)
-  console.log(`  - 表单设置: ${formChapterCount || '未填写'}`)
-  console.log(`  - 从大纲解析: ${outlineChapterCount || '未找到'}`)
-  console.log(`  - 最终使用: ${unitCount}`)
-  
-  currentSessionId.value = `unit_summaries_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-  
-  // 检测是否为续生成模式（从已有内容中检测）
-  const existingContent = generatedContent.value || ''
-  const existingParsed = parseUnitSummariesFromContent(existingContent)
-  const existingUnitCount = Object.keys(existingParsed).length
-  const isResumeMode = existingUnitCount > 0 && existingUnitCount < unitCount
-
-  outlineStage.value = 3
-  unitSummariesGenerating.value = true
-  // 续生成模式下不清空已有数据，保留前文
-  if (!isResumeMode) {
-    unitSummaries.value = {}
-  }
-  
-  try {
-    // 构建请求参数
-    const requestData = {
-      content_type: type.value,
-      global_outline: globalOutlineContent.value,
-      unit_count: unitCount,
-      series_type: type.value === 'script' ? form.value.series_type : null,
-      episode_duration_range: type.value === 'script' 
-        ? `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟` 
-        : null,
-      provider: null,
-      model: null,
-      temperature: 0.7,
-      enable_quality_control: true,  // 始终启用(用于标记)
-      qc_mode: unitSummariesQCMode.value,  // 传递单元概述质控模式
-      quality_control_mode: qualityControlMode.value,  // 传递全局大纲质控模式
-      quality_dimensions: qualityDimensions.value,  // 传递质控维度
-      // 标题风格参数（新增）
-      title_style: titleStyleData.value.styleId || null,
-      title_style_name: titleStyleData.value.styleName || null
-    }
-    
-    // 续生成检测（复用上面的变量）
-    console.log(`[GenerateForm] 续生成检测:`)
-    console.log(`  - existingContent长度: ${existingContent.length}`)
-    console.log(`  - existingParsed章节数: ${existingUnitCount}`)
-    console.log(`  - existingParsed keys: ${Object.keys(existingParsed).slice(0, 10).join(', ')}...`)
-    console.log(`  - unitCount: ${unitCount}`)
-    
-    if (isResumeMode) {
-      // 续生成模式
-      console.log(`[GenerateForm] ✅ 检测到续生成模式: 已有${existingUnitCount}章，目标${unitCount}章`)
-      requestData.existing_content = existingContent
-      requestData.existing_parsed = existingParsed
-      requestData.start_from_unit = existingUnitCount + 1
-      
-      console.log(`[GenerateForm] 续生成参数:`)
-      console.log(`  - start_from_unit: ${requestData.start_from_unit}`)
-      console.log(`  - unit_count: ${requestData.unit_count}`)
-      console.log(`  - 将生成: 第${requestData.start_from_unit}-${requestData.unit_count}章`)
-      
-      ElMessage.info(`从第${requestData.start_from_unit}章继续生成至第${unitCount}章`)
-    } else {
-      console.log(`[GenerateForm] ❌ 未检测到续生成模式 (existingUnitCount=${existingUnitCount}, unitCount=${unitCount})`)
-    }
-    
-    const result = await generateApi.generateUnitSummariesStream(
-      requestData,
-      (chunk, fullContent) => {
-        generatedContent.value = fullContent
-      },
-      (abortController) => {
-        currentEventSource.value = abortController
-      },
-      currentSessionId.value,
-      (event) => {
-        handleWorkflowEvent(event)
-      },
-      (newContent, message) => {
-        // 处理replace_content事件（质量修正后的内容替换）
-        generatedContent.value = newContent
-        if (message) {
-          ElMessage.success(message)
-        }
-      }
-    )
-    
-    if (result && !result.cancelled) {
-      unitSummaries.value = parseUnitSummariesFromContent(result.content)
-      // 质量管控已在流式生成过程中自动执行，无需再次调用
-      outlineStage.value = 4
-      ElMessage.success('单元概述生成完成')
-    } else if (result && result.cancelled) {
-      ElMessage.info('生成已取消')
-      if (result.content) {
-        unitSummaries.value = parseUnitSummariesFromContent(result.content)
-        outlineStage.value = 4
-      } else {
-        outlineStage.value = 2
-      }
-    }
-  } catch (error) {
-    console.error('单元概述生成失败:', error)
-    ElMessage.error('单元概述生成失败：' + (error.message || '未知错误'))
-    outlineStage.value = 2
-  } finally {
-    unitSummariesGenerating.value = false
-    currentSessionId.value = null
-  }
-}
-
-// 从全局大纲中解析章节数
-function parseChapterCountFromOutline(outlineContent) {
-  if (!outlineContent) return null
-  
-  // 尝试多种模式匹配章节数
-  const patterns = [
-    /共(\d+)章/,           // "共100章"
-    /总计(\d+)章/,         // "总计100章"
-    /(\d+)章.*全书/,       // "100章全书"
-    /全书.*?(\d+)章/,      // "全书共100章"
-    /第1章.*?第(\d+)章/,   // "第1章...第100章"（最后的章节号）
-    /章节总数[：:]\s*(\d+)/, // "章节总数：100"
-    /总章节数[：:]\s*(\d+)/, // "总章节数：100"
-  ]
-  
-  for (const pattern of patterns) {
-    const match = outlineContent.match(pattern)
-    if (match) {
-      const count = parseInt(match[1])
-      if (count > 0 && count <= 1000) {  // 合理范围检查
-        console.log(`[ParseOutline] 从大纲中解析到章节数: ${count} (模式: ${pattern.source})`)
-        return count
-      }
-    }
-  }
-  
-  // 如果没有找到明确标识，尝试找最大的章节号
-  const chapterPattern = /第(\d+)章/g
-  let maxChapter = 0
-  let match
-  while ((match = chapterPattern.exec(outlineContent)) !== null) {
-    const chapterNum = parseInt(match[1])
-    if (chapterNum > maxChapter) {
-      maxChapter = chapterNum
-    }
-  }
-  
-  if (maxChapter > 0) {
-    console.log(`[ParseOutline] 从大纲中找到最大章节号: ${maxChapter}`)
-    return maxChapter
-  }
-  
-  console.log(`[ParseOutline] 未能从大纲中解析到章节数`)
-  return null
-}
-
-// 从内容中解析单元概述
-function parseUnitSummariesFromContent(content) {
-  const result = {}
-  const isMovie = content.includes('场') && !content.includes('集')
-  
-  const pattern = isMovie 
-    ? /\*\*第(\d+)场[：:]\s*(.+?)(?:\n|$)/g
-    : /###\s*第(\d+)(?:章|集)[：:]\s*(.+?)(?:\n|$)/g
-  
-  let match
-  while ((match = pattern.exec(content)) !== null) {
-    const unitNum = parseInt(match[1])
-    const title = match[2].trim()
-    
-    // 提取梳概
-    const summaryPattern = isMovie
-      ? new RegExp(`\\*\\*本场梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`, 's')
-      : new RegExp(`\\*\\*本(?:章|集)梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`, 's')
-    
-    const summaryMatch = content.slice(match.index, match.index + 500).match(summaryPattern)
-    const summary = summaryMatch ? summaryMatch[1].trim() : ''
-    
-    // v2.1: 提取完整单元内容（从当前单元到下一单元之间）
-    const nextUnitPattern = isMovie
-      ? new RegExp(`\\*\\*第${unitNum + 1}场`)
-      : new RegExp(`###\\s*第${unitNum + 1}(?:章|集)`)
-    const nextMatch = content.slice(match.index).search(nextUnitPattern)
-    const fullContent = nextMatch > 0 
-      ? content.slice(match.index, match.index + nextMatch).trim()
-      : content.slice(match.index).trim()
-    
-    result[unitNum.toString()] = {
-      unit_id: `unit-${unitNum}-${Date.now().toString(36)}`,
-      unit_number: unitNum,
-      title: title,
-      summary: summary,
-      full_content: fullContent,
-      status: 'completed'
-    }
-  }
-  
-  return result
-}
-
-// 执行逻辑检测
-async function performLogicCheck() {
-  if (!globalOutlineContent.value || Object.keys(unitSummaries.value).length === 0) {
-    return
-  }
-  
-  logicChecking.value = true
-  logicCheckResult.value = null
-  
-  try {
-    const response = await generateApi.checkOutlineLogic({
-      content_type: type.value,
-      global_outline: globalOutlineContent.value,
-      unit_summaries: unitSummaries.value,
-      provider: null,
-      temperature: 0.7
-    })
-    
-    if (response.success && response.data) {
-      logicCheckResult.value = response.data
-      
-      if (response.data.has_issues) {
-        if (response.data.revised_units && Object.keys(response.data.revised_units).length > 0) {
-          const originalUnits = response.data.original_units || {}
-          const revisedUnits = response.data.revised_units
-          
-          for (const [unitNum, revisedContent] of Object.entries(revisedUnits)) {
-            if (unitSummaries.value[unitNum]) {
-              unitSummaries.value[unitNum].original_summary = originalUnits[unitNum]?.summary || unitSummaries.value[unitNum].summary
-              unitSummaries.value[unitNum].summary = revisedContent
-              unitSummaries.value[unitNum].logic_fixed = true
-              unitSummaries.value[unitNum].revised_summary = revisedContent
-            }
-          }
-          ElMessage.success(`逻辑检测完成，已修正 ${Object.keys(revisedUnits).length} 个单元的问题`)
-        } else {
-          ElMessage.warning(`逻辑检测发现 ${response.data.issues?.length || 0} 个潜在问题，但未自动修正`)
-        }
-      } else {
-        ElMessage.success('逻辑检测通过，未发现严重问题')
-      }
-    }
-  } catch (error) {
-    console.error('逻辑检测失败:', error)
-    
-    // 区分超时和其他错误
-    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-      ElMessage.warning('逻辑检测超时，跳过此步骤。您可以稍后手动执行逻辑检测。')
-    } else {
-      ElMessage.warning('逻辑检测失败，跳过此步骤。您可以稍后手动执行逻辑检测。')
-    }
-    
-    // 不阻断流程，继续后续步骤
-    logicCheckResult.value = {
-      has_issues: false,
-      issues: [],
-      error: error.message
-    }
-  } finally {
-    logicChecking.value = false
-  }
-}
-
-// 取消单元概述生成
-async function cancelUnitSummariesGeneration() {
-  if (!currentSessionId.value) {
-    if (currentEventSource.value && currentEventSource.value.abort) {
-      currentEventSource.value.abort()
-    }
-    return
-  }
-  
-  try {
-    await generateApi.cancelGeneration(currentSessionId.value)
-    if (currentEventSource.value && currentEventSource.value.abort) {
-      currentEventSource.value.abort()
-    }
-    ElMessage.info('正在取消生成...')
-  } catch (error) {
-    console.error('取消生成失败:', error)
-    if (currentEventSource.value && currentEventSource.value.abort) {
-      currentEventSource.value.abort()
-    }
-  }
-}
-
-// 断点续生成（核心方法）
-async function handleResumeUnitSummaries() {
-  if (!unitSummaries.value || Object.keys(unitSummaries.value).length === 0) {
-    ElMessage.warning('没有已生成的单元概述，无法续生成')
-    return
-  }
-
-  if (!globalOutlineContent.value) {
-    ElMessage.warning('缺少全局大纲，无法续生成')
-    return
-  }
-
-  const existingCount = Object.keys(unitSummaries.value).length
-  const unitCount = expectedUnitCount.value
-  const startFrom = existingCount + 1
-  const remainingCount = unitCount - existingCount
-
-  if (existingCount >= unitCount) {
-    ElMessage.info('所有章节已生成完成，无需续生成')
-    return
-  }
-
-  if (unitSummariesGenerating.value) {
-    ElMessage.warning('正在生成中，请稍候...')
-    return
-  }
-
-  // 确认对话框
-  try {
-    await ElMessageBox.confirm(
-      `当前已生成 ${existingCount} 章，目标 ${unitCount} 章。\n将从第 ${startFrom} 章继续生成剩余 ${remainingCount} 章。\n\n已有内容不会被清除，续生成内容将与前文自然衔接。`,
-      '断点续生成',
-      {
-        confirmButtonText: '开始续生成',
-        cancelButtonText: '取消',
-        type: 'info'
-      }
-    )
-  } catch {
-    return  // 用户取消
-  }
-
-  unitSummariesGenerating.value = true
-  currentSessionId.value = `unit_summaries_resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-  outlineStage.value = 3
-  // 注意：不清空 unitSummaries，保留已有数据
-
-  try {
-    // 构建续生成请求参数
-    const requestData = {
-      content_type: type.value,
-      global_outline: globalOutlineContent.value,
-      unit_count: unitCount,  // 传递总章节数
-      series_type: type.value === 'script' ? form.value.series_type : null,
-      episode_duration_range: type.value === 'script'
-        ? `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟`
-        : null,
-      provider: null,
-      model: null,
-      temperature: 0.7,
-      enable_quality_control: true,  // 始终启用
-      qc_mode: unitSummariesQCMode.value,  // 传递单元概述质控模式
-      // 续生成关键参数
-      existing_content: generatedContent.value || '',
-      existing_parsed: unitSummaries.value,
-      start_from_unit: startFrom,
-      // 标题风格参数
-      title_style: titleStyleData.value.styleId || null,
-      title_style_name: titleStyleData.value.styleName || null
-    }
-
-    console.log(`[handleResumeUnitSummaries] 续生成参数:`)
-    console.log(`  - 已有: ${existingCount}章`)
-    console.log(`  - 目标: ${unitCount}章`)
-    console.log(`  - 起始: 第${startFrom}章`)
-    console.log(`  - 剩余: ${remainingCount}章`)
-
-    const result = await generateApi.generateUnitSummariesStream(
-      requestData,
-      (chunk, fullContent) => {
-        // 续生成时，内容追加上显示
-        generatedContent.value = fullContent
-      },
-      (abortController) => {
-        currentEventSource.value = abortController
-      },
-      currentSessionId.value,
-      (event) => {
-        handleWorkflowEvent(event)
-      },
-      (newContent, message) => {
-        // replace_content事件（质量修正后替换内容）
-        generatedContent.value = newContent
-        if (message) {
-          ElMessage.success(message)
-        }
-      }
-    )
-
-    if (result && !result.cancelled) {
-      // 续生成完成后，重新解析全部内容并合并
-      const allParsed = parseUnitSummariesFromContent(result.content)
-      // 合并：已有数据保留，新数据覆盖（以解析结果为准）
-      const mergedSummaries = { ...unitSummaries.value }
-      for (const [num, unit] of Object.entries(allParsed)) {
-        if (!mergedSummaries[num]) {
-          // 新生成的章节
-          mergedSummaries[num] = unit
-        } else if (allParsed[num].full_content && allParsed[num].full_content.length > (mergedSummaries[num].full_content?.length || 0)) {
-          // 新解析内容更丰富，用新数据覆盖
-          mergedSummaries[num] = unit
-        }
-      }
-      unitSummaries.value = mergedSummaries
-      // 重建完整内容文本，确保下载功能能获取全部章节
-      const allChapterTexts = Object.keys(mergedSummaries)
-        .sort((a, b) => parseInt(a) - parseInt(b))
-        .map(num => mergedSummaries[num].full_content || mergedSummaries[num].summary)
-        .filter(Boolean)
-      generatedContent.value = allChapterTexts.join('\n\n')
-      outlineStage.value = 4
-
-      const newCount = Object.keys(mergedSummaries).length
-      if (newCount >= unitCount) {
-        ElMessage.success(`续生成完成！全部 ${unitCount} 章已生成`)
-      } else {
-        ElMessage.warning(`续生成完成，当前共 ${newCount}/${unitCount} 章。如需继续，请再次点击续生成。`)
-      }
-    } else if (result && result.cancelled) {
-      ElMessage.info('续生成已取消')
-      if (result.content) {
-        // 取消时也保留已解析的内容
-        const partialParsed = parseUnitSummariesFromContent(result.content)
-        const mergedSummaries = { ...unitSummaries.value }
-        for (const [num, unit] of Object.entries(partialParsed)) {
-          if (!mergedSummaries[num]) {
-            mergedSummaries[num] = unit
-          }
-        }
-        unitSummaries.value = mergedSummaries
-        // 重建完整内容文本
-        const allChapterTexts = Object.keys(mergedSummaries)
-          .sort((a, b) => parseInt(a) - parseInt(b))
-          .map(num => mergedSummaries[num].full_content || mergedSummaries[num].summary)
-          .filter(Boolean)
-        generatedContent.value = allChapterTexts.join('\n\n')
-        outlineStage.value = 4
-      }
-    }
-  } catch (error) {
-    console.error('续生成失败:', error)
-    ElMessage.error('续生成失败：' + (error.message || '未知错误'))
-    // 续生成失败时保留已有的单元概述，不回退阶段
-    if (Object.keys(unitSummaries.value).length > 0) {
-      outlineStage.value = 4
-    } else {
-      outlineStage.value = 2
-    }
-  } finally {
-    unitSummariesGenerating.value = false
-    currentSessionId.value = null
-  }
-}
-
-// 接续生成(兼容旧版入口，转发到 handleResumeUnitSummaries)
-async function handleContinueGeneration() {
-  // 旧版依赖 truncationInfo，新版改为直接基于 unitSummaries 数量判断
-  await handleResumeUnitSummaries()
-}
-
-// 从后端断点信息续生成（用于页面刷新后恢复状态）
-async function handleResumeUnitSummariesFromBackend() {
-  if (!backendResumeInfo.value?.can_resume) {
-    ElMessage.warning('没有可续生成的断点信息')
-    return
-  }
-
-  if (unitSummariesGenerating.value) {
-    ElMessage.warning('正在生成中，请稍候...')
-    return
-  }
-
-  const { existing_count, expected_count, start_from_unit, remaining_count, global_outline, existing_parsed, existing_content } = backendResumeInfo.value
-
-  // 确认对话框
-  try {
-    await ElMessageBox.confirm(
-      `当前已生成 ${existing_count} 章，目标 ${expected_count} 章。\n将从第 ${start_from_unit} 章继续生成剩余 ${remaining_count} 章。\n\n已有内容不会被清除，续生成内容将与前文自然衔接。`,
-      '断点续生成',
-      {
-        confirmButtonText: '开始续生成',
-        cancelButtonText: '取消',
-        type: 'info'
-      }
-    )
-  } catch {
-    return  // 用户取消
-  }
-
-  // 恢复后端数据到前端状态
-  globalOutlineContent.value = global_outline || globalOutlineContent.value
-  unitSummaries.value = existing_parsed || unitSummaries.value
-  generatedContent.value = existing_content || generatedContent.value
-  outlineStage.value = 4  // 设置为已完成阶段
-  showResult.value = true
-
-  unitSummariesGenerating.value = true
-  currentSessionId.value = `unit_summaries_resume_backend_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-  try {
-    // 构建续生成请求参数
-    const requestData = {
-      content_type: type.value,
-      global_outline: global_outline,
-      unit_count: expected_count,  // 传递总章节数
-      series_type: type.value === 'script' ? form.value.series_type : null,
-      episode_duration_range: type.value === 'script'
-        ? `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟`
-        : null,
-      provider: null,
-      model: null,
-      temperature: 0.7,
-      enable_quality_control: true,  // 始终启用
-      qc_mode: unitSummariesQCMode.value,  // 传递单元概述质控模式
-      // 续生成关键参数
-      existing_content: existing_content || '',
-      existing_parsed: existing_parsed,
-      start_from_unit: start_from_unit,
-      // 标题风格参数
-      title_style: titleStyleData.value.styleId || null,
-      title_style_name: titleStyleData.value.styleName || null
-    }
-
-    console.log(`[handleResumeUnitSummariesFromBackend] 续生成参数:`)
-    console.log(`  - 已有: ${existing_count}章`)
-    console.log(`  - 目标: ${expected_count}章`)
-    console.log(`  - 起始: 第${start_from_unit}章`)
-    console.log(`  - 剩余: ${remaining_count}章`)
-
-    const result = await generateApi.generateUnitSummariesStream(
-      requestData,
-      (chunk, fullContent) => {
-        // 续生成时，内容追加上显示
-        generatedContent.value = fullContent
-      },
-      (abortController) => {
-        currentEventSource.value = abortController
-      },
-      currentSessionId.value,
-      (event) => {
-        handleWorkflowEvent(event)
-      },
-      (newContent, message) => {
-        // replace_content事件（质量修正后替换内容）
-        generatedContent.value = newContent
-        if (message) {
-          ElMessage.success(message)
-        }
-      }
-    )
-
-    if (result && !result.cancelled) {
-      // 续生成完成后，重新解析全部内容并合并
-      const allParsed = parseUnitSummariesFromContent(result.content)
-      // 合并：已有数据保留，新数据覆盖（以解析结果为准）
-      const mergedSummaries = { ...unitSummaries.value }
-      for (const [num, unit] of Object.entries(allParsed)) {
-        if (!mergedSummaries[num]) {
-          // 新生成的章节
-          mergedSummaries[num] = unit
-        } else if (allParsed[num].full_content && allParsed[num].full_content.length > (mergedSummaries[num].full_content?.length || 0)) {
-          // 新解析内容更丰富，用新数据覆盖
-          mergedSummaries[num] = unit
-        }
-      }
-      unitSummaries.value = mergedSummaries
-      // 重建完整内容文本，确保下载功能能获取全部章节
-      const allChapterTexts = Object.keys(mergedSummaries)
-        .sort((a, b) => parseInt(a) - parseInt(b))
-        .map(num => mergedSummaries[num].full_content || mergedSummaries[num].summary)
-        .filter(Boolean)
-      generatedContent.value = allChapterTexts.join('\n\n')
-      outlineStage.value = 4
-
-      const newCount = Object.keys(mergedSummaries).length
-      if (newCount >= expected_count) {
-        ElMessage.success(`续生成完成！全部 ${expected_count} 章已生成`)
-      } else {
-        ElMessage.warning(`续生成完成，当前共 ${newCount}/${expected_count} 章。如需继续，请再次点击续生成。`)
-      }
-      
-      // 清空后端断点信息（已完成续生成）
-      backendResumeInfo.value = null
-    } else if (result && result.cancelled) {
-      ElMessage.info('续生成已取消')
-      if (result.content) {
-        // 取消时也保留已解析的内容
-        const partialParsed = parseUnitSummariesFromContent(result.content)
-        const mergedSummaries = { ...unitSummaries.value }
-        for (const [num, unit] of Object.entries(partialParsed)) {
-          if (!mergedSummaries[num]) {
-            mergedSummaries[num] = unit
-          }
-        }
-        unitSummaries.value = mergedSummaries
-        // 重建完整内容文本
-        const allChapterTexts = Object.keys(mergedSummaries)
-          .sort((a, b) => parseInt(a) - parseInt(b))
-          .map(num => mergedSummaries[num].full_content || mergedSummaries[num].summary)
-          .filter(Boolean)
-        generatedContent.value = allChapterTexts.join('\n\n')
-        outlineStage.value = 4
-      }
-    }
-  } catch (error) {
-    console.error('续生成失败:', error)
-    ElMessage.error('续生成失败：' + (error.message || '未知错误'))
-    // 续生成失败时保留已有的单元概述，不回退阶段
-    if (Object.keys(unitSummaries.value).length > 0) {
-      outlineStage.value = 4
-    } else {
-      outlineStage.value = 2
-    }
-  } finally {
-    unitSummariesGenerating.value = false
-    currentSessionId.value = null
-  }
-}
-
-// v2.4新增：单元概述质控相关处理函数
-/**
- * 处理单元概述问题修正
- */
-async function handleUnitSummariesIssueRevise({ issue, qualityReport, unitSummaries: summariesParam }) {
-  try {
-    console.log('[GenerateForm] 开始修正单元概述问题:', issue.id)
-    
-    // 调用单元概述质控API进行修正（直接修正模式）
-    const result = await unitSummariesQCApi.analyzeAndRevise({
-      content_type: type.value === 'novel' ? 'novel' : 'script',
-      global_outline: globalOutlineContent.value || '',
-      unit_summaries: summariesParam,
-      enable_auto_revise: true,  // 修正单个问题时启用自动修正
-      temperature: 0.7,
-      issue_id: issue.id,  // 指定要修正的问题ID
-      quality_report: qualityReport  // 传入质控报告（直接修正模式必须）
-    })
-    
-    console.log('[GenerateForm] API返回结果:', result?.success, 'revised_content长度:', result?.data?.revised_content?.length || 0)
-    console.log('[GenerateForm] changes:', JSON.stringify(result?.data?.changes?.[0] || null))
-    
-    if (result.success && result.data.revised_content) {
-      // v2.4修复: 只对比被修正的单元，而不是整个文档
-      // 这样diff高亮才能精确显示修改内容
-      const revisedUnitNum = result.data.changes?.[0]?.unit_number
-      let originalContent = generatedContent.value
-      let revisedContent = result.data.revised_content
-      
-      // 如果只修正了1个单元，提取该单元的原始内容进行对比
-      if (revisedUnitNum && unitSummaries.value[revisedUnitNum]) {
-        const originalUnit = unitSummaries.value[revisedUnitNum]
-        originalContent = originalUnit.full_content || originalUnit.summary || ''
-        
-        console.log('[GenerateForm] 只对比第', revisedUnitNum, '单元的内容')
-        console.log('[GenerateForm] 原始内容长度:', originalContent.length)
-        console.log('[GenerateForm] 修正内容长度:', revisedContent.length)
-      } else {
-        console.log('[GenerateForm] revisedUnitNum:', revisedUnitNum, '无法获取对应单元，使用整个文档对比')
-      }
-      
-      // 存储修正数据
-      unitSummariesReviseData.value = {
-        originalContent: originalContent,
-        revisedContent: revisedContent,
-        revisedParsed: result.data.revised_parsed,
-        qualityReport: result.data.quality_report,
-        changes: result.data.changes || []
-      }
-      
-      // 显示修正对比对话框
-      showUnitSummariesReviseDialog.value = true
-      console.log('[GenerateForm] 已设置showUnitSummariesReviseDialog=true')
-      
-      ElMessage.success('修正方案已生成，请查看对比')
-    } else {
-      console.error('[GenerateForm] 修正结果异常:', result)
-      ElMessage.error(result.message || '修正失败')
-    }
-  } catch (error) {
-    console.error('[GenerateForm] 单元概述问题修正失败:', error)
-    ElMessage.error('修正失败: ' + (error.message || '未知错误'))
-  }
-}
-
-/**
- * 处理单元概述质控用户反馈
- */
-function handleUnitSummariesFeedback({ issue, feedbackType }) {
-  console.log('[GenerateForm] 单元概述质控反馈:', {
-    issue_id: issue.id,
-    feedback_type: feedbackType
-  })
-  // 反馈已经由ResultViewer提交到后端，这里可以做额外的处理
-}
-
-/**
- * 处理应用单元概述修正
- */
-function handleApplyUnitSummariesRevision(revisedData) {
-  try {
-    console.log('[GenerateForm] 应用单元概述修正:', revisedData)
-    
-    // 更新单元概述内容
-    if (revisedData.revisedParsed) {
-      unitSummaries.value = revisedData.revisedParsed
-    }
-    
-    if (revisedData.revisedContent) {
-      generatedContent.value = revisedData.revisedContent
-    }
-    
-    // 更新质控报告
-    if (revisedData.qualityReport) {
-      qcReportData.value = revisedData.qualityReport
-    }
-    
-    ElMessage.success('修正已应用')
-  } catch (error) {
-    console.error('[GenerateForm] 应用单元概述修正失败:', error)
-    ElMessage.error('应用修正失败: ' + (error.message || '未知错误'))
-  }
-}
-
-/**
- * 处理清理单元概述质控报告中的重复单元（手动模式）
- * 从generatedContent中移除重复的章节文本，保留每个重复组中的第一个
- */
-function handleRemoveUnitSummariesQCDuplicates({ duplicates, unitSummaries: summaries }) {
-  try {
-    console.log('[GenerateForm] 清理单元概述重复单元:', duplicates.length, '组')
-    
-    if (!generatedContent.value) {
-      ElMessage.warning('没有可清理的内容')
-      return
-    }
-    
-    // 解析generatedContent中的所有章节
-    const chapterRegex = /###\s*第([\u4e00二三四五六七八九十百千万\d]+)[章集场][：:]\s*(.+?)\n([\s\S]*?)(?=###\s*第|$)/g
-    const chapters = []
-    let match
-    
-    while ((match = chapterRegex.exec(generatedContent.value)) !== null) {
-      chapters.push({
-        unitNumber: match[1],
-        title: match[2].trim(),
-        content: match[3].trim(),
-        fullMatch: match[0],
-        startIndex: match.index,
-        endIndex: match.index + match[0].length
-      })
-    }
-    
-    if (chapters.length === 0) {
-      ElMessage.warning('未解析到章节内容')
-      return
-    }
-    
-    // 收集需要删除的章节索引（从后往前删除以保持索引正确）
-    const indicesToRemove = new Set()
-    
-    duplicates.forEach(group => {
-      // 保留第一个，删除后续的
-      for (let i = 1; i < group.duplicates.length; i++) {
-        const dup = group.duplicates[i]
-        // 在解析出的章节中找到匹配的重复项
-        const chapterIndex = chapters.findIndex(ch =>
-          ch.unitNumber === dup.unitNumber &&
-          ch.title === dup.title &&
-          ch.content === dup.content &&
-          !indicesToRemove.has(chapters.indexOf(ch))
-        )
-        if (chapterIndex !== -1) {
-          indicesToRemove.add(chapterIndex)
-        }
-      }
-    })
-    
-    // 从generatedContent中移除重复章节
-    let cleanedContent = generatedContent.value
-    const sortedIndices = Array.from(indicesToRemove).sort((a, b) => b - a) // 从后往前删
-    
-    sortedIndices.forEach(index => {
-      const chapter = chapters[index]
-      cleanedContent = cleanedContent.substring(0, chapter.startIndex) +
-                       cleanedContent.substring(chapter.endIndex)
-    })
-    
-    // 清理多余空行
-    cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim()
-    
-    // 更新generatedContent
-    generatedContent.value = cleanedContent
-    
-    // 同时更新unitSummaries：如果重复单元的编号相同，不需要额外处理
-    // 如果重复单元导致unitSummaries中存在多余的key，也需要清理
-    const removedCount = sortedIndices.length
-    
-    console.log('[GenerateForm] 已清理', removedCount, '个重复单元')
-    ElMessage.success(`已清理 ${removedCount} 个重复单元`)
-  } catch (error) {
-    console.error('[GenerateForm] 清理重复单元失败:', error)
-    ElMessage.error('清理失败: ' + (error.message || '未知错误'))
-  }
-}
+// ==================== 保留在主组件中的简单处理函数 ====================
 
 // 开始编辑全局大纲
 function startEditGlobalOutline() {
@@ -2257,363 +1273,6 @@ function resetTwoStageOutline() {
   startFromUnit.value = 1
 }
 
-// 打开导入对话框
-function openImportDialog() {
-  importType.value = 'global'
-  importContent.value = ''
-  importingOutline.value = false
-  importOutlineProgress.value = 0
-  showImportDialog.value = true
-}
-
-// 确认导入内容
-function confirmImport() {
-  if (!importContent.value.trim()) {
-    ElMessage.warning('请上传要导入的大纲文件')
-    return
-  }
-  
-  // v2.3新增：标记为导入大纲
-  importedOutline.value = true
-  qcApplied.value = false  // 重置质控状态
-  qcReportData.value = null
-  issuesFixed.value = 0
-  
-  if (importType.value === 'global') {
-    globalOutlineContent.value = importContent.value.trim()
-    generatedContent.value = importContent.value.trim()
-    outlineStage.value = 2
-    showResult.value = true
-    ElMessage.success('全局大纲已导入，您可以编辑后继续生成单元概述')
-  } else {
-    try {
-      const parsed = parseUnitSummariesFromContent(importContent.value)
-      if (Object.keys(parsed).length > 0) {
-        unitSummaries.value = parsed
-        const globalOutlineMatch = importContent.value.match(/^([\s\S]*?)(?=###\s*第\d+章|###\s*第\d+集|\*\*第\d+集)/)
-        if (globalOutlineMatch) {
-          globalOutlineContent.value = globalOutlineMatch[1].trim()
-        } else {
-          globalOutlineContent.value = importContent.value.split('###')[0].trim()
-        }
-        generatedContent.value = importContent.value
-        outlineStage.value = 4
-        showResult.value = true
-        ElMessage.success('完整大纲已导入，您可以编辑后下载')
-      } else {
-        globalOutlineContent.value = importContent.value.trim()
-        generatedContent.value = importContent.value.trim()
-        outlineStage.value = 2
-        showResult.value = true
-        ElMessage.warning('无法解析单元概述，已作为全局大纲导入')
-      }
-    } catch (error) {
-      console.error('解析导入内容失败:', error)
-      globalOutlineContent.value = importContent.value.trim()
-      generatedContent.value = importContent.value.trim()
-      outlineStage.value = 2
-      showResult.value = true
-      ElMessage.warning('导入内容已作为全局大纲处理')
-    }
-  }
-  
-  showImportDialog.value = false
-}
-
-// 导入文件上传前验证
-function beforeOutlineImportUpload(file) {
-  const isLt100M = file.size / 1024 / 1024 < 100
-  if (!isLt100M) {
-    ElMessage.error('文件大小不能超过 100MB!')
-    return false
-  }
-  
-  const allowedTypes = ['.md', '.txt', '.docx', '.doc']
-  const fileName = file.name.toLowerCase()
-  const isValidType = allowedTypes.some(ext => fileName.endsWith(ext))
-  
-  if (!isValidType) {
-    ElMessage.error('只支持 .md、.txt、.docx、.doc 格式的文件!')
-    return false
-  }
-  
-  importingOutline.value = true
-  importOutlineProgress.value = 0
-  return true
-}
-
-// 导入文件上传成功
-function handleOutlineImportUploadSuccess(response, file) {
-  importingOutline.value = false
-  importOutlineProgress.value = 100
-  
-  try {
-    if (response.code === 200 && response.data) {
-      const content = response.data.content || response.data.outline_content || ''
-      
-      if (!content.trim()) {
-        ElMessage.warning('上传的文件内容为空')
-        return
-      }
-      
-      importContent.value = content
-      
-      // 自动确认导入
-      confirmImport()
-      
-      ElMessage.success('文件上传成功')
-    } else {
-      ElMessage.error(response.message || '文件上传失败')
-    }
-  } catch (error) {
-    console.error('处理上传响应失败:', error)
-    ElMessage.error('文件上传失败')
-  }
-}
-
-// 导入文件上传失败
-function handleOutlineImportUploadError(error, file) {
-  importingOutline.value = false
-  importOutlineProgress.value = 0
-  console.error('文件上传失败:', error)
-  ElMessage.error('文件上传失败，请重试')
-}
-
-// 导入文件上传进度
-function handleOutlineImportProgress(event, file) {
-  importOutlineProgress.value = Math.round(event.percent)
-}
-
-// ==================== 导入单元概述相关函数 ====================
-
-// 打开导入单元概述对话框
-function openImportUnitSummariesDialog() {
-  importingUnitSummaries.value = false
-  importUnitSummariesProgress.value = 0
-  showImportUnitSummariesDialog.value = true
-}
-
-// 上传前验证
-function beforeUnitSummariesImportUpload(file) {
-  const isLt100M = file.size / 1024 / 1024 < 100
-  if (!isLt100M) {
-    ElMessage.error('文件大小不能超过 100MB!')
-    return false
-  }
-  
-  const allowedTypes = ['.md', '.txt', '.docx', '.doc']
-  const fileName = file.name.toLowerCase()
-  const isValidType = allowedTypes.some(ext => fileName.endsWith(ext))
-  
-  if (!isValidType) {
-    ElMessage.error('只支持 .md、.txt、.docx、.doc 格式的文件!')
-    return false
-  }
-  
-  importingUnitSummaries.value = true
-  importUnitSummariesProgress.value = 0
-  return true
-}
-
-// 上传成功处理
-function handleUnitSummariesImportUploadSuccess(response, file) {
-  importingUnitSummaries.value = false
-  importUnitSummariesProgress.value = 100
-  
-  try {
-    if (response.code === 200 && response.data) {
-      const content = response.data.content || ''
-      
-      if (!content.trim()) {
-        ElMessage.warning('上传的文件内容为空')
-        return
-      }
-      
-      // 解析单元概述内容
-      const parsed = parseUnitSummariesFromContent(content)
-      
-      if (Object.keys(parsed).length > 0) {
-        // 成功解析
-        unitSummaries.value = parsed
-        
-        // 修复：从导入内容中提取全局大纲
-        // 尝试匹配单元概述之前的内容作为全局大纲
-        const globalOutlineMatch = content.match(/^([\s\S]*?)(?=###\s*第\d+章[:：]|###\s*第\d+集[:：]|\*\*第\d+集\*\*[:：])/)
-        if (globalOutlineMatch && globalOutlineMatch[1].trim()) {
-          globalOutlineContent.value = globalOutlineMatch[1].trim()
-          console.log('[单元概述导入] 已提取全局大纲，长度:', globalOutlineContent.value.length)
-        } else {
-          // 如果无法提取，尝试从文件内容的前部分作为全局大纲
-          const firstPart = content.split(/###\s*第\d+章[:：]|###\s*第\d+集[:：]|\*\*第\d+集\*\*[:：]/)[0]
-          if (firstPart && firstPart.trim().length > 50) {
-            globalOutlineContent.value = firstPart.trim()
-            console.log('[单元概述导入] 从文件前部分提取全局大纲，长度:', globalOutlineContent.value.length)
-          } else {
-            globalOutlineContent.value = ''
-            console.warn('[单元概述导入] 未找到全局大纲内容，质控检测可能不准确')
-          }
-        }
-        
-        generatedContent.value = content
-        outlineStage.value = 4  // 跳转到单元概述阶段
-        showResult.value = true
-        importedUnitSummaries.value = true  // 标记为导入的单元概述
-        
-        // 重置质控状态
-        qcApplied.value = false
-        qcReportData.value = null
-        issuesFixed.value = 0
-        
-        const outlineInfo = globalOutlineContent.value 
-          ? `（已提取全局大纲 ${globalOutlineContent.value.length} 字）` 
-          : '（⚠️ 未检测到全局大纲，建议先导入全局大纲以保证质控准确性）'
-        
-        ElMessage.success(`单元概述导入成功，共解析 ${Object.keys(parsed).length} 章 ${outlineInfo}`)
-        
-        // 关闭对话框
-        showImportUnitSummariesDialog.value = false
-      } else {
-        ElMessage.error('无法解析单元概述内容，请检查文件格式')
-      }
-    } else {
-      ElMessage.error(response.message || '文件上传失败')
-    }
-  } catch (error) {
-    console.error('处理上传响应失败:', error)
-    ElMessage.error('文件上传失败')
-  }
-}
-
-// 上传失败处理
-function handleUnitSummariesImportUploadError(error, file) {
-  importingUnitSummaries.value = false
-  importUnitSummariesProgress.value = 0
-  console.error('文件上传失败:', error)
-  ElMessage.error('文件上传失败，请重试')
-}
-
-// 上传进度
-function handleUnitSummariesImportProgress(event, file) {
-  importUnitSummariesProgress.value = Math.round(event.percent)
-}
-
-// 打开从指定单元开始的对话框
-function openStartUnitDialog() {
-  // 智能获取章节数：优先使用表单值，其次从全局大纲中解析
-  const formChapterCount = type.value === 'novel'
-    ? parseInt(form.value.chapter_count) || null
-    : parseInt(form.value.episode_count) || null
-  
-  const outlineChapterCount = formChapterCount ? null : parseChapterCountFromOutline(globalOutlineContent.value)
-  
-  // 默认值：表单未填写且大纲未解析到时使用默认值
-  const unitCount = formChapterCount || outlineChapterCount || (type.value === 'novel' ? 50 : 24)
-  
-  startFromUnit.value = Math.min(startFromUnit.value, unitCount)
-  showStartUnitDialog.value = true
-}
-
-// 从指定单元开始生成
-async function handleGenerateFromUnit() {
-  if (!globalOutlineContent.value) {
-    ElMessage.warning('请先导入或生成全局大纲')
-    return
-  }
-  
-  // 智能获取章节数：优先使用表单值，其次从全局大纲中解析
-  const formChapterCount = type.value === 'novel'
-    ? parseInt(form.value.chapter_count) || null
-    : parseInt(form.value.episode_count) || null
-  
-  const outlineChapterCount = formChapterCount ? null : parseChapterCountFromOutline(globalOutlineContent.value)
-  
-  // 默认值：表单未填写且大纲未解析到时使用默认值
-  const unitCount = formChapterCount || outlineChapterCount || (type.value === 'novel' ? 50 : 24)
-  
-  console.log(`[GenerateForm.handleGenerateFromUnit] 章节数: 表单=${formChapterCount || '未填写'}, 大纲=${outlineChapterCount || '未找到'}, 最终=${unitCount}`)
-  
-  if (startFromUnit.value < 1 || startFromUnit.value > unitCount) {
-    ElMessage.warning(`请输入有效的单元编号（1-${unitCount}）`)
-    return
-  }
-  
-  showStartUnitDialog.value = false
-  outlineStage.value = 3
-  unitSummariesGenerating.value = true
-  
-  try {
-    let existingContext = ''
-    if (Object.keys(unitSummaries.value).length > 0) {
-      existingContext = '\n\n【已生成的单元概述】\n'
-      for (const [num, unit] of Object.entries(unitSummaries.value)) {
-        if (parseInt(num) < startFromUnit.value) {
-          existingContext += `单元${num}: ${unit.title}\n${unit.summary}\n\n`
-        }
-      }
-    }
-    
-    const modifiedOutline = globalOutlineContent.value + existingContext +
-      `\n\n【生成要求】从第${startFromUnit.value}单元开始生成后续单元概述。`
-    
-    const result = await generateApi.generateUnitSummariesStream(
-      {
-        content_type: type.value,
-        global_outline: modifiedOutline,
-        unit_count: unitCount,  // 传递总章节数，后端会计算需要生成的数量
-        series_type: type.value === 'script' ? form.value.series_type : null,
-        episode_duration_range: type.value === 'script'
-          ? `${form.value.episode_duration_range[0]}-${form.value.episode_duration_range[1]}分钟`
-          : null,
-        script_mode: type.value === 'script' ? (form.value.script_mode || 'real') : null,
-        provider: null,
-        model: null,
-        temperature: 0.7,
-        enable_quality_control: true,  // 始终启用
-        qc_mode: unitSummariesQCMode.value,  // 传递单元概述质控模式
-        quality_control_mode: qualityControlMode.value,  // 传递全局大纲质控模式
-        quality_dimensions: qualityDimensions.value,  // 传递质控维度
-        // 续生成参数
-        existing_content: generatedContent.value || '',
-        existing_parsed: unitSummaries.value,
-        start_from_unit: startFromUnit.value
-      },
-      (chunk, fullContent) => {
-        generatedContent.value = fullContent
-      },
-      (abortController) => {
-        currentEventSource.value = abortController
-      },
-      null,
-      (event) => {
-        handleWorkflowEvent(event)
-      },
-      (newContent, message) => {
-        generatedContent.value = newContent
-        ElMessage.success(message || '内容已更新')
-      }
-    )
-    
-    if (result && !result.cancelled) {
-      const newUnits = parseUnitSummariesFromContent(result.content)
-      for (const [num, unit] of Object.entries(newUnits)) {
-        const actualNum = parseInt(num) + startFromUnit.value - 1
-        unitSummaries.value[actualNum.toString()] = {
-          ...unit,
-          unit_number: actualNum
-        }
-      }
-      outlineStage.value = 4
-      ElMessage.success(`从第${startFromUnit.value}单元开始的生成已完成`)
-    }
-  } catch (error) {
-    console.error('单元概述生成失败:', error)
-    ElMessage.error('单元概述生成失败：' + (error.message || '未知错误'))
-    outlineStage.value = 2
-  } finally {
-    unitSummariesGenerating.value = false
-  }
-}
-
 // 打开修正详情对话框
 function openRevisionDetail(unitNum) {
   currentRevisionUnit.value = unitNum.toString()
@@ -2627,530 +1286,6 @@ function regenerate() {
   handleGenerate()
 }
 
-// ==================== 差异对比函数 ====================
-
-function escapeHtml(text) {
-  if (!text) return ''
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-    .replace(/ /g, '&nbsp;')
-}
-
-function findLCS(arr1, arr2) {
-  const m = arr1.length, n = arr2.length
-  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0))
-  
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (arr1[i - 1] === arr2[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
-      }
-    }
-  }
-  
-  const lcs = []
-  let i = m, j = n
-  while (i > 0 && j > 0) {
-    if (arr1[i - 1] === arr2[j - 1]) {
-      lcs.unshift(arr1[i - 1])
-      i--
-      j--
-    } else if (dp[i - 1][j] > dp[i][j - 1]) {
-      i--
-    } else {
-      j--
-    }
-  }
-  
-  return lcs
-}
-
-function computeDiffWithLCS(oldParagraphs, newParagraphs) {
-  const lcs = findLCS(oldParagraphs, newParagraphs)
-  
-  let html = ''
-  let oldIdx = 0, newIdx = 0, lcsIdx = 0
-  
-  while (oldIdx < oldParagraphs.length || newIdx < newParagraphs.length) {
-    if (lcsIdx < lcs.length && oldIdx < oldParagraphs.length && 
-        oldParagraphs[oldIdx] === lcs[lcsIdx] &&
-        newIdx < newParagraphs.length && newParagraphs[newIdx] === lcs[lcsIdx]) {
-      html += `<div class="diff-paragraph unchanged">${escapeHtml(oldParagraphs[oldIdx])}</div>`
-      oldIdx++
-      newIdx++
-      lcsIdx++
-    } else if (newIdx < newParagraphs.length &&
-               (lcsIdx >= lcs.length || newParagraphs[newIdx] !== lcs[lcsIdx])) {
-      if (oldIdx < oldParagraphs.length &&
-          (lcsIdx >= lcs.length || oldParagraphs[oldIdx] !== lcs[lcsIdx])) {
-        html += `<div class="diff-paragraph removed">${escapeHtml(oldParagraphs[oldIdx])}</div>`
-        html += `<div class="diff-paragraph added">${escapeHtml(newParagraphs[newIdx])}</div>`
-        oldIdx++
-        newIdx++
-      } else {
-        html += `<div class="diff-paragraph added">${escapeHtml(newParagraphs[newIdx])}</div>`
-        newIdx++
-      }
-    } else if (oldIdx < oldParagraphs.length &&
-               (lcsIdx >= lcs.length || oldParagraphs[oldIdx] !== lcs[lcsIdx])) {
-      html += `<div class="diff-paragraph removed">${escapeHtml(oldParagraphs[oldIdx])}</div>`
-      oldIdx++
-    }
-  }
-  
-  return html
-}
-
-function computeDiffHtml(oldText, newText) {
-  if (!oldText && !newText) return ''
-  if (!oldText) return `<div class="diff-paragraph added">${escapeHtml(newText)}</div>`
-  if (!newText) return `<div class="diff-paragraph removed">${escapeHtml(oldText)}</div>`
-  
-  const oldParagraphs = oldText.split(/\n+/).filter(p => p.trim())
-  const newParagraphs = newText.split(/\n+/).filter(p => p.trim())
-  
-  if (oldParagraphs.length <= 50 && newParagraphs.length <= 50) {
-    return computeDiffWithLCS(oldParagraphs, newParagraphs)
-  } else {
-    const newSet = new Set(newParagraphs)
-    let html = ''
-    for (const para of oldParagraphs) {
-      if (newSet.has(para)) {
-        html += `<div class="diff-paragraph unchanged">${escapeHtml(para)}</div>`
-      } else {
-        html += `<div class="diff-paragraph removed">${escapeHtml(para)}</div>`
-      }
-    }
-    const oldSet = new Set(oldParagraphs)
-    for (const para of newParagraphs) {
-      if (!oldSet.has(para)) {
-        html += `<div class="diff-paragraph added">${escapeHtml(para)}</div>`
-      }
-    }
-    return html
-  }
-}
-
-function getRevisionDiffHtml(unit) {
-  if (!unit?.original_summary || !unit?.revised_summary) return ''
-  return computeDiffHtml(unit.original_summary, unit.revised_summary)
-}
-
-// ==================== 修订模式相关函数 ====================
-
-/**
- * 进入修订模式
- */
-function startRevision() {
-  // 检查知识库修正是否正在进行中
-  if (knowledgeRevising.value) {
-    ElMessage.warning('知识库修正进行中，请稍候...')
-    return
-  }
-  
-  isRevisionMode.value = true
-  currentRevisionRound.value = 0
-  revisionMessages.value = []
-  revisionHistory.value = []
-  
-  // 两阶段大纲生成：修订全局大纲
-  if (useTwoStageMode.value) {
-    // 使用全局大纲内容
-    revisionContent.value = globalOutlineContent.value || ''
-    generationId.value = null  // 两阶段模式没有generation_id
-    console.log('[Revision] Starting revision for global outline, content length:', globalOutlineContent.value?.length || 0)
-  } else {
-    // 普通模式：使用生成的内容
-    revisionContent.value = generatedContent.value
-    generationId.value = currentGenerationId.value
-    console.log('[Revision] Starting revision for generated content, generationId:', generationId.value)
-  }
-  
-  const modeText = useTwoStageMode.value ? '全局大纲修订模式' : '修订模式'
-  ElMessage.info(`已进入${modeText},请输入修改意见`)
-}
-
-/**
- * 提交修订
- */
-async function submitRevision(userFeedback) {
-  // 接收子组件传递的修订意见
-  const feedback = userFeedback || revisionInput.value
-  
-  if (!feedback.trim()) {
-    ElMessage.warning('请输入修改意见')
-    return
-  }
-  
-  // 两阶段大纲生成：使用本地简单修订（不调用后端API）
-  if (useTwoStageMode.value) {
-    submitLocalRevision(feedback)
-    return
-  }
-  
-  // 普通模式：调用后端修订API
-  await submitRemoteRevision()
-}
-
-/**
- * 本地修订（两阶段大纲生成使用）
- */
-async function submitLocalRevision(userFeedback) {
-  revising.value = true
-  
-  // 使用传递的修订意见
-  const currentFeedback = userFeedback || revisionInput.value
-  
-  // 添加用户消息
-  revisionMessages.value.push({
-    role: 'user',
-    content: currentFeedback,
-    timestamp: new Date()
-  })
-  
-  try {
-    // 调用后端API流式生成修订内容
-    await generateApi.reviseGlobalOutlineStream(
-      {
-        content_type: type.value,
-        current_content: revisionContent.value,
-        user_feedback: currentFeedback,
-        revision_history: revisionHistory.value.map(h => ({
-          round: h.round_number,
-          feedback: h.user_feedback,
-          summary: h.diff_summary
-        })),
-        input_params: buildOutlineInputParams(),
-        provider: null,
-        temperature: 0.7
-      },
-      // onMessage - 处理SSE消息（streamGenerate传入的是完整内容和当前chunk）
-      (fullContent, chunk) => {
-        console.log('[Revision] onMessage called, fullContent length:', fullContent?.length, 'chunk:', chunk?.substring(0, 50))
-        
-        // 直接使用fullContent更新修订内容
-        if (fullContent) {
-          revisionContent.value = fullContent
-          
-          // 两阶段模式：同步更新全局大纲显示
-          if (useTwoStageMode.value) {
-            globalOutlineContent.value = fullContent
-          }
-          
-          console.log('[Revision] Content updated, length:', revisionContent.value.length)
-        }
-      },
-      // onWorkflow - 处理工作流事件（包括diff_complete和error）
-      (event) => {
-        console.log('[Revision] Workflow event:', event)
-        if (event.type === 'diff_complete') {
-          try {
-            const diffInstructions = event.data
-              
-            // 记录修订历史
-            revisionHistory.value.push({
-              round_number: currentRevisionRound.value,
-              user_feedback: currentFeedback,
-              diff_summary: diffInstructions.summary || '已修改'
-            })
-              
-            currentRevisionRound.value++
-            revisionInput.value = ''
-              
-            // 添加AI回复
-            revisionMessages.value.push({
-              role: 'assistant',
-              content: diffInstructions.summary || '修改完成'
-            })
-              
-            ElMessage.success(`第${currentRevisionRound.value}轮修订完成`)
-          } catch (e) {
-            console.error('[Revision] Parse diff_complete failed:', e)
-            ElMessage.error('解析修订结果失败')
-          }
-        } else if (event.type === 'error') {
-          console.error('[Revision] Revision error:', event.data)
-          ElMessage.error('修订失败: ' + (event.data?.data || event.data?.message || '未知错误'))
-        }
-      },
-      // onStreamStart - 流开始回调
-      () => {
-        console.log('[Revision] Stream started')
-      },
-      // sessionId - 修订不需要session_id
-      null
-    )
-  } catch (error) {
-    console.error('[Revision] submitLocalRevision error:', error)
-    ElMessage.error('修订失败: ' + (error.message || '未知错误'))
-  } finally {
-    revising.value = false
-  }
-}
-
-/**
- * 远程修订（普通模式使用后端API）
- */
-async function submitRemoteRevision() {
-  
-  if (!generationId.value) {
-    ElMessage.error('未找到生成记录ID')
-    return
-  }
-  
-  console.log('[Revision] Starting remote revision, generationId:', generationId.value)
-  console.log('[Revision] Revision round:', currentRevisionRound.value + 1)
-  console.log('[Revision] User feedback:', revisionInput.value)
-  
-  revising.value = true
-  currentRevisionRound.value++
-  
-  // 添加用户消息
-  revisionMessages.value.push({
-    role: 'user',
-    content: revisionInput.value
-  })
-  
-  // 添加超时机制
-  let timeoutId = null
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error('修订请求超时（60秒），请检查网络连接或后端服务'))
-    }, 60000) // 60秒超时
-  })
-  
-  try {
-    const currentFeedback = revisionInput.value
-    
-    // 显示“正在生成”提示
-    revisionMessages.value.push({
-      role: 'assistant',
-      content: '正在生成修改指令...'
-    })
-    
-    console.log('[Revision] Calling revisionApi.revise()')
-    
-    // 使用Promise.race实现超时控制
-    await Promise.race([
-      revisionApi.revise(
-        generationId.value,
-        {
-          generation_id: generationId.value,
-          user_feedback: currentFeedback,
-          current_content: revisionContent.value,
-          original_params: form.value,
-          module: type.value,
-          round_number: currentRevisionRound.value
-        },
-        // onMessage: 流式接收diff指令
-        (chunk) => {
-          console.log('[Revision] Received SSE chunk:', chunk.substring(0, 100))
-          // 解析SSE事件
-          if (chunk.startsWith('event: diff_chunk\ndata: ')) {
-            try {
-              const jsonStr = chunk.split('data: ', 2)[1].trim()
-              if (jsonStr) {
-                const data = JSON.parse(jsonStr)
-                console.log('[Revision] Received diff_chunk')
-              }
-            } catch (e) {
-              console.error('Parse diff_chunk failed:', e)
-            }
-          } else if (chunk.startsWith('event: diff_complete\ndata: ')) {
-            try {
-              const jsonStr = chunk.split('data: ', 2)[1].trim()
-              if (jsonStr) {
-                const diffInstructions = JSON.parse(jsonStr)
-                console.log('[Revision] Received diff_complete:', diffInstructions.summary)
-                  
-                // 验证格式
-                if (!validateDiffInstructions(diffInstructions)) {
-                  throw new Error('差异指令格式无效')
-                }
-                  
-                // 应用diff到当前内容
-                const newContent = applyDiffInstructions(
-                  revisionContent.value,
-                  diffInstructions
-                )
-                  
-                revisionContent.value = newContent
-                  
-                // 移除"正在生成"消息,添加完成消息
-                const lastMsgIndex = revisionMessages.value.length - 1
-                if (lastMsgIndex >= 0 && 
-                    revisionMessages.value[lastMsgIndex].content === '正在生成修改指令...') {
-                  revisionMessages.value.pop()
-                }
-                  
-                revisionMessages.value.push({
-                  role: 'assistant',
-                  content: diffInstructions.summary || '修改完成'
-                })
-                  
-                // 记录修订历史
-                revisionHistory.value.push({
-                  round_number: currentRevisionRound.value,
-                  user_feedback: currentFeedback,
-                  diff_summary: diffInstructions.summary
-                })
-                  
-                // 清空输入
-                revisionInput.value = ''
-                  
-                ElMessage.success(`第${currentRevisionRound.value}轮修订完成`)
-              }
-            } catch (e) {
-              console.error('Parse diff_complete failed:', e)
-              ElMessage.error('解析差异指令失败')
-            }
-          } else if (chunk.startsWith('event: error\ndata: ')) {
-            try {
-              const jsonStr = chunk.split('data: ', 2)[1].trim()
-              if (jsonStr) {
-                const data = JSON.parse(jsonStr)
-                throw new Error(data.data || data.message || '未知错误')
-              }
-            } catch (e) {
-              console.error('Revision error:', e)
-              ElMessage.error('修订失败: ' + e.message)
-            }
-          }
-        },
-        // onDone
-        () => {
-          console.log('[Revision] Stream completed')
-          if (timeoutId) clearTimeout(timeoutId)
-          revising.value = false
-        },
-        // onError
-        (error) => {
-          console.error('[Revision] Stream error:', error)
-          if (timeoutId) clearTimeout(timeoutId)
-          revising.value = false
-          ElMessage.error('修订失败: ' + (error.message || '未知错误'))
-        }
-      ),
-      timeoutPromise
-    ])
-      
-    console.log('[Revision] Revision completed successfully')
-  } catch (error) {
-    console.error('[Revision] Revision failed:', error)
-    if (timeoutId) clearTimeout(timeoutId)
-    revising.value = false
-    ElMessage.error('修订失败: ' + error.message)
-  }
-}
-
-/**
- * 最终确认内容
- */
-async function finalizeContent() {
-  try {
-    // 两阶段大纲生成：直接保存，不执行知识库修正
-    if (useTwoStageMode.value) {
-      finalizeLocalContent()
-      return
-    }
-    
-    // 普通模式：调用后端API执行知识库修正和自反思
-    await finalizeRemoteContent()
-  } catch (error) {
-    console.error('最终确认失败:', error)
-    ElMessage.error('最终确认失败: ' + error.message)
-  }
-}
-
-/**
- * 本地最终确认（两阶段大纲生成使用）
- */
-function finalizeLocalContent() {
-  // 更新全局大纲内容
-  if (useTwoStageMode.value) {
-    globalOutlineContent.value = revisionContent.value
-    console.log('[Revision] Local finalize: global outline updated, length:', revisionContent.value.length)
-  } else {
-    // 普通模式：更新生成内容
-    generatedContent.value = revisionContent.value
-  }
-  
-  // 退出修订模式
-  isRevisionMode.value = false
-  
-  ElMessage.success('大纲已保存')
-}
-
-/**
- * 远程最终确认（普通模式使用后端API）
- */
-async function finalizeRemoteContent() {
-  try {
-    const result = await revisionApi.finalize(generationId.value, {
-      generation_id: generationId.value,
-      final_content: revisionContent.value,
-      enable_knowledge_check: true,
-      enable_self_reflection: true
-    })
-    
-    if (result.code === 200) {
-      ElMessage.success('最终优化完成!')
-      
-      // 更新最终内容
-      revisionContent.value = result.data.final_content
-      generatedContent.value = result.data.final_content
-      
-      // 退出修订模式
-      isRevisionMode.value = false
-      
-      // 显示优化建议(如果有)
-      if (result.data.knowledge_issues && result.data.knowledge_issues.length > 0) {
-        console.log('知识库问题:', result.data.knowledge_issues)
-      }
-      if (result.data.reflection_suggestions && result.data.reflection_suggestions.length > 0) {
-        console.log('自反思建议:', result.data.reflection_suggestions)
-      }
-    } else {
-      throw new Error(result.message || '最终确认失败')
-    }
-  } catch (error) {
-    ElMessage.error('最终确认失败: ' + error.message)
-  }
-}
-
-/**
- * 退出修订模式
- */
-function exitRevision() {
-  if (revisionMessages.value.length > 0) {
-    // 如果有修订历史,提示用户是否保存
-    ElMessageBox.confirm(
-      '退出后将保留当前修改后的内容,是否继续?',
-      '提示',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    ).then(() => {
-      // 更新生成的内容
-      generatedContent.value = revisionContent.value
-      isRevisionMode.value = false
-    }).catch(() => {
-      // 用户取消
-    })
-  } else {
-    // 没有修订历史,直接退出
-    isRevisionMode.value = false
-  }
-}
-
 /**
  * 处理质量报告更新
  */
@@ -3158,916 +1293,83 @@ function handleUpdateQualityReport(newReport) {
   qualityReport.value = newReport
 }
 
-/**
- * 启动质控SSE订阅 (v1.1新增)
- * 实时接收全局大纲质控进度
- * v1.1修复: 添加token参数支持认证
- * v1.1修复: 添加重连机制
- */
-function startQCSSESubscription(taskId) {
-  // 关闭现有连接
-  stopQCSSEConnection()
-  
-  // 获取token用于SSE认证（EventSource不支持自定义Header）
-  const token = localStorage.getItem('token')
-  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-  const sseURL = `${baseURL}/api/v1/novel-writer/quality-control/global-outline/${taskId}/events${token ? `?token=${encodeURIComponent(token)}` : ''}`
-  
-  console.log('[质控SSE] 连接到:', sseURL.replace(/token=[^&]+/, 'token=***'))
-  
-  // v1.1修复: 重连机制
-  let reconnectAttempts = 0
-  const MAX_RECONNECT_ATTEMPTS = 3
-  const RECONNECT_DELAY = 2000 // 2秒
-  
-  const eventSource = new EventSource(sseURL)
-  qcSSEConnection.value = eventSource
-  
-  eventSource.onopen = () => {
-    console.log('[质控SSE] 连接已建立')
-    reconnectAttempts = 0 // 重置重连计数器
-  }
-  
-  eventSource.addEventListener('connected', (event) => {
-    console.log('[质控SSE] 服务器确认连接:', event.data)
-    reconnectAttempts = 0 // 重置重连计数器
-  })
-  
-  eventSource.addEventListener('progress', (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      console.log('[质控SSE] 进度更新:', data)
-      qcProgress.value = data
-    } catch (e) {
-      console.error('[质控SSE] 解析进度数据失败:', e)
-    }
-  })
-  
-  eventSource.addEventListener('completed', (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      console.log('[质控SSE] 分析完成:', data)
-      qcProgress.value = { ...data, status: 'completed' }
-      // 关闭SSE连接
-      stopQCSSEConnection()
-    } catch (e) {
-      console.error('[质控SSE] 解析完成数据失败:', e)
-    }
-  })
-  
-  eventSource.addEventListener('error', (event) => {
-    console.error('[质控SSE] 事件错误:', event)
-    if (event.data) {
-      try {
-        const data = JSON.parse(event.data)
-        qcProgress.value = { ...data, status: 'error' }
-      } catch (e) {
-        // 忽略解析错误
-      }
-    }
-    stopQCSSEConnection()
-  })
-  
-  eventSource.onerror = (error) => {
-    console.warn('[质控SSE] 连接错误:', error)
-    reconnectAttempts++
-    
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error('[质控SSE] 重连次数已达上限')
-      qcProgress.value = { 
-        status: 'error', 
-        message: '连接失败，请刷新页面重试',
-        reconnect_failed: true
-      }
-      stopQCSSEConnection()
-      ElMessage.warning('质控进度连接中断，但质控仍在后台运行，请稍后查看结果')
-    } else {
-      console.log(`[质控SSE] 浏览器自动重连中 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
-      qcProgress.value = {
-        status: 'reconnecting',
-        message: `连接中断，正在重连 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`,
-        reconnect_attempt: reconnectAttempts
-      }
-    }
-  }
+// 构建大纲输入参数（薄包装，委托给工具函数）
+function buildOutlineInputParams() {
+  return buildOutlineParams(type.value, form.value, styleData.value, titleStyleData.value)
 }
 
-/**
- * 停止质控SSE连接 (v1.1新增)
- */
-function stopQCSSEConnection() {
-  if (qcSSEConnection.value) {
-    qcSSEConnection.value.close()
-    qcSSEConnection.value = null
-    console.log('[质控SSE] 连接已关闭')
-  }
-}
+// ==================== P0改造：一键创建写作项目 ====================
 
 /**
- * 对导入的单元概述执行质控检测
+ * 一键创建写作项目
+ * 流程：创建项目 → 填入大纲和单元概述 → 跳转工作台
  */
-async function handleImportedUnitSummariesQC() {
-  if (!unitSummaries.value || Object.keys(unitSummaries.value).length === 0) {
-    ElMessage.warning('没有可检测的单元概述')
+async function handleCreateWritingProject() {
+  if (!globalOutlineContent.value) {
+    ElMessage.warning('请先生成或导入全局大纲')
     return
   }
   
-  autoQCLoading.value = true
+  creatingWritingProject.value = true
   
   try {
-    // 调用导入大纲自动质控API（复用）
-    const token = localStorage.getItem('access_token')
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/novel-writer/quality-control/imported-outline/auto-revise`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          outline_content: generatedContent.value,
-          content_type: type.value === 'novel' ? 'novel' : 'script',
-          enable_auto_revise: false  // 仅检测，不自动修正
-        })
-      }
-    )
+    // 步骤1：创建新项目
+    const projectName = form.value.title || `小说项目_${new Date().toLocaleDateString()}`
+    const createResponse = await novelWriterApi.createProject({
+      name: projectName,
+      description: form.value.description || '从创意生成页面一键创建',
+      project_type: 'novel'
+    })
     
-    const result = await response.json()
-    
-    if (result.success) {
-      qcReportData.value = result.data.qc_report
-      qcApplied.value = true
-      issuesFixed.value = result.data.issues_fixed || 0
-      
-      ElMessage.success(`质控检测完成，发现 ${qcReportData.value?.issues?.length || 0} 个问题`)
-    } else {
-      ElMessage.error(result.message || '质控检测失败')
+    if (!createResponse.data?.id) {
+      throw new Error('创建项目失败：未返回项目ID')
     }
+    
+    const projectId = createResponse.data.id
+    console.log('[handleCreateWritingProject] 项目创建成功:', projectId)
+    
+    // 步骤2：更新项目内容（填入全局大纲和单元概述）
+    const updateData = {
+      outline_content: globalOutlineContent.value
+    }
+    
+    // 如果有单元概述，也一并填入
+    if (Object.keys(unitSummaries.value).length > 0) {
+      updateData.unit_summaries = unitSummaries.value
+    }
+    
+    await novelWriterApi.updateProject(projectId, updateData)
+    console.log('[handleCreateWritingProject] 大纲和单元概述已填入')
+    
+    ElMessage.success(`项目"${projectName}"创建成功，正在跳转工作台...`)
+    
+    // 步骤3：跳转到写作工作台
+    router.push({ name: 'NovelWriterDetail', params: { id: projectId } })
+    
   } catch (error) {
-    console.error('质控检测失败:', error)
-    ElMessage.error('质控检测失败: ' + (error.message || '未知错误'))
+    console.error('[handleCreateWritingProject] 创建写作项目失败:', error)
+    ElMessage.error('创建写作项目失败：' + (error.message || '未知错误'))
   } finally {
-    autoQCLoading.value = false
+    creatingWritingProject.value = false
   }
 }
 
-/**
- * 处理单元概述质量检测（手动触发）
- * 根据qc_mode决定行为：
- * - manual模式: 仅检测不修正,显示实时质控仪表盘
- * - auto模式: 检测+修正,弹出对比对话框
- */
-async function handleUnitSummariesQC() {
-  if (!unitSummaries.value || Object.keys(unitSummaries.value).length === 0) {
-    ElMessage.warning('没有可检测的单元概述')
-    return
-  }
-  
-  // 检查全局大纲是否为空
-  if (!globalOutlineContent.value || globalOutlineContent.value.trim().length === 0) {
-    ElMessage.warning({
-      message: '未检测到全局大纲！质控检测需要全局大纲作为参考标准。',
-      duration: 5000,
-      group: 'qc-warning'
-    })
-    
-    // 询问用户是否继续
-    try {
-      await ElMessageBox.confirm(
-        '当前没有全局大纲，质控检测可能不准确。您可以：\n\n1. 点击“取消”，先导入全局大纲\n2. 点击“继续”，使用当前内容检测（效果可能不佳）',
-        '缺少全局大纲',
-        {
-          confirmButtonText: '继续检测',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      )
-    } catch {
-      // 用户取消
-      return
-    }
-  }
-  
-  unitSummariesQCLoading.value = true
-  
-  try {
-    // 根据质控模式决定是否启用自动修正
-    const shouldAutoRevise = unitSummariesQCMode.value === 'auto'
-    
-    // 使用unitSummariesQCApi调用（自动处理认证）
-    const result = await unitSummariesQCApi.analyzeAndRevise({
-      content_type: type.value === 'novel' ? 'novel' : 'script',
-      global_outline: globalOutlineContent.value || '',
-      unit_summaries: unitSummaries.value,
-      enable_auto_revise: shouldAutoRevise,  // 根据qc_mode决定
-      temperature: 0.7
-    })
-    
-    if (result.success) {
-      const { quality_report, revised_content, revised_parsed, has_issues, issues_count, changes, auto_revised } = result.data
-      
-      // 显示质控报告
-      qcReportData.value = quality_report
-      qcApplied.value = true
-      issuesFixed.value = issues_count || 0
-      
-      if (unitSummariesQCMode.value === 'auto') {
-        // 自动模式: 如果有修正结果，弹出对比对话框
-        if (auto_revised && revised_content) {
-          ElMessage.success(`质控检测完成，发现 ${quality_report?.issues?.length || 0} 个问题，已修正 ${changes?.length || 0} 个问题`)
-          
-          // 存储修正数据供后续使用
-          unitSummariesReviseData.value = {
-            originalContent: generatedContent.value,
-            revisedContent: revised_content,
-            revisedParsed: revised_parsed,
-            qualityReport: quality_report,
-            changes: changes || []  // 变更列表（用于显示修正详情）
-          }
-          
-          // 显示修正对比对话框
-          showUnitSummariesReviseDialog.value = true
-        } else {
-          const issueCount = quality_report?.issues?.length || 0
-          if (issueCount > 0) {
-            ElMessage.warning(`质控检测完成，发现 ${issueCount} 个问题，但未启用自动修正`)
-          } else {
-            ElMessage.success('质控检测完成，未发现任何问题')
-          }
-        }
-      } else {
-        // 手动模式: 显示完整质控报告（在ResultViewer中自动显示）
-        ElMessage.success(`质控检测完成，发现 ${quality_report?.issues?.length || 0} 个问题`)
-        // qcReportData.value 已经在前面赋值，ResultViewer会自动显示完整报告
-      }
-    } else {
-      ElMessage.error(result.message || '质控检测失败')
-    }
-  } catch (error) {
-    console.error('单元概述质控检测失败:', error)
-    
-    // 区分超时错误和其他错误
-    if (error.message && error.message.includes('timeout')) {
-      ElMessage.error('质控检测超时（10分钟），请稍后重试或减少单元数量')
-    } else {
-      const errorMessage = error.message || error.response?.data?.message || '未知错误'
-      ElMessage.error('质控检测失败: ' + errorMessage)
-    }
-  } finally {
-    unitSummariesQCLoading.value = false
-  }
-}
+// ==================== 以下函数已提取到 composables，仅保留声明 ====================
 
-/**
- * 处理全局大纲质量检测 (v1.0新增, v2.3优化, v1.1 SSE增强)
- * - 导入大纲场景：自动执行质控修正
- * - 新生成场景：显示质控报告
- * - v1.1新增: SSE实时进度推送
- */
-async function handleGlobalOutlineQC() {
-  try {
-    // v2.3新增：导入大纲场景使用自动质控API
-    if (importedOutline.value) {
-      await handleAutoQCForImported()
-      return
-    }
-    
-    globalOutlineQCLoading.value = true
-    qcProgress.value = null  // v1.1新增: 重置进度
-    
-    // 检查是否有全局大纲内容
-    const outlineContent = editingGlobalOutline.value 
-      ? editingGlobalOutlineContent.value
-      : globalOutlineContent.value
-    
-    if (!outlineContent || outlineContent.trim().length === 0) {
-      ElMessage.warning('全局大纲内容为空，请先生成全局大纲')
-      return
-    }
-    
-    // 两阶段大纲模式: 使用0作为projectId(表示大纲阶段)
-    // 普通模式: 使用generationId
-    const projectId = useTwoStageMode.value ? 0 : (generationId.value || 0)
-    
-    console.log('========== [全局大纲质控] 调试信息 ==========')
-    console.log('useTwoStageMode:', useTwoStageMode.value)
-    console.log('generationId:', generationId.value)
-    console.log('projectId:', projectId)
-    console.log('outlineContent length:', outlineContent.length)
-    console.log('=============================================')
-    
-    // 调用API进行质量检测
-    const requestData = {
-      dimensions: null,  // 使用默认四维度
-      depth: 'standard'
-    }
-    
-    // 两阶段模式: 传递全局大纲内容
-    if (useTwoStageMode.value) {
-      requestData.existing_outline = outlineContent
-      console.log('[全局大纲质控] 两阶段模式,传递大纲内容')
-    }
-    
-    const response = await globalOutlineQCApi.analyze(projectId, requestData)
-    
-    // v1.1新增: 如果返回task_id，启动SSE订阅
-    if (response?.task_id) {
-      console.log('[全局大纲质控] 启动SSE订阅, task_id:', response.task_id)
-      startQCSSESubscription(response.task_id)
-    }
-    
-    if (response?.success) {
-      console.log('========== [全局大纲质控] 响应数据 ==========')
-      console.log('response:', response)
-      console.log('response.success:', response.success)
-      console.log('response.data:', response.data)
-      console.log('response.data.overall_score:', response.data?.overall_score)
-      console.log('response.data.issues:', response.data?.issues)
-      console.log('response.data.dimension_scores:', response.data?.dimension_scores)
-      console.log('=============================================')
-      
-      globalOutlineQCReport.value = response.data
-      
-      console.log('[全局大纲质控] globalOutlineQCReport.value:', globalOutlineQCReport.value)
-      console.log('[全局大纲质控] globalOutlineQCReport.value !== null:', globalOutlineQCReport.value !== null)
-      
-      // 强制触发Vue更新
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      const issuesCount = response.data.issues?.length || 0
-      ElMessage.success(
-        `质量检测完成！综合得分: ${response.data.overall_score?.toFixed(1) || 0}分, ` +
-        `发现 ${issuesCount} 个问题`
-      )
-      console.log('[全局大纲质控] 检测完成,消息已显示')
-      
-      // v2.3新增：如果发现问题，自动调用全局辩证性整体修正
-      if (issuesCount > 0) {
-        console.log('[全局大纲质控] 发现问题，开始自动修正...')
-        ElMessage.info(`检测到 ${issuesCount} 个问题，正在自动进行全局辩证修正...`)
-        
-        // 调用自动修正函数
-        await handleAutoGlobalOutlineRevise(response.data, outlineContent)
-      }
-    } else {
-      ElMessage.error(response?.message || '质量检测失败')
-      console.error('[全局大纲质控] API返回失败:', response)
-    }
-  } catch (error) {
-    console.error('========== [全局大纲质控] 错误详情 ==========')
-    console.error('错误类型:', error.constructor.name)
-    console.error('错误消息:', error.message)
-    console.error('错误堆栈:', error.stack)
-    
-    if (error.response) {
-      console.error('HTTP状态码:', error.response.status)
-      console.error('HTTP状态文本:', error.response.statusText)
-      console.error('响应数据:', error.response.data)
-      console.error('响应头:', error.response.headers)
-    }
-    
-    if (error.request) {
-      console.error('请求配置:', error.config)
-      console.error('请求URL:', error.config?.url)
-      console.error('请求方法:', error.config?.method)
-      console.error('请求头:', error.config?.headers)
-    }
-    
-    console.error('=============================================')
-    
-    // 检测超时错误
-    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      ElMessage.error('质量检测超时（20分钟），LLM分析耗时较长，请稍后重试。')
-    } else if (error.response?.status === 405) {
-      ElMessage.error('API端点不可用，请检查后端服务是否已重启')
-    } else if (error.response?.status === 404) {
-      ElMessage.error('API端点未找到，请检查后端路由配置')
-    } else {
-      ElMessage.error('质量检测失败: ' + (error.response?.data?.detail || error.message || ''))
-    }
-  } finally {
-    globalOutlineQCLoading.value = false
-  }
-}
-
-/**
- * 自动全局大纲辩证性整体修正 (v2.3新增)
- * 质控检测发现问题后，自动调用LLM进行全局辩证修正
- * @param {Object} qualityReport - 质控报告
- * @param {String} originalContent - 原始大纲内容
- */
-async function handleAutoGlobalOutlineRevise(qualityReport, originalContent) {
-  try {
-    // v2.3修复：设置修正状态，防止并发操作
-    revisingIssueId.value = 'auto_revise_all'
-    
-    console.log('[自动全局修正] 开始全局辩证性整体修正...')
-    
-    // 两阶段大纲模式: 使用0作为projectId(表示大纲阶段)
-    // 普通模式: 使用generationId
-    const projectId = useTwoStageMode.value ? 0 : (generationId.value || 0)
-    
-    // 提取所有问题ID
-    const issuesToFix = qualityReport.issues?.map(issue => issue.id) || []
-    
-    if (issuesToFix.length === 0) {
-      console.log('[自动全局修正] 没有需要修正的问题')
-      return
-    }
-    
-    console.log(`[自动全局修正] 准备修正 ${issuesToFix.length} 个问题`)
-    
-    // v2.3修复：确保qualityReport包含original_outline字段（两阶段模式必需）
-    const qualityReportWithOutline = {
-      ...qualityReport,
-      original_outline: qualityReport.original_outline || originalContent
-    }
-    
-    // 调用修正API（传递所有问题，执行全局辩证性整体修正）
-    const response = await globalOutlineQCApi.revise(projectId, {
-      quality_report: qualityReportWithOutline,
-      issues_to_fix: issuesToFix  // 传递所有问题ID，触发全局辩证修正
-    })
-    
-    if (response?.success) {
-      const revisedContent = response.data.revised_content
-      console.log('[自动全局修正] 检查修正结果:')
-      console.log('  - response.success:', response.success)
-      console.log('  - revisedContent存在:', !!revisedContent)
-      console.log('  - revisedContent长度:', revisedContent?.length || 0)
-      console.log('  - response.data:', response.data)
-      
-      if (revisedContent) {
-        console.log('[自动全局修正] 修正完成，准备显示对比对话框...')
-        
-        // v2.4新增：显示修正对比对话框
-        globalOutlineReviseData.value = {
-          originalContent: originalContent,
-          revisedContent: revisedContent,
-          changes: response.data.changes || qualityReport.issues || [],
-          issueId: 'auto_revise_all',
-          issueDescription: `自动修正 ${issuesToFix.length} 个问题`,
-          originalLength: response.data.original_length || originalContent.length,
-          revisedLength: response.data.revised_length || revisedContent.length
-        }
-        
-        console.log('[自动全局修正] 对话框数据已填充:')
-        console.log('  - originalContent长度:', globalOutlineReviseData.value.originalContent.length)
-        console.log('  - revisedContent长度:', globalOutlineReviseData.value.revisedContent.length)
-        console.log('  - changes数量:', globalOutlineReviseData.value.changes.length)
-        console.log('  - originalLength:', globalOutlineReviseData.value.originalLength)
-        console.log('  - revisedLength:', globalOutlineReviseData.value.revisedLength)
-        
-        showGlobalOutlineReviseDialog.value = true
-        
-        console.log('[自动全局修正] 对话框状态:', showGlobalOutlineReviseDialog.value)
-        console.log('[自动全局修正] 对比对话框已显示，等待用户确认')
-        
-        // 更新质控报告状态
-        globalOutlineQCReport.value = {
-          ...qualityReport,
-          revised: true,
-          revised_at: new Date().toISOString(),
-          revised_issues: issuesToFix
-        }
-      } else {
-        console.error('[自动全局修正] 警告: revisedContent为空!')
-        console.error('[自动全局修正] response.data:', response.data)
-        ElMessage.warning('修正完成但未返回修正内容，请检查后端日志')
-      }
-    } else {
-      console.error('[自动全局修正] API返回失败:', response)
-      ElMessage.warning(`自动修正失败: ${response?.message || '未知错误'}`)
-    }
-  } catch (error) {
-    console.error('[自动全局修正] 修正失败:', error)
-    
-    // 检测超时错误
-    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      ElMessage.warning('全局修正超时（20分钟），LLM处理耗时较长，可稍后手动触发修正。')
-    } else {
-      ElMessage.warning('全局修正失败: ' + (error.message || ''))
-    }
-  } finally {
-    // v2.3修复：确保状态被重置
-    revisingIssueId.value = null
-  }
-}
-
-/**
- * 确认应用全局大纲修正
- */
-function handleConfirmGlobalOutlineRevise() {
-  const issueId = globalOutlineReviseData.value.issueId
-  
-  // 应用修正后的内容
-  globalOutlineContent.value = globalOutlineReviseData.value.revisedContent
-  generatedContent.value = globalOutlineReviseData.value.revisedContent
-  if (editingGlobalOutline.value) {
-    editingGlobalOutlineContent.value = globalOutlineReviseData.value.revisedContent
-  }
-  
-  // 标记已应用质控修正
-  qcApplied.value = true
-  issuesFixed.value = globalOutlineReviseData.value.changes?.length || 0
-  
-  // 根据修正来源设置质控报告
-  if (issueId === 'auto_revise_imported') {
-    // 导入大纲场景：使用已有的qcReportData
-    console.log('[全局大纲修正] 导入大纲场景，使用已有质控报告')
-  } else {
-    // 其他场景：使用globalOutlineQCReport
-    qcReportData.value = globalOutlineQCReport.value
-  }
-  
-  // v2.3修复：清除SSE进度状态
-  qcProgress.value = null
-  stopQCSSEConnection()
-  
-  // 关闭对话框
-  showGlobalOutlineReviseDialog.value = false
-  
-  // 根据修正来源显示不同的成功消息
-  if (issueId === 'auto_revise_imported') {
-    ElMessage.success(
-      `已应用导入大纲修正！共修正 ${issuesFixed.value} 个问题 ` +
-      `(${globalOutlineReviseData.value.originalLength}字 → ${globalOutlineReviseData.value.revisedLength}字)`
-    )
-  } else {
-    ElMessage.success(
-      `已应用全局辩证修正！共修正 ${issuesFixed.value} 个问题 ` +
-      `(${globalOutlineReviseData.value.originalLength}字 → ${globalOutlineReviseData.value.revisedLength}字)`
-    )
-  }
-  
-  console.log('[全局大纲修正] 修正已应用, issueId:', issueId)
-}
-
-/**
- * 取消应用全局大纲修正
- */
-function handleCancelGlobalOutlineRevise() {
-  // 不应用修正，保持原始内容
-  ElMessage.info('已取消修正，保留原始内容')
-  console.log('[全局大纲修正] 修正已取消')
-}
-
-/**
- * 处理单元概述修正确认
- */
-function handleConfirmUnitSummariesRevise() {
-  // 应用修正后的内容
-  // 修复：只更新被修正的单元，而不是替换整个unitSummaries和generatedContent
-  // 后端在只修正1个单元时，revisedContent只包含该单元的内容，
-  // 但revisedParsed包含所有单元的合并数据
-  const reviseData = unitSummariesReviseData.value
-
-  // 1. 更新unitSummaries中被修正的单元
-  if (reviseData.revisedParsed) {
-    const revisedParsed = reviseData.revisedParsed
-    // 找出哪些单元被修正了（通过changes中的unit_number或revisedParsed中有revision_reason的单元）
-    const revisedUnitNums = new Set()
-    
-    // 方法1: 从changes中获取被修正的单元号
-    if (reviseData.changes && reviseData.changes.length > 0) {
-      for (const change of reviseData.changes) {
-        if (change.unit_number) {
-          revisedUnitNums.add(String(change.unit_number))
-        }
-      }
-    }
-    
-    // 方法2: 从revisedParsed中找有revision_reason的单元
-    if (revisedUnitNums.size === 0) {
-      for (const [unitNum, unitData] of Object.entries(revisedParsed)) {
-        if (unitData.revision_reason || unitData.revised_at) {
-          revisedUnitNums.add(unitNum)
-        }
-      }
-    }
-    
-    // 方法3: 如果还是找不到，比较revisedParsed与unitSummaries中full_content不同的单元
-    if (revisedUnitNums.size === 0) {
-      for (const [unitNum, unitData] of Object.entries(revisedParsed)) {
-        const existingUnit = unitSummaries.value[unitNum]
-        if (existingUnit) {
-          const existingContent = existingUnit.full_content || existingUnit.summary || ''
-          const newContent = unitData.full_content || unitData.summary || ''
-          if (existingContent !== newContent) {
-            revisedUnitNums.add(unitNum)
-          }
-        }
-      }
-    }
-    
-    console.log('[单元概述修正] 被修正的单元:', [...revisedUnitNums])
-    
-    // 只更新被修正的单元，保留未修正的单元
-    const updatedSummaries = { ...unitSummaries.value }
-    for (const unitNum of revisedUnitNums) {
-      if (revisedParsed[unitNum]) {
-        updatedSummaries[unitNum] = revisedParsed[unitNum]
-      }
-    }
-    unitSummaries.value = updatedSummaries
-  }
-  
-  // 2. 重建完整的generatedContent（而不是用只包含1个单元的revisedContent替换）
-  const allChapterTexts = Object.keys(unitSummaries.value)
-    .sort((a, b) => parseInt(a) - parseInt(b))
-    .map(num => {
-      const unit = unitSummaries.value[num]
-      const content = unit.full_content || unit.summary || ''
-      if (content) {
-        // 如果full_content不以标题开头，添加标题
-        const unitLabel = type.value === 'novel' ? '章' : '集'
-        const titlePattern = new RegExp(`^#{1,3}\\s*第${num}${unitLabel}`)
-        if (!titlePattern.test(content)) {
-          return `### 第${num}${unitLabel}：${unit.title || ''}\n${content}`
-        }
-        return content
-      }
-      return null
-    })
-    .filter(Boolean)
-  generatedContent.value = allChapterTexts.join('\n\n')
-  
-  // 标记已应用质控修正
-  qcApplied.value = true
-  issuesFixed.value = reviseData.qualityReport?.issues?.filter(i => i.severity === 'critical').length || 0
-  qcReportData.value = reviseData.qualityReport
-  
-  // 关闭对话框
-  showUnitSummariesReviseDialog.value = false
-  
-  ElMessage.success('已应用单元概述修正')
-  console.log('[单元概述修正] 修正已应用，当前单元数:', Object.keys(unitSummaries.value).length)
-}
-
-/**
- * 处理单元概述修正取消
- */
-function handleCancelUnitSummariesRevise() {
-  // 清理修正数据
-  unitSummariesReviseData.value = {
-    originalContent: '',
-    revisedContent: '',
-    revisedParsed: null,
-    qualityReport: null
-  }
-  
-  ElMessage.info('已取消修正，保留原始内容')
-  console.log('[单元概述修正] 修正已取消，数据已清理')
-}
-
-/**
- * 处理单元概述重复章节清理
- */
-function handleRemoveUnitSummariesDuplicates({ duplicates, revisedContent }) {
-  if (!revisedContent) {
-    ElMessage.error('修正内容为空')
-    return
-  }
-  
-  console.log('[重复章节清理] 开始清理，重复组数:', duplicates.length)
-  
-  // 解析所有章节
-  const chapterRegex = /###\s*第([\u4e00二三四五六七八九十百千万\d]+)[章集场][：:]\s*(.+?)\n([\s\S]*?)(?=###\s*第|$)/g
-  const chapters = []
-  let match
-  
-  while ((match = chapterRegex.exec(revisedContent)) !== null) {
-    chapters.push({
-      unitNumber: match[1],
-      title: match[2].trim(),
-      content: match[3].trim(),
-      fullMatch: match[0],
-      startIndex: match.index,
-      endIndex: match.index + match[0].length
-    })
-  }
-  
-  if (chapters.length === 0) {
-    ElMessage.error('未解析到章节内容')
-    return
-  }
-  
-  // 标记需要删除的章节索引
-  const indicesToRemove = new Set()
-  
-  duplicates.forEach(group => {
-    // 保留第一个，删除后续的
-    for (let i = 1; i < group.duplicates.length; i++) {
-      const dup = group.duplicates[i]
-      // 找到对应的章节索引
-      const chapterIndex = chapters.findIndex(ch => 
-        ch.unitNumber === dup.unitNumber && 
-        ch.title === dup.title &&
-        ch.content === dup.content
-      )
-      if (chapterIndex !== -1) {
-        indicesToRemove.add(chapterIndex)
-      }
-    }
-  })
-  
-  // 重建内容，删除重复章节
-  let cleanedContent = revisedContent
-  const chaptersArray = Array.from(indicesToRemove).sort((a, b) => b - a) // 从后往前删除
-  
-  chaptersArray.forEach(index => {
-    const chapter = chapters[index]
-    cleanedContent = cleanedContent.substring(0, chapter.startIndex) + 
-                     cleanedContent.substring(chapter.endIndex)
-  })
-  
-  // 清理多余的空行
-  cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim()
-  
-  // 更新修正后的内容
-  unitSummariesReviseData.value.revisedContent = cleanedContent
-  
-  // 重新解析单元概述
-  try {
-    const parsed = parseUnitSummaries(cleanedContent)
-    if (parsed && Object.keys(parsed).length > 0) {
-      unitSummariesReviseData.value.revisedParsed = parsed
-      console.log('[重复章节清理] 清理完成，清理前章节数:', chapters.length, 
-                  '清理后章节数:', Object.keys(parsed).length)
-      ElMessage.success(`已清理 ${indicesToRemove.size} 个重复章节`)
-    } else {
-      ElMessage.warning('清理后解析失败，请检查内容')
-    }
-  } catch (error) {
-    console.error('[重复章节清理] 解析失败:', error)
-    ElMessage.error('清理后解析失败: ' + error.message)
-  }
-}
-
-/**
- * 解析单元概述内容
- */
-function parseUnitSummaries(content) {
-  if (!content) return {}
-  
-  const unitLabel = type.value === 'novel' ? '章' : '集'
-  const regex = new RegExp(`###\\s*第([\\u4e00二三四五六七八九十百千\d\\w]+)${unitLabel}[：:]\\s*(.+?)\\n([\\s\\S]*?)(?=###\\s*第|$)`, 'g')
-  const result = {}
-  let match
-  
-  while ((match = regex.exec(content)) !== null) {
-    const unitNum = match[1]
-    const title = match[2].trim()
-    const fullContent = match[3].trim()
-    
-    result[unitNum] = {
-      title: title,
-      summary: fullContent.substring(0, 500), // 摘要
-      full_content: fullContent
-    }
-  }
-  
-  return result
-}
-
-/**
- * 处理全局大纲修正 (v2.2优化: 显示对比对话框)
- */
-async function handleGlobalOutlineRevise({ issue, qualityReport: report }) {
-  try {
-    if (!issue || !report) {
-      ElMessage.error('修正参数不完整')
-      return
-    }
-    
-    revisingIssueId.value = issue.id
-    
-    // 两阶段大纲模式: 使用0作为projectId(表示大纲阶段)
-    // 普通模式: 使用generationId
-    const projectId = useTwoStageMode.value ? 0 : (generationId.value || 0)
-    
-    console.log('[全局大纲修正] 开始修正问题:', issue.id, 'projectId:', projectId)
-    
-    // 保存原始内容用于对比
-    const originalContent = editingGlobalOutline.value 
-      ? editingGlobalOutlineContent.value 
-      : globalOutlineContent.value
-    
-    // 调用API进行修正
-    const response = await globalOutlineQCApi.revise(projectId, {
-      quality_report: report,
-      issues_to_fix: [issue.id]
-    })
-    
-    if (response?.success) {
-      const revisedContent = response.data.revised_content
-      if (revisedContent) {
-        // v2.2优化: 显示对比对话框，让用户确认是否应用修改
-        globalOutlineReviseData.value = {
-          originalContent: originalContent,
-          revisedContent: revisedContent,
-          changes: response.data.changes || [],
-          issueId: issue.id,
-          issueDescription: issue.description,
-          originalLength: response.data.original_length,
-          revisedLength: response.data.revised_length
-        }
-        showGlobalOutlineReviseDialog.value = true
-        ElMessage.success('修正完成！请确认是否应用修改')
-      }
-    } else {
-      ElMessage.error(response?.message || '修正失败')
-    }
-  } catch (error) {
-    console.error('[全局大纲修正] 修正失败:', error)
-    
-    // 检测超时错误
-    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      ElMessage.error('修正超时（20分钟），LLM处理耗时较长，请稍后重试。')
-    } else {
-      ElMessage.error('修正失败: ' + (error.message || ''))
-    }
-  } finally {
-    revisingIssueId.value = null
-  }
-}
-
-// v2.1新增: 处理单元内容更新（质控修正应用）
-function handleUpdateUnitContent({ chapter_number, unit_id, content }) {
-  console.log('=== 更新单元内容 ===')
-  console.log('chapter_number:', chapter_number)
-  console.log('unit_id:', unit_id)
-  console.log('新内容长度:', content?.length, '字')
-  
-  if (!chapter_number || !content) {
-    console.error('缺少chapter_number或content')
-    return
-  }
-  
-  const key = String(chapter_number)
-  
-  // 优先使用unit_id精确定位（v2.1新增）
-  if (unit_id && unitSummaries.value[key]) {
-    console.log('使用unit_id精确定位')
-    unitSummaries.value[key].summary = content
-    unitSummaries.value[key].full_content = content
-    
-    // 同时更新generatedContent中对应的内容
-    updateGeneratedContentUnit(chapter_number, content)
-    
-    ElMessage.success(`第${chapter_number}单元已更新`)
-    return
-  }
-  
-  // 降级方案：仅使用chapter_number定位
-  if (unitSummaries.value[key]) {
-    console.log('使用chapter_number定位')
-    unitSummaries.value[key].summary = content
-    unitSummaries.value[key].full_content = content
-    
-    // 同时更新generatedContent中对应的内容
-    updateGeneratedContentUnit(chapter_number, content)
-    
-    ElMessage.success(`第${chapter_number}单元已更新`)
-    return
-  }
-  
-  console.error(`未找到第${chapter_number}单元`)
-  ElMessage.error(`未找到第${chapter_number}单元`)
-}
-
-// 辅助函数: 更新generatedContent中的指定单元
-function updateGeneratedContentUnit(chapterNumber, newContent) {
-  if (!generatedContent.value) return
-  
-  const isMovie = generatedContent.value.includes('场') && !generatedContent.value.includes('集')
-  
-  // 构建匹配模式
-  const patterns = isMovie
-    ? [
-        new RegExp(`(\\*\\*第${chapterNumber}场[\\s\\S]*?\\*\\*)(?:[\\s\\S]*?)(?=\\*\\*第${chapterNumber + 1}场|$)`),
-      ]
-    : [
-        new RegExp(`(###\\s*第${chapterNumber}(?:章|集)[\\s\\S]*?)(?=###\\s*第${chapterNumber + 1}(?:章|集)|$)`),
-      ]
-  
-  for (const pattern of patterns) {
-    const match = generatedContent.value.match(pattern)
-    if (match) {
-      // 保留标题部分，只替换内容
-      const titlePart = match[1]
-      const oldContent = match[0]
-      const newFullContent = titlePart + '\n' + newContent
-      
-      generatedContent.value = generatedContent.value.replace(oldContent, newFullContent)
-      console.log('已更新generatedContent中的单元内容')
-      return
-    }
-  }
-  
-  console.warn('未能在generatedContent中找到对应单元')
-}
+// handleGenerateUnitSummaries → useUnitSummariesGeneration
+// performLogicCheck → useUnitSummariesGeneration
+// cancelUnitSummariesGeneration → useUnitSummariesGeneration
+// handleResumeUnitSummaries → useUnitSummariesGeneration
+// handleContinueGeneration → useUnitSummariesGeneration
+// handleResumeUnitSummariesFromBackend → useUnitSummariesGeneration
+// openStartUnitDialog → useUnitSummariesGeneration
+// handleGenerateFromUnit → useUnitSummariesGeneration
+// startRevision, submitRevision, finalizeContent, exitRevision → useRevisionMode
+// startQCSSESubscription, stopQCSSEConnection → useQualityControl
+// handleImportedUnitSummariesQC, handleUnitSummariesQC → useQualityControl
+// handleGlobalOutlineQC, handleAutoGlobalOutlineRevise → useQualityControl
+// openImportDialog, confirmImport, etc. → useImportLogic
+// handleUnitSummariesIssueRevise, handleGlobalOutlineRevise, etc. → useReviseHandlers
 </script>
 
 <style lang="scss" scoped>

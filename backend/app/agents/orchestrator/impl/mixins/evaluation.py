@@ -7,6 +7,7 @@ from typing import Any
 import json
 import re
 from app.core.logger import get_logger, LoggerAdapter
+from app.core.config import get_settings
 
 
 class EvaluationMixin:
@@ -64,7 +65,6 @@ class EvaluationMixin:
         # 5. 根据模块检查特定内容
         module_checks = {
             "short_video": ["脚本", "场景", "镜头", "台词"],
-            "script": ["场景", "人物", "对话", "剧情"],
             "novel": ["人物", "情节", "背景"],
             "print_ad": ["文案", "视觉", "核心"],
             "tvc": ["场景", "镜头", "旁白"]
@@ -122,7 +122,7 @@ class EvaluationMixin:
 {json.dumps(input_params, ensure_ascii=False, indent=2)}
 
 ## 生成的内容
-{content[:3000]}
+{content}
 
 ## 检查要求
 请检查以下维度：
@@ -204,7 +204,7 @@ class EvaluationMixin:
         fix_prompt = f"""你是内容修正专家。请根据以下发现的问题，生成修正或补充内容。
 
 ## 原始内容（部分）
-{original_content[:2000]}
+{original_content}
 
 ## 发现的问题
 {chr(10).join('- ' + issue for issue in issues)}
@@ -219,7 +219,7 @@ class EvaluationMixin:
 
         try:
             safe_output_limit = min(
-                llm_provider.get_max_output_tokens(), settings.MAX_LLM_OUTPUT_TOKENS)
+                llm_provider.get_max_output_tokens(), get_settings().MAX_LLM_OUTPUT_TOKENS)
             fix_content = []
             async for chunk in llm_provider.generate_stream(
                 prompt=fix_prompt,
@@ -286,7 +286,7 @@ class EvaluationMixin:
 {chr(10).join('- ' + issue for issue in evaluation['issues'])}
 
 原始内容：
-{original_content[:1000]}...
+{original_content}
 
 请改进内容，确保：
 1. 内容更加详细和完整

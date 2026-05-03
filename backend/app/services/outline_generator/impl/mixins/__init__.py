@@ -12,4 +12,7 @@ from app.services.outline_generator.impl.mixins.qc_unit_analysis import QcUnitAn
 from app.services.outline_generator.impl.mixins.qc_layered import QcLayeredMixin
 from app.services.outline_generator.impl.mixins.qc_global_analysis import QcGlobalAnalysisMixin
 from app.services.outline_generator.impl.mixins.qc_global_revision import QcGlobalRevisionMixin
-from app.services.outline_generator.impl.mixins.qc_unit_manual import QcUnitManualMixin
+from app.services.outline_generator.impl.mixins.chapter_boundary import ChapterBoundaryMixin
+from app.services.outline_generator.impl.mixins.chapter_boundary_llm import SemanticBoundaryValidatorMixin
+from app.services.outline_generator.impl.mixins.atomic_chapter_generator import AtomicChapterGeneratorMixin
+from app.services.outline_generator.impl.mixins.atomic_chapter_stream import AtomicChapterStreamMixin

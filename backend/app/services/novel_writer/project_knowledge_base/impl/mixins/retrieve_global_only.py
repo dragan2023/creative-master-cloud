@@ -7,9 +7,17 @@ import re
 import os
 import time
 
+from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+
 
 class RetrieveGlobalOnlyMixin:
     """retrieve_global_only功能域"""
+
+    # 文档类型：全局大纲
+    DOC_TYPE_GLOBAL = "global"
+
+    # 文档类型：单元大纲
+    DOC_TYPE_UNIT = "unit"
 
     async def retrieve_global_only(
         self,
@@ -45,6 +53,31 @@ class RetrieveGlobalOnlyMixin:
                 n_results=n_results,
                 where={"doc_type": self.DOC_TYPE_GLOBAL}
             )
+
+            # 🆕 检测HNSW索引损坏自动修复后集合为空，触发从KG JSON重建
+            if query_result and query_result.get("_repaired_empty"):
+                self.logger.warning(
+                    f"[全局检索] 检测到向量库因HNSW损坏被重建为空，"
+                    f"尝试从KG JSON恢复: project_id={project_id}"
+                )
+                try:
+                    repair_result = await self.repair_kb_vector_store(project_id)
+                    if repair_result["success"]:
+                        # 重建成功后重新查询
+                        query_result = self.vector_store.query(
+                            collection_name=collection_name,
+                            query_texts=[query_text],
+                            n_results=n_results,
+                            where={"doc_type": self.DOC_TYPE_GLOBAL}
+                        )
+                    else:
+                        self.logger.warning(
+                            f"[全局检索] KG JSON重建向量库失败: {repair_result['message']}"
+                        )
+                except Exception as repair_err:
+                    self.logger.error(
+                        f"[全局检索] KG JSON重建向量库异常: {repair_err}"
+                    )
 
             if query_result and query_result.get("documents"):
                 for i, doc in enumerate(query_result["documents"][0]):

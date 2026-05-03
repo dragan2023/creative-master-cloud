@@ -228,7 +228,7 @@
         <el-form-item label="API地址" prop="api_base" v-if="form.provider && form.provider !== 'google'">
           <el-input
             v-model="form.api_base"
-            placeholder="如：https://api.deepseek.com/v1"
+            placeholder="如：https://api.deepseek.com"
             clearable
           />
           <div class="form-tip">

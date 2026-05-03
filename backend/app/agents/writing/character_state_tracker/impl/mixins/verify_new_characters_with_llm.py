@@ -36,7 +36,7 @@ class VerifyNewCharactersWithLlmMixin:
             char_contexts = []
             for name in character_names:
                 context = self._extract_character_context(name, content)
-                char_contexts.append(f"{name}: {context[:200]}...")
+                char_contexts.append(f"{name}: {context}")  # 不再截断人物上下文
 
             prompt = f"""请判断以下名称是否是真实的人物角色名称。
 

@@ -25,7 +25,15 @@ class ProjectVectorStore:
     def __init__(self, persist_dir: str = None):
         self.persist_dir = persist_dir or "./data/novel_vectorstores"
         self.logger = get_logger("project_vector_store")
-        self.vector_store = get_vector_store()
+        # 延迟加载向量库（避免初始化时阻塞）
+        self._vector_store = None
+    
+    @property
+    def vector_store(self):
+        """延迟加载向量库（避免初始化时阻塞）"""
+        if self._vector_store is None:
+            self._vector_store = get_vector_store()
+        return self._vector_store
 
     def get_collection_name(self, project_id: int) -> str:
         """获取项目的集合名称（统一命名规则）"""
