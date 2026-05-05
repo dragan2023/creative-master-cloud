@@ -54,6 +54,12 @@ TEMPLATE = {
 - 场景数量：{scene_count}
 - 自写大纲：{custom_outline}
 
+**剧本风格选择**（可选）
+- 已选风格：{script_style_names}
+- 风格类型：{script_style_type}
+- 风格强度：{script_style_intensity}
+- 风格维度：{script_style_dimensions}
+
 ---
 
 ## 输出格式
@@ -139,9 +145,39 @@ TEMPLATE = {
 - 中点转折：故事中段的重要转折
 - 高潮设计：最终冲突的核心
 
-### 6.3 场景划分
-- 将全片划分为关键场景段落
-- 每段的独立主题和情感高点
+### 6.3 单元内容规划（⚠️ 必须严格按此格式输出）
+
+**格式要求**：为全部「{scene_count}场」完整输出每场的一句话描述，必须严格遵循以下格式：
+```
+- 第1场：[一句话描述本场核心情节]
+- 第2场：[一句话描述本场核心情节]
+- 第3场：[一句话描述本场核心情节]
+...
+- 第{scene_count}场：[一句话描述本场核心情节]
+```
+
+**🚨 硬性约束**：
+- **每个单元独占一行，单元之间必须用换行符分隔**，严禁将两个或多个单元的「第X场：[描述]」写在**同一行**
+- 每场**只输出一行**，格式严格为「第X场：[一句话描述]」
+- 一句话描述控制在 **15-30字**，概括本场最核心的情节
+- **不允许**输出场景标题、梗概、看点、转场提示等额外内容
+- **不允许**使用任何 markdown 标题符号（###、**等）
+- **必须**为全部 {scene_count} 场逐一输出，不得遗漏
+
+**正确示例**：
+```
+- 第1场：林风在现代社会遭遇车祸，意外穿越到大周王朝
+- 第2场：林风醒来发现自己成为丞相府不受宠的庶子
+- 第3场：府中伙食粗糙，林风用现代知识制作肥皂改善生活
+- 第{scene_count}场：[一句话描述本场核心情节]
+```
+
+**错误示例（禁止）**：
+```
+**第1场：废柴崛起**
+**本场梗概**：林风穿越到大周王朝...
+**本场看点**：...
+```
 
 ## 七、视觉与节奏规划
 
@@ -182,5 +218,5 @@ TEMPLATE = {
 
 该方案已经过全能创意大师修正完善。
 """,
-    "variables": ["movie_type", "theme", "audience", "platform", "reference_works", "synopsis", "scene_count", "custom_outline", "duration_range", "format_standard", "dialogue_narration_ratio", "script_mode", "style_guide", "style_guidance"]
+    "variables": ["movie_type", "theme", "audience", "platform", "reference_works", "synopsis", "scene_count", "custom_outline", "duration_range", "format_standard", "dialogue_narration_ratio", "script_mode", "script_style_dimensions", "script_style_names", "script_style_intensity", "script_style_type", "style_guidance"]
 }

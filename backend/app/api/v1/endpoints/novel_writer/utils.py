@@ -279,14 +279,24 @@ def parse_unit_summaries_from_content(content: str, content_type: str) -> Dict[s
                 title = re.sub(r'^[：:\s]+', '', title)
                 title = re.sub(r'[\*\s]+$', '', title)
 
-                # 提取梗概（支持多种格式）
+                # 提取梗概（支持多种格式，兼容LLM误用"本章"代替"本集/本场"）
                 summary = ""
+                fallback_keyword = "本章" if content_type != "novel" else None
                 summary_patterns = [
                     rf'第{unit_num}{unit_char}.*?\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
                     rf'第{unit_num}{unit_char}.*?{summary_keyword}梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
-                    rf'第{unit_num}{unit_char}.*?梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
                     rf'\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
                 ]
+                # 添加回退关键词匹配（如剧集误输出"本章梗概"）
+                if fallback_keyword and fallback_keyword != summary_keyword:
+                    summary_patterns.extend([
+                        rf'第{unit_num}{unit_char}.*?\*\*{fallback_keyword}梗概\*\*[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
+                        rf'第{unit_num}{unit_char}.*?{fallback_keyword}梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
+                    ])
+                # 最后回退：仅匹配 梗概：
+                summary_patterns.append(
+                    rf'第{unit_num}{unit_char}.*?梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)'
+                )
 
                 for sp in summary_patterns:
                     sm = re.search(sp, content, re.DOTALL)

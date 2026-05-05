@@ -18,8 +18,9 @@ class AtomicChapterStreamMixin:
 
     MAX_BOUNDARY_RETRIES = 2
     BOUNDARY_VIOLATION_TEMPERATURE_DELTA = 0.1
-    LLM_429_MAX_RETRIES = 3
-    LLM_429_BASE_DELAY = 5
+    # [2026-05-05] 从 LLM_429_* 重命名为 LLM_RETRY_*，扩展覆盖 RemoteProtocolError 等网络断联错误
+    LLM_RETRY_MAX_ATTEMPTS = 3
+    LLM_RETRY_BASE_DELAY = 5
 
     async def generate_all_chapters_atomic_stream(
         self,
@@ -74,6 +75,10 @@ class AtomicChapterStreamMixin:
             boundary_violations = 0
 
             # 步骤3：逐章流式生成
+            self.logger.info(
+                f"[原子化流式] 开始逐集生成: start_from_unit={start_from_unit}, "
+                f"unit_count={unit_count}, 将生成 {unit_count - start_from_unit + 1} 集"
+            )
             for chapter_num in range(start_from_unit, unit_count + 1):
                 if cancel_event and cancel_event.is_set():
                     yield self._format_sse("workflow", {
@@ -111,7 +116,7 @@ class AtomicChapterStreamMixin:
                     retry_prompt = prompt if retry == 0 else (
                         self._add_boundary_retry_instruction(
                             prompt, chapter_num, unit_label))
-                    async for chunk in self._call_llm_stream_with_429_retry(
+                    async for chunk in self._call_llm_stream_with_retry(
                         llm_provider=llm_provider,
                         prompt=retry_prompt,
                         temperature=current_temp,
@@ -175,6 +180,59 @@ class AtomicChapterStreamMixin:
                 if chapter_data:
                     chapter_data["is_atomic_locked"] = True
                     locked_chapters[chapter_key] = chapter_data
+                    self.logger.info(
+                        f"[原子化流式] 第{chapter_num}{unit_label}已锁定，"
+                        f"locked_chapters现在有{len(locked_chapters)}个章节"
+                    )
+
+                    # [2026-05-05] 修复：每生成一集立即保存，支持两种保存方式
+                    # 1. 如果有project_id，保存到NovelProject.unit_summaries
+                    # 2. 如果没有project_id，保存到Generation.stage_data（单元概述生成阶段）
+                    if project_id:
+                        # 方式1：保存到NovelProject
+                        self.logger.info(
+                            f"[原子化流式] 尝试保存第{chapter_num}{unit_label}到项目，project_id={project_id}"
+                        )
+                        try:
+                            from app.models.novel_project import NovelProject
+                            from sqlalchemy import select
+                            stmt = select(NovelProject).where(NovelProject.id == project_id)
+                            result = await self.db.execute(stmt)
+                            project = result.scalar_one_or_none()
+                            self.logger.info(
+                                f"[原子化流式] 查询到项目: {project is not None}, "
+                                f"locked_chapters数量: {len(locked_chapters)}"
+                            )
+                            if project:
+                                project.unit_summaries = dict(locked_chapters)
+                                await self.db.commit()
+                                self.logger.info(
+                                    f"[原子化流式] ✅ 第{chapter_num}{unit_label}已保存到项目数据库，"
+                                    f"累计{len(locked_chapters)}集"
+                                )
+                            else:
+                                self.logger.warning(
+                                    f"[原子化流式] ⚠️ 未找到项目 {project_id}"
+                                )
+                        except Exception as save_err:
+                            import traceback
+                            self.logger.error(
+                                f"[原子化流式] ❌ 保存到项目失败: {save_err}"
+                            )
+                            self.logger.error(
+                                f"[原子化流式] 异常堆栈:\n{traceback.format_exc()}"
+                            )
+                    else:
+                        # 方式2：保存到Generation.stage_data（单元概述生成阶段）
+                        # 这个逻辑需要上层API端点配合，在流式生成时定期保存
+                        self.logger.info(
+                            f"[原子化流式] ️ project_id为空（单元概述生成阶段），"
+                            f"locked_chapters将在生成完成后由API端点保存"
+                        )
+                else:
+                    self.logger.error(
+                        f"[原子化流式] ❌ 第{chapter_num}{unit_label}的chapter_data为None，无法保存"
+                    )
 
                 # 构建截止当前的全部累积内容（而非仅本章内容）
                 accumulated = self._build_revised_content(
@@ -206,6 +264,28 @@ class AtomicChapterStreamMixin:
                 "content": final_content,
                 "message": f"全部{len(locked_chapters)}章生成完成"})
 
+            # ==================== 保存解析结果到 project.unit_summaries ====================
+            # [2026-05-05] 修复续生成检测bug：原子化流式生成完成后必须将locked_chapters
+            # 保存到NovelProject.unit_summaries，否则get_unit_summaries_resume_info
+            # 端点读取到的数据永远是空的，导致续生成从第1集开始而非从已生成N集后开始
+            if project_id and locked_chapters:
+                try:
+                    from app.models.novel_project import NovelProject
+                    from sqlalchemy import select
+                    stmt = select(NovelProject).where(NovelProject.id == project_id)
+                    result = await self.db.execute(stmt)
+                    project = result.scalar_one_or_none()
+                    if project:
+                        project.unit_summaries = dict(locked_chapters)
+                        await self.db.commit()
+                        self.logger.info(
+                            f"[原子化流式] ✅ 已保存 {len(locked_chapters)} 个单元概述到项目 {project_id}"
+                        )
+                except Exception as save_err:
+                    self.logger.error(
+                        f"[原子化流式] ❌ 保存单元概述到项目失败: {save_err}"
+                    )
+
             yield self._format_sse("workflow", {
                 "type": "complete",
                 "chapters_generated": len(locked_chapters) -
@@ -217,14 +297,18 @@ class AtomicChapterStreamMixin:
             yield self._format_sse("workflow", {
                 "type": "error", "message": f"生成失败: {str(e)}"})
 
-    async def _call_llm_stream_with_429_retry(
+    async def _call_llm_stream_with_retry(
         self,
         llm_provider,
         prompt: str,
         temperature: float,
         context: str = "",
     ) -> AsyncGenerator:
-        """流式调用LLM生成并自动处理429限流错误（指数退避重试）
+        """流式调用LLM生成并自动处理限流和网络断联错误（指数退避重试）
+
+        遇到以下错误时自动重试：
+        - 429 限流错误
+        - httpx.RemoteProtocolError / 网络断联错误
 
         Args:
             llm_provider: LLM提供商实例
@@ -236,34 +320,37 @@ class AtomicChapterStreamMixin:
             LLM流式响应chunk
 
         Raises:
-            Exception: 非429错误直接抛出；429错误重试耗尽后抛出
+            Exception: 非可重试错误直接抛出；重试耗尽后抛出最后一次异常
         """
+        from app.utils.llm_retry import is_network_error, is_rate_limit_error
+
         ctx_suffix = f" | {context}" if context else ""
-        for attempt in range(self.LLM_429_MAX_RETRIES):
+        for attempt in range(self.LLM_RETRY_MAX_ATTEMPTS):
             try:
                 async for chunk in llm_provider.generate_stream(
                     prompt=prompt, temperature=temperature):
                     yield chunk
                 return  # 流式完成，正常退出
             except Exception as e:
-                error_str = str(e)
-                is_429 = any(kw in error_str for kw in (
-                    '429', 'TooManyRequests', 'ServerOverloaded', 'rate_limit'))
-                if not is_429:
+                should_retry = is_rate_limit_error(e) or is_network_error(e)
+                if not should_retry:
                     raise
-                if attempt < self.LLM_429_MAX_RETRIES - 1:
-                    wait_time = self.LLM_429_BASE_DELAY * (2 ** attempt)
+                if attempt < self.LLM_RETRY_MAX_ATTEMPTS - 1:
+                    wait_time = self.LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                    error_type = "限流" if is_rate_limit_error(e) else "网络断联"
                     self.logger.warning(
-                        f"[原子化流式] LLM返回429限流错误{ctx_suffix}，"
-                        f"第{attempt + 1}次重试，等待{wait_time}秒...")
+                        f"[原子化流式] LLM{error_type}错误{ctx_suffix}，"
+                        f"第{attempt + 1}次重试，等待{wait_time}秒..."
+                        f"{type(e).__name__}: {str(e)[:200]}")
                     yield self._format_sse("workflow", {
-                        "type": "step", "step": "retry_429",
+                        "type": "step", "step": "retry",
                         "status": "running",
-                        "message": f"LLM限流，正在重试（{attempt + 1}/{self.LLM_429_MAX_RETRIES}）...",
+                        "message": f"LLM{error_type}，正在重试（{attempt + 1}/{self.LLM_RETRY_MAX_ATTEMPTS}）...",
                         "icon": "RefreshRight"})
                     await asyncio.sleep(wait_time)
                 else:
                     self.logger.error(
-                        f"[原子化流式] LLM 429限流错误{ctx_suffix}，"
-                        f"已重试{self.LLM_429_MAX_RETRIES}次仍失败")
+                        f"[原子化流式] LLM重试耗尽{ctx_suffix}，"
+                        f"已重试{self.LLM_RETRY_MAX_ATTEMPTS}次仍失败: "
+                        f"{type(e).__name__}: {str(e)[:200]}")
                     raise

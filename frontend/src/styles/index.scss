@@ -1,4 +1,9 @@
-// 全局样式
+// ============================================================
+// 全局样式 — Split Inverse Showcase · Tangerine Orbit
+// 字体: Headings=Funnel Sans | Body=Inter | Captions=Geist
+// 圆角: Basic Roundness | 阴影: Gentle Lift
+// ============================================================
+
 * {
   margin: 0;
   padding: 0;
@@ -7,19 +12,195 @@
 
 html, body, #app {
   height: 100%;
-  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-// 主题变量
+// ============================================================
+// 字体变量
+// ============================================================
 :root {
-  --primary-color: #409EFF;
-  --success-color: #67C23A;
-  --warning-color: #E6A23C;
-  --danger-color: #F56C6C;
-  --info-color: #909399;
+  --font-heading: 'Funnel Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-body: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-caption: 'Geist', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Geist Mono', 'Consolas', 'Courier New', monospace;
+}
+
+// ============================================================
+// Tangerine Orbit 色板
+// 以暖柑橘橙为核心，搭配深靛蓝与琥珀金形成轨道式渐变层次
+// ============================================================
+:root {
+  // ◆ 主色 — 柑橘橙
+  --color-tangerine-50: #FFF7ED;
+  --color-tangerine-100: #FFEDD5;
+  --color-tangerine-200: #FED7AA;
+  --color-tangerine-300: #FDBA74;
+  --color-tangerine-400: #FB923C;
+  --color-tangerine-500: #F97316;
+  --color-tangerine-600: #EA580C;
+  --color-tangerine-700: #C2410C;
+  --color-tangerine-800: #9A3412;
+  --color-tangerine-900: #7C2D12;
+  --color-tangerine-950: #431407;
+
+  // ◆ 强调色 — 琥珀金（轨道高光）
+  --color-amber-50: #FFFBEB;
+  --color-amber-100: #FEF3C7;
+  --color-amber-200: #FDE68A;
+  --color-amber-300: #FCD34D;
+  --color-amber-400: #FBBF24;
+  --color-amber-500: #F59E0B;
+
+  // ◆ 辅助色 — 深靛蓝（轨道暗面 / 文本）
+  --color-indigo-50: #EEF2FF;
+  --color-indigo-100: #E0E7FF;
+  --color-indigo-200: #C7D2FE;
+  --color-indigo-300: #A5B4FC;
+  --color-indigo-400: #818CF8;
+  --color-indigo-500: #6366F1;
+  --color-indigo-600: #4F46E5;
+  --color-indigo-700: #4338CA;
+  --color-indigo-800: #3730A3;
+  --color-indigo-900: #312E81;
+
+  // ◆ 中性灰阶
+  --color-gray-50: #FAFAFA;
+  --color-gray-100: #F5F5F5;
+  --color-gray-200: #E5E5E5;
+  --color-gray-300: #D4D4D4;
+  --color-gray-400: #A3A3A3;
+  --color-gray-500: #737373;
+  --color-gray-600: #525252;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+  --color-gray-950: #0A0A0A;
+
+  // ◆ 色板中的语义色
+  --color-success: #059669;
+  --color-success-light: #ECFDF5;
+  --color-warning: #D97706;
+  --color-warning-light: #FFFBEB;
+  --color-error: #DC2626;
+  --color-error-light: #FEF2F2;
+  --color-info: #6366F1;
+  --color-info-light: #EEF2FF;
+
+  // ◆ 主题语义映射（兼容旧 --primary-color 等引用）
+  --primary-color: var(--color-tangerine-500);
+  --primary-color-light: var(--color-tangerine-400);
+  --primary-color-dark: var(--color-tangerine-600);
+  --primary-color-bg: var(--color-tangerine-50);
+  --success-color: var(--color-success);
+  --warning-color: var(--color-warning);
+  --danger-color: var(--color-error);
+  --info-color: var(--color-info);
+
+  // ◆ 文本颜色
+  --text-primary: var(--color-gray-900);
+  --text-regular: var(--color-gray-700);
+  --text-secondary: var(--color-gray-500);
+  --text-placeholder: var(--color-gray-400);
+  --text-disabled: var(--color-gray-300);
+
+  // ◆ 背景颜色
+  --bg-page: var(--color-gray-50);
+  --bg-card: #FFFFFF;
+  --bg-overlay: rgba(0, 0, 0, 0.5);
+
+  // ◆ 边框颜色
+  --border-base: var(--color-gray-200);
+  --border-light: var(--color-gray-100);
+  --border-lighter: var(--color-gray-50);
+  --border-dark: var(--color-gray-300);
+
+  // ◆ 布局
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 64px;
   --header-height: 60px;
+}
+
+// ============================================================
+// Basic Roundness — 基础圆角体系
+// ============================================================
+:root {
+  --radius-none: 0;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-full: 9999px;
+}
+
+// ============================================================
+// Gentle Lift — 柔和阴影提升体系
+// ============================================================
+:root {
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.06), 0 4px 6px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.07), 0 8px 10px rgba(0, 0, 0, 0.04);
+  --shadow-2xl: 0 25px 50px rgba(0, 0, 0, 0.10);
+  // 品牌色阴影（用于主按钮、卡片悬停）
+  --shadow-primary: 0 4px 14px rgba(249, 115, 22, 0.25);
+  --shadow-primary-lg: 0 8px 24px rgba(249, 115, 22, 0.30);
+}
+
+// ============================================================
+// Element Plus CSS 变量覆盖（Split Inverse 主题）
+// ============================================================
+:root {
+  // 主色
+  --el-color-primary: var(--color-tangerine-500);
+  --el-color-primary-light-3: var(--color-tangerine-400);
+  --el-color-primary-light-5: var(--color-tangerine-300);
+  --el-color-primary-light-7: var(--color-tangerine-200);
+  --el-color-primary-light-8: var(--color-tangerine-100);
+  --el-color-primary-light-9: var(--color-tangerine-50);
+  --el-color-primary-dark-2: var(--color-tangerine-700);
+
+  // 语义色
+  --el-color-success: var(--color-success);
+  --el-color-warning: var(--color-warning);
+  --el-color-danger: var(--color-error);
+  --el-color-info: var(--color-info);
+
+  // 圆角
+  --el-border-radius-base: var(--radius-md);
+  --el-border-radius-small: var(--radius-sm);
+  --el-border-radius-round: var(--radius-xl);
+  --el-border-radius-circle: var(--radius-full);
+
+  // 阴影
+  --el-box-shadow-light: var(--shadow-sm);
+  --el-box-shadow: var(--shadow-md);
+  --el-box-shadow-dark: var(--shadow-lg);
+
+  // 文本色
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-regular);
+  --el-text-color-secondary: var(--text-secondary);
+  --el-text-color-placeholder: var(--text-placeholder);
+  --el-text-color-disabled: var(--text-disabled);
+
+  // 边框色
+  --el-border-color-base: var(--border-base);
+  --el-border-color-light: var(--border-light);
+  --el-border-color-lighter: var(--border-lighter);
+  --el-border-color-dark: var(--border-dark);
+
+  // 背景色
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color: var(--bg-card);
+  --el-bg-color-overlay: var(--bg-card);
+
+  // 字体
+  --el-font-family: var(--font-body);
 }
 
 // 滚动条样式
@@ -29,12 +210,12 @@ html, body, #app {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
+  background: var(--color-gray-300);
+  border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--color-gray-100);
 }
 
 // 通用类
@@ -52,28 +233,37 @@ html, body, #app {
 
 // 卡片样式
 .page-card {
-  background: #fff;
-  border-radius: 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
   padding: 20px;
   margin-bottom: 20px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-light);
+  transition: box-shadow 0.3s ease;
+
+  &:hover {
+    box-shadow: var(--shadow-md);
+  }
 }
 
 // 页面标题
 .page-title {
+  font-family: var(--font-heading);
   font-size: 20px;
-  font-weight: 600;
-  color: #303133;
+  font-weight: 700;
+  color: var(--text-primary);
   margin-bottom: 20px;
 }
 
 // Markdown内容样式
 .markdown-content {
   line-height: 1.8;
+  font-family: var(--font-body);
   
   h1, h2, h3, h4, h5, h6 {
     margin: 20px 0 10px;
-    font-weight: 600;
+    font-weight: 700;
+    font-family: var(--font-heading);
   }
   
   h1 { font-size: 28px; }
@@ -91,22 +281,26 @@ html, body, #app {
   }
   
   code {
-    background: #f5f5f5;
+    background: var(--color-tangerine-50);
     padding: 2px 6px;
-    border-radius: 4px;
-    font-family: 'Consolas', monospace;
+    border-radius: var(--radius-xs);
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    color: var(--color-tangerine-700);
   }
   
   pre {
-    background: #f5f5f5;
+    background: var(--color-gray-100);
     padding: 15px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow-x: auto;
     margin: 15px 0;
+    border: 1px solid var(--border-light);
     
     code {
       background: none;
       padding: 0;
+      color: var(--text-primary);
     }
   }
   
@@ -114,7 +308,10 @@ html, body, #app {
     border-left: 4px solid var(--primary-color);
     padding-left: 15px;
     margin: 15px 0;
-    color: #666;
+    color: var(--text-secondary);
+    background: var(--color-tangerine-50);
+    padding: 12px 16px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   }
 }
 
@@ -141,4 +338,115 @@ html, body, #app {
 .slide-fade-leave-to {
   transform: translateX(20px);
   opacity: 0;
+}
+
+// ============================================================
+// 全局字体应用 — Split Inverse Showcase
+// Headings: Funnel Sans | Body: Inter | Captions: Geist
+// ============================================================
+h1, h2, h3, h4, h5, h6,
+.el-dialog__title,
+.el-drawer__title,
+.el-card__header,
+.el-message-box__title,
+.el-table th,
+.el-menu .el-menu-item,
+.el-menu .el-sub-menu__title {
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+
+// 标注 / 辅助文本使用 Geist
+.el-tag,
+.el-badge__content,
+.el-tooltip__popper,
+.el-alert__description,
+.el-form-item__error,
+.el-descriptions__label,
+.el-empty__description,
+.el-result__subtitle,
+.text-caption,
+.caption {
+  font-family: var(--font-caption);
+}
+
+// 代码 / 等宽字体
+code, pre, kbd, samp,
+.el-input .el-input__inner[type],
+.monospace {
+  font-family: var(--font-mono);
+}
+
+// ============================================================
+// 全局 Element Plus 按钮增强
+// ============================================================
+.el-button--primary {
+  --el-button-hover-border-color: var(--color-tangerine-600);
+  --el-button-hover-bg-color: var(--color-tangerine-600);
+  --el-button-active-bg-color: var(--color-tangerine-700);
+  box-shadow: var(--shadow-primary);
+  transition: all 0.25s ease;
+
+  &:hover {
+    box-shadow: var(--shadow-primary-lg);
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-primary);
+  }
+}
+
+// 输入框聚焦效果
+.el-input.is-focus .el-input__wrapper,
+.el-textarea.is-focus .el-textarea__inner {
+  box-shadow: 0 0 0 1px var(--color-tangerine-400) inset;
+}
+
+.el-select .el-input.is-focus .el-input__wrapper {
+  box-shadow: 0 0 0 1px var(--color-tangerine-400) inset;
+}
+
+// 卡片圆角
+.el-card {
+  border-radius: var(--radius-lg);
+  border-color: var(--border-light);
+}
+
+// 对话框圆角与阴影
+.el-dialog {
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+}
+
+.el-message-box {
+  border-radius: var(--radius-lg);
+}
+
+// 抽屉
+.el-drawer {
+  box-shadow: var(--shadow-2xl);
+}
+
+// 下拉菜单
+.el-dropdown-menu,
+.el-select-dropdown__wrap {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+// 分页
+.el-pagination .el-pager li {
+  border-radius: var(--radius-sm);
+}
+
+// 标签
+.el-tag {
+  border-radius: var(--radius-sm);
+}
+
+// Loading / Skeleton 颜色
+.el-loading-spinner .circular circle {
+  stroke: var(--primary-color);
 }

@@ -501,7 +501,8 @@ def register_outline_routes(router: APIRouter):
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
-                "Connection": "keep-alive"
+                "Connection": "keep-alive",
+                "X-Generation-ID": str(generation.id),  # [2026-05-05] 返回generation_id供前端获取
             }
         )
 
@@ -809,7 +810,8 @@ def register_outline_routes(router: APIRouter):
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
-                "Connection": "keep-alive"
+                "Connection": "keep-alive",
+                "X-Generation-ID": str(state_manager.generation_id),  # [2026-05-05] 返回generation_id供前端获取
             }
         )
 
@@ -835,16 +837,20 @@ def register_outline_routes(router: APIRouter):
             db=db
         )
         
-    @router.get("/outline/units/resume-info/{project_id}")
+    @router.get("/outline/units/resume-info/{generation_id_or_project_id}")
     async def get_unit_summaries_resume_info(
-        project_id: int,
+        generation_id_or_project_id: int,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
     ):
         """
         获取单元概述断点续生成信息
 
-        根据项目ID自动识别当前生成状态和断点位置，返回续生成所需的全部信息：
+        支持两种方式：
+        1. generation_id：从 Generation 记录读取（单元概述生成阶段）
+        2. project_id：从 NovelProject 记录读取（写作工作台阶段）
+        
+        返回续生成所需的全部信息：
         - existing_parsed: 已解析的单元数据
         - existing_content: 已生成的原始文本内容
         - existing_count: 已生成章节数
@@ -853,50 +859,93 @@ def register_outline_routes(router: APIRouter):
         - global_outline: 全局大纲内容
         """
         from app.models.novel_project import NovelProject
+        from app.models.generation import Generation
         from app.core.exceptions import ResourceNotFoundException
         from sqlalchemy import select
 
-        # 获取项目
-        query = select(NovelProject).where(
-            NovelProject.id == project_id,
-            NovelProject.user_id == current_user.id
+        # 先尝试从 Generation 记录读取
+        gen_query = select(Generation).where(
+            Generation.id == generation_id_or_project_id,
+            Generation.user_id == current_user.id
         )
-        result = await db.execute(query)
-        project = result.scalar_one_or_none()
+        gen_result = await db.execute(gen_query)
+        generation = gen_result.scalar_one_or_none()
 
-        if not project:
-            raise ResourceNotFoundException(f"项目不存在: {project_id}")
+        global_outline = ""
+        existing_parsed = {}
+        content_type = "novel"
+        expected_count = 0
 
-        # 获取已有的单元概述数据
-        existing_parsed = project.unit_summaries or {}
-        existing_count = len(existing_parsed)
-
-        # 获取预期总章节数
-        expected_count = project.total_chapters or 0
-
-        # 如果 unit_summaries 中有更多数据，以实际数量为准
-        if existing_count > expected_count:
-            expected_count = existing_count
-
-        # 如果预期数仍为0，尝试从全局大纲推断
-        if expected_count == 0 and project.global_outline_content:
-            # 从全局大纲中尝试提取章节数
-            chapter_matches = re.findall(
-                r'第[一二三四五六七八九十百千万\d]+章',
-                project.global_outline_content
+        if generation:
+            # 方式1：从 Generation 记录读取
+            stage_data = generation.stage_data or {}
+            global_outline = stage_data.get('global_outline', '')
+            
+            # 从 stage_data 中提取单元概述（如果已完成）
+            if generation.current_stage == 'units_completed':
+                unit_summaries_content = stage_data.get('unit_summaries', '')
+                if unit_summaries_content:
+                    # 解析内容
+                    from app.services.outline_generator import OutlineGenerator
+                    generator = OutlineGenerator(db)
+                    parse_result = generator.parse_unit_summaries(
+                        unit_summaries_content, 100, content_type
+                    )
+                    existing_parsed = parse_result
+            
+            # 从 input_params 获取 content_type
+            input_params = generation.input_params or {}
+            content_type = input_params.get('content_type', 'novel')
+            
+            # [2026-05-05] 修复：章节数提取支持章/集/场三种单元类型
+            if global_outline:
+                chapter_matches = re.findall(
+                    r'第[一二三四五六七八九十百千万\d]+[章节集场]',
+                    global_outline
+                )
+                if chapter_matches:
+                    expected_count = len(set(chapter_matches))
+        else:
+            # 方式2：从 NovelProject 记录读取
+            query = select(NovelProject).where(
+                NovelProject.id == generation_id_or_project_id,
+                NovelProject.user_id == current_user.id
             )
-            if chapter_matches:
-                expected_count = len(set(chapter_matches))
+            result = await db.execute(query)
+            project = result.scalar_one_or_none()
 
-        # 获取全局大纲内容
-        global_outline = project.global_outline_content or ""
+            if not project:
+                raise ResourceNotFoundException(
+                    f"记录不存在: {generation_id_or_project_id}"
+                )
+
+            # 获取已有的单元概述数据
+            existing_parsed = project.unit_summaries or {}
+            global_outline = project.global_outline_content or ""
+            content_type = getattr(project, 'content_type', 'novel')
+            expected_count = project.total_chapters or 0
+
+            # 如果 unit_summaries 中有更多数据，以实际数量为准
+            if len(existing_parsed) > expected_count:
+                expected_count = len(existing_parsed)
+
+            # 如果预期数仍为0，尝试从全局大纲推断
+            if expected_count == 0 and global_outline:
+                # [2026-05-05] 修复：支持章/集/场三种单元类型
+                chapter_matches = re.findall(
+                    r'第[一二三四五六七八九十百千万\d]+[章节集场]',
+                    global_outline
+                )
+                if chapter_matches:
+                    expected_count = len(set(chapter_matches))
+
+        existing_count = len(existing_parsed)
 
         # 计算续生成起始位置
         start_from_unit = existing_count + 1 if existing_count > 0 else 1
 
         # 重建 existing_content 文本
         existing_content_parts = []
-        content_type = getattr(project, 'content_type', 'novel')
         unit_label = '章' if content_type == 'novel' else '集' if content_type in (
             'series_script', 'series_outline') else '场'
 
@@ -904,9 +953,20 @@ def register_outline_routes(router: APIRouter):
             title = unit_data.get("title", "")
             summary = unit_data.get("summary", "")
             full_content = unit_data.get("full_content", "") or summary
-            existing_content_parts.append(
-                f"### 第{unit_num}{unit_label}：{title}\n{full_content}"
-            )
+            # [2026-05-05] 修复：根据content_type使用正确的标题格式，与_build_revised_content保持一致
+            # novel: ### 第N章：标题 / series: **第N集：标题** / movie: **第N场：标题**
+            if content_type == 'novel':
+                existing_content_parts.append(
+                    f"### 第{unit_num}章：{title}\n\n{full_content}"
+                )
+            elif content_type in ('movie_script', 'movie_outline'):
+                existing_content_parts.append(
+                    f"**第{unit_num}场：{title}**\n\n{full_content}"
+                )
+            else:
+                existing_content_parts.append(
+                    f"**第{unit_num}集：{title}**\n\n{full_content}"
+                )
         existing_content = "\n\n".join(existing_content_parts)
 
         # 判断是否可以续生成
@@ -916,8 +976,7 @@ def register_outline_routes(router: APIRouter):
             success=True,
             message="断点信息获取成功",
             data={
-                "project_id": project_id,
-                "project_title": project.title or "未命名项目",
+                "generation_id_or_project_id": generation_id_or_project_id,
                 "content_type": content_type,
                 "existing_count": existing_count,
                 "expected_count": expected_count,

@@ -1038,7 +1038,9 @@ class RevisionAutoMixin:
         Returns:
             完整的单元概述文本
         """
-        unit_label = "章" if content_type == "novel" else "集"
+        # [2026-05-05] 修复：使用完整映射字典，电影类型使用"场"标签
+        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场",
+                      "movie_outline": "场", "series_outline": "集"}.get(content_type, "章")
         lines = []
 
         # 推断每个单元应使用的标题格式
@@ -1068,11 +1070,17 @@ class RevisionAutoMixin:
                     unit_num=unit_num, title=title, unit_label=unit_label))
             elif content_type == "novel":
                 lines.append(f"### 第{unit_num}章：{title}")
+            elif content_type in ("movie_script", "movie_outline"):
+                # [2026-05-05] 修复：电影使用"场"标签，统一**包裹格式
+                lines.append(f"**第{unit_num}场：{title}**")
             else:
-                lines.append(f"**第{unit_num}集**：{title}")
+                # [2026-05-05] 修复：剧集使用"集"标签，统一**包裹格式（前端解析器匹配）
+                lines.append(f"**第{unit_num}集：{title}**")
 
+            # [2026-05-05] 修复：标题和内容之间必须有空行，否则Markdown渲染时会合并到同一行
+            lines.append("")  # 标题后空行
             lines.append(content_to_use)
-            lines.append("")  # 空行分隔
+            lines.append("")  # 单元之间空行分隔
 
         return "\n".join(lines)
 

@@ -21,7 +21,8 @@ class UnitSummaryResumeContextMixin:
         2. 详细参考：前5章完整梗概 + 结构化上下文（角色状态、情节线、情感基调、直接衔接点）
         3. 续生成指令：明确的接续起点、情节衔接、伏笔回收和连贯性要求
         """
-        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场",
+                      "movie_outline": "场", "series_outline": "集"}.get(
             content_type, "章"
         )
 
@@ -73,8 +74,12 @@ class UnitSummaryResumeContextMixin:
                 # 优先使用 full_content 中的梗概部分
                 if full_content and len(full_content) > len(summary) + 50:
                     import re
+                    # [2026-05-05] 修复：根据 content_type 使用正确的梗概标签
+                    # novel→本章梗概, series→本集梗概, movie→本场梗概
+                    summary_label = {"novel": "本章", "series_script": "本集", "series_outline": "本集",
+                                     "movie_script": "本场", "movie_outline": "本场"}.get(content_type, "本章")
                     summary_match = re.search(
-                        r'\*\*本章梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|$)',
+                        rf'\*\*{summary_label}梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|$)',
                         full_content, re.DOTALL
                     )
                     if summary_match:
@@ -155,7 +160,8 @@ class UnitSummaryResumeContextMixin:
     ) -> str:
         """构建续生成的提示词"""
         if not unit_label:
-            unit_label = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+            unit_label = {"novel": "章", "series_script": "集", "movie_script": "场",
+                          "movie_outline": "场", "series_outline": "集"}.get(
                 content_type, "章"
             )
 
@@ -165,13 +171,17 @@ class UnitSummaryResumeContextMixin:
             "global_outline": global_outline + "\n\n" + context_prefix,
             "chapter_count": str(units_to_generate),
             "episode_count": str(units_to_generate),
+            "scene_count": str(units_to_generate),
             "series_type": series_type or "网剧",
+            "movie_type": series_type or "电影",
             "episode_duration_range": episode_duration_range or "30-45分钟",
+            "duration_range": episode_duration_range or "90-120分钟",
+            "script_mode": "virtual",
             "unit_label": unit_label  # 新增：单元标签变量
         }
 
         # 生成标题风格指导文本（新增）
-        if content_type == "novel" and title_style:
+        if title_style:
             from app.agents.writing.prompts.title_style_guidance import get_title_style_guidance
             title_style_guidance = get_title_style_guidance(
                 title_style, title_style_name or "")
@@ -189,31 +199,31 @@ class UnitSummaryResumeContextMixin:
         # 章节边界识别机制（v4.0正向版）- 放在全局大纲之前
         boundary_constraint_resume = f"""# 章节边界指引（请首先阅读）
 
-## 全局大纲中的分章结构
+## 全局大纲中的单元内容规划
 
-全局大纲包含【分章大纲】部分，其中为每个章节分配了专属内容。在开始创作之前，请先做以下工作：
+全局大纲包含【单元内容规划】部分，其中为每个单元分配了专属内容。在开始创作之前，请先做以下工作：
 
-### 第一步：定位分章大纲
-在全局大纲中找到【分章大纲】部分，这是每个章节最细粒度的内容分配。
+### 第一步：定位单元内容规划
+在全局大纲中找到【单元内容规划】部分，这是每个单元最细粒度的内容分配。
 
-### 第二步：建立章节内容映射
-为每个章节建立明确的内容归属，例如：
+### 第二步：建立单元内容映射
+为每个单元建立明确的内容归属，例如：
 
-| 章节范围 | 本章专属内容 |
+| 单元范围 | 本单元专属内容 |
 |---------|------------|
 | 第1-10章 | 主角初入江湖，结识伙伴 |
 | 第11-30章 | 江湖历练，逐渐成长 |
 | 第91-98章 | 战前部署，各方势力集结 |
 | 第99-100章 | 平播之战一触即发。第一部完。 |
 
-### 第三步：逐章细化原则
-- 每一章只展开其编号范围内分章大纲分配的内容
+### 第三步：逐单元细化原则
+- 每个单元只展开其编号范围内【单元内容规划】分配的内容
 - 第98章只写到"战前准备完毕，即将开战"为止
 - 第99章开始才展开平播之战的实际过程
-- 如果分章大纲中某个事件在第50章才出现，在第30章时仅为该事件做铺垫和伏笔
+- 如果【单元内容规划】中某个事件在第50章才出现，在第30章时仅为该事件做铺垫和伏笔
 
 ### 核心创作原则
-你的创造性体现在**如何写**（场景描写、对话设计、情感渲染），而非**写什么**（事件、角色、结果——这些由分章大纲决定）。
+你的创造性体现在**如何写**（场景描写、对话设计、情感渲染），而非**写什么**（事件、角色、结果——这些由【单元内容规划】决定）。
 
 ---
 
@@ -225,6 +235,164 @@ class UnitSummaryResumeContextMixin:
         filled_prompt = boundary_constraint_resume + filled_prompt
 
         # 添加续生成指引（v4.0正向版）
+        # [2026-05-05] 修复：输出格式中硬编码"章"改为使用 unit_label，
+        # 确保剧集/电影续生成时 LLM 输出正确的格式术语（集/场）
+        # 构建内容类型特定的输出格式
+        is_movie = content_type in ("movie_script", "movie_outline")
+        is_series = content_type in ("series_script", "series_outline")
+
+        if is_movie:
+            output_format = f"""```
+**第{start_from_unit}{unit_label}：[场景标题]**
+
+**场景信息**：
+- 地点：[内景/外景 具体地点]
+- 时间：[日/夜/晨/暮]
+- 在场角色：[主要角色]
+
+**本场梗概**：[本场情节概述]
+
+**情节要点**：
+- 开篇情境：[本场开头的场景/情境]
+- 核心冲突：[本场的主要矛盾]
+- 关键转折：[本场的重要转折点]
+
+**本场看点**：[吸引观众的关键点]
+
+**情感基调**：[本场的情感氛围]
+
+**时长估算**：约[X]分钟
+
+**🎥 影视化指导**：
+- **镜头语言**：[本场推荐的拍摄手法和摄影机运动，如：开场用推轨建立空间/对峙用正反打特写/高潮用手持摄影增加紧张感]
+- **场景转场**：[本场与前后场的转换方式，如：切/淡入/声音先入/匹配剪辑]
+- **视觉色调**：[本场视觉风格与色调，如：冷蓝色调+低饱和度/暖金色逆光/暗绿色阴影]
+- **声音设计**：[本场声音/配乐的情感方向，如：低音弦乐营造不安/钢琴独奏烘托温情]
+
+**🔴 人物状态变化标注**：
+> 如本场有角色状态发生重要变化，必须在此明确标注：
+
+| 角色 | 变化类型 | 变化前 | 变化后 | 变化原因/事件 | 视觉呈现建议 |
+|-----|---------|-------|-------|-------------|------------|
+| [角色名] | [能力/身份/地点/性格/关系/称呼/台词风格] | [变化前] | [变化后] | [触发变化的本场情节] | [如何通过摄影/表演呈现] |
+
+*注：如本场无重要状态变化，可写"本场无重要人物状态变化"*
+
+---
+
+**第{start_from_unit + 1}{unit_label}：[场景标题]**
+
+**场景信息**：
+- 地点：...
+- 时间：...
+- 在场角色：...
+
+**本场梗概**：...
+
+**情节要点**：
+- ...
+
+**本场看点**：...
+
+**情感基调**：...
+
+**时长估算**：...
+
+**🎥 影视化指导**：
+- **镜头语言**：...
+- **场景转场**：...
+- **视觉色调**：...
+- **声音设计**：...
+
+**🔴 人物状态变化标注**：...
+
+---
+
+（继续直到第{unit_count}{unit_label}）
+```"""
+        elif is_series:
+            output_format = f"""```
+**第{start_from_unit}{unit_label}：[{unit_label}节标题]**
+
+**本集梗概**：[本集情节概述]
+
+**情节要点**：
+- 开篇情境：[本集开头的场景/情境]
+- 核心冲突：[本集的主要矛盾]
+- 关键转折：[本集的重要转折点]
+
+**本集看点**：[吸引观众的关键点]
+
+**结尾钩子**：[如何引发观众继续观看的欲望——必须设计为强悬念]
+
+**情感基调**：[本集的情感氛围]
+
+**时长分配**：约[X]分钟（必须在「{episode_duration_range or "30-45分钟"}」范围内）
+
+**🎬 影视化指导**：
+- **镜头语言**：[本集关键场景推荐的拍摄手法，如：开场用航拍建立空间感/对峙用特写+浅景深/追逐用跟拍+快速剪辑]
+- **场景转场**：[本集关键场景转换方式，如：从室内到室外用门框匹配剪辑/时间跳跃用叠化/情绪转折用声音先入]
+- **视觉色调**：[本集主视觉风格，如：冷蓝色调+高对比度/暖金色调+柔光/暗绿色调+低饱和度]
+- **节奏分配**：开场[X]分钟 → 发展[X]分钟 → 高潮[X]分钟 → 结尾[X]分钟
+
+**🔴 人物状态变化标注**：
+> 如本集有角色状态发生重要变化，必须在此明确标注：
+
+| 角色 | 变化类型 | 变化前 | 变化后 | 变化原因/事件 | 视觉呈现建议 |
+|-----|---------|-------|-------|-------------|------------|
+| [角色名] | [能力/身份/地点/性格/关系/称呼/台词风格] | [变化前] | [变化后] | [触发变化的本集情节] | [如何通过画面/表演呈现] |
+
+*注：如本集无重要状态变化，可写"本集无重要人物状态变化"*
+
+---
+
+**第{start_from_unit + 1}{unit_label}：[{unit_label}节标题]**
+
+**本集梗概**：...
+
+**情节要点**：
+- 开篇情境：...
+- 核心冲突：...
+- 关键转折：...
+
+**本集看点**：...
+
+**结尾钩子**：...
+
+**情感基调**：...
+
+**时长分配**：...
+
+**🎬 影视化指导**：
+- **镜头语言**：...
+- **场景转场**：...
+- **视觉色调**：...
+- **节奏分配**：...
+
+**🔴 人物状态变化标注**：...
+
+---
+
+（继续直到第{unit_count}{unit_label}）
+```"""
+        else:
+            # novel: 简洁格式但保持**标记
+            output_format = f"""```
+**第{start_from_unit}{unit_label}：[{unit_label}节标题]**
+
+**本章梗概**：[本章情节概述]
+
+---
+
+**第{start_from_unit + 1}{unit_label}：[{unit_label}节标题]**
+
+**本章梗概**：[本章情节概述]
+
+---
+
+（继续直到第{unit_count}{unit_label}）
+```"""
+
         filled_prompt += f"""
 
 ---
@@ -232,58 +400,48 @@ class UnitSummaryResumeContextMixin:
 ## 续生成指引
 
 ### 当前进度
-- **已完成**：第1-{start_from_unit - 1}{unit_label}（共{start_from_unit - 1}章）
-- **本次任务**：生成第{start_from_unit}-{unit_count}{unit_label}（共{units_to_generate}章）
+- **已完成**：第1-{start_from_unit - 1}{unit_label}（共{start_from_unit - 1}{unit_label}）
+- **本次任务**：生成第{start_from_unit}-{unit_count}{unit_label}（共{units_to_generate}{unit_label}）
 
 ### 生成规则
-1. 从第{start_from_unit}{unit_label}开始，按顺序逐章生成到第{unit_count}{unit_label}
-2. 恰好生成{units_to_generate}个章节，编号连续：{start_from_unit}, {start_from_unit + 1}, {start_from_unit + 2}, ..., {unit_count}
+1. 从第{start_from_unit}{unit_label}开始，按顺序逐{unit_label}生成到第{unit_count}{unit_label}
+2. 恰好生成{units_to_generate}个{unit_label}节，编号连续：{start_from_unit}, {start_from_unit + 1}, {start_from_unit + 2}, ..., {unit_count}
 
 ### 衔接要求
-- 第{start_from_unit}{unit_label}从上一章结尾情境自然延续发展
+- 第{start_from_unit}{unit_label}从前一{unit_label}结尾情境自然延续发展
 - 人物状态、关系发展与前文保持一致
-- 前文埋下的伏笔和线索在后续章节中继续推进或回收
+- 前文埋下的伏笔和线索在后续{unit_label}节中继续推进或回收
 - 参考全局大纲中第{start_from_unit}-{unit_count}{unit_label}的情节分配
 
-### 逐章细化指南
+### 逐{unit_label}细化指南
 
-你的任务是**将分章大纲细化为详细的章节概述**，以下原则帮助你在正确的范围内创作：
+你的任务是**将【单元内容规划】细化为详细的单元概述**，以下原则帮助你在正确的范围内创作：
 
 1. **忠于大纲内容**
-   - 分章大纲中已列出的事件，你负责细化、展开和丰富
-   - 分章大纲中的人物、地点、事件走向均已确定，你负责将它们写得更生动
+   - 【单元内容规划】中已列出的事件，你负责细化、展开和丰富
+   - 【单元内容规划】中的人物、地点、事件走向均已确定，你负责将它们写得更生动
 
 2. **尊重内容归属**
-   - 每个章节只涵盖其编号范围内分章大纲分配的内容
-   - 例如：分章大纲中"第99-100章：平播之战一触即发"意味着第98章写到"战前准备完毕"即可
-   - 例如：分章大纲中某个事件在第50章才出现，在第5章时只需为该事件做铺垫
+   - 每个单元只涵盖其编号范围内【单元内容规划】分配的内容
+   - 例如：【单元内容规划】中"第99-100{unit_label}：平播之战一触即发"意味着第98{unit_label}写到"战前准备完毕"即可
+   - 例如：【单元内容规划】中某个事件在第50{unit_label}才出现，在第5{unit_label}时只需为该事件做铺垫
 
 3. **创造性范围**
    - 你可以发挥创造力的地方：场景如何描写、对话如何设计、情感如何渲染
-   - 由分章大纲决定的地方：发生什么事件、谁参与、事件的结果
+   - 由【单元内容规划】决定的地方：发生什么事件、谁参与、事件的结果
 
-4. **逐章自查指南**
-   - 本章的编号范围在分章大纲中对应什么内容？
+4. **逐单元自查指南**
+   - 本单元的编号范围在【单元内容规划】中对应什么内容？
    - 我写的内容是否恰好覆盖了这些内容？
-   - 下一章将展开的事件，本章是否做好了合理的铺垫和过渡？
+   - 下一单元将展开的事件，本单元是否做好了合理的铺垫和过渡？
 
 ### 输出完整性保障
-- 当你感知到输出即将达到token上限时，确保最后一个章节概述是**完整**的
-- 如果无法完成下一章完整概述，在当前章节完成后停止
-- 未生成的章节可通过续生成机制补全
+- 当你感知到输出即将达到token上限时，确保最后一个单元概述是**完整**的
+- 如果无法完成下一单元完整概述，在当前单元完成后停止
+- 未生成的单元可通过续生成机制补全
 
 ### 输出格式
-```
-第{start_from_unit}章 [章节标题]
-梗概：[本章情节概述]
-...
-
-第{start_from_unit + 1}章 [章节标题]
-梗概：[本章情节概述]
-...
-
-（继续直到第{unit_count}章）
-```
+{output_format}
 """
 
         return filled_prompt
@@ -314,7 +472,8 @@ class UnitSummaryResumeContextMixin:
         Returns:
             结构化上下文字典
         """
-        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场",
+                      "movie_outline": "场", "series_outline": "集"}.get(
             content_type, "章"
         )
 
@@ -437,8 +596,11 @@ class UnitSummaryResumeContextMixin:
         last_full_content = last_unit.get('full_content', '')
         if last_full_content and len(last_full_content) > len(last_summary) + 50:
             # full_content 更丰富，提取梗概部分作为衔接参考
+            # [2026-05-05] 修复：根据 content_type 使用正确的梗概标签
+            summary_label = {"novel": "本章", "series_script": "本集", "series_outline": "本集",
+                             "movie_script": "本场", "movie_outline": "本场"}.get(content_type, "本章")
             summary_match = re.search(
-                r'\*\*本章梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|$)',
+                rf'\*\*{summary_label}梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|$)',
                 last_full_content, re.DOTALL
             )
             if summary_match:

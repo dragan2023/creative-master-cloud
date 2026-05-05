@@ -23,6 +23,10 @@ export function useUnitSummariesGeneration(deps) {
     startFromUnit,
     showStartUnitDialog,
     expectedUnitCount,
+    backendResumeInfo,
+    logicChecking,
+    logicCheckResult,
+    generationId,
     handleWorkflowEvent,
   } = deps
 
@@ -74,6 +78,7 @@ export function useUnitSummariesGeneration(deps) {
           temperature: 0.3,  // 降低到0.3，减少创造性，增强对全局大纲的遵循性（v2.5）
           enable_quality_control: true,  // 启用3维质量管控
           qc_mode: 'auto',  // 始终自动修正（v3.0）
+          project_id: generationId?.value || null,  // [2026-05-05] 传递project_id使后端能保存到NovelProject.unit_summaries
           // 标题风格参数
           title_style: titleStyleData.value.styleId || null,
           title_style_name: titleStyleData.value.styleName || null,
@@ -95,13 +100,13 @@ export function useUnitSummariesGeneration(deps) {
       )
 
       if (result && !result.cancelled) {
-        unitSummaries.value = parseUnitSummariesFromContent(result.content)
+        unitSummaries.value = parseUnitSummariesFromContent(result.content, toBackendContentType(type.value))
         outlineStage.value = 4
         ElMessage.success('单元概述生成完成')
       } else if (result && result.cancelled) {
         ElMessage.info('生成已取消')
         if (result.content) {
-          unitSummaries.value = parseUnitSummariesFromContent(result.content)
+          unitSummaries.value = parseUnitSummariesFromContent(result.content, toBackendContentType(type.value))
           outlineStage.value = 4
         } else {
           outlineStage.value = 2
@@ -275,6 +280,7 @@ export function useUnitSummariesGeneration(deps) {
         existing_content: generatedContent.value || '',
         existing_parsed: unitSummaries.value,
         start_from_unit: startFrom,
+        project_id: generationId?.value || null,  // [2026-05-05] 传递project_id使后端能保存locked_chapters
         title_style: titleStyleData.value.styleId || null,
         title_style_name: titleStyleData.value.styleName || null,
       }
@@ -306,7 +312,7 @@ export function useUnitSummariesGeneration(deps) {
       )
 
       if (result && !result.cancelled) {
-        const allParsed = parseUnitSummariesFromContent(result.content)
+        const allParsed = parseUnitSummariesFromContent(result.content, toBackendContentType(type.value))
         const mergedSummaries = { ...unitSummaries.value }
         for (const [num, unit] of Object.entries(allParsed)) {
           if (!mergedSummaries[num]) {
@@ -332,7 +338,7 @@ export function useUnitSummariesGeneration(deps) {
       } else if (result && result.cancelled) {
         ElMessage.info('续生成已取消')
         if (result.content) {
-          const partialParsed = parseUnitSummariesFromContent(result.content)
+          const partialParsed = parseUnitSummariesFromContent(result.content, toBackendContentType(type.value))
           const mergedSummaries = { ...unitSummaries.value }
           for (const [num, unit] of Object.entries(partialParsed)) {
             if (!mergedSummaries[num]) {
@@ -423,6 +429,7 @@ export function useUnitSummariesGeneration(deps) {
         existing_content: existing_content || '',
         existing_parsed: existing_parsed,
         start_from_unit: start_from_unit,
+        project_id: generationId?.value || null,  // [2026-05-05] 传递project_id使后端能保存locked_chapters
         title_style: titleStyleData.value.styleId || null,
         title_style_name: titleStyleData.value.styleName || null,
       }
@@ -454,7 +461,7 @@ export function useUnitSummariesGeneration(deps) {
       )
 
       if (result && !result.cancelled) {
-        const allParsed = parseUnitSummariesFromContent(result.content)
+        const allParsed = parseUnitSummariesFromContent(result.content, toBackendContentType(type.value))
         const mergedSummaries = { ...unitSummaries.value }
         for (const [num, unit] of Object.entries(allParsed)) {
           if (!mergedSummaries[num]) {
@@ -483,7 +490,7 @@ export function useUnitSummariesGeneration(deps) {
       } else if (result && result.cancelled) {
         ElMessage.info('续生成已取消')
         if (result.content) {
-          const partialParsed = parseUnitSummariesFromContent(result.content)
+          const partialParsed = parseUnitSummariesFromContent(result.content, toBackendContentType(type.value))
           const mergedSummaries = { ...unitSummaries.value }
           for (const [num, unit] of Object.entries(partialParsed)) {
             if (!mergedSummaries[num]) {
@@ -582,6 +589,9 @@ export function useUnitSummariesGeneration(deps) {
           existing_content: generatedContent.value || '',
           existing_parsed: unitSummaries.value,
           start_from_unit: startFromUnit.value,
+          project_id: generationId?.value || null,  // [2026-05-05] 传递project_id使后端能保存locked_chapters
+          title_style: titleStyleData.value.styleId || null,
+          title_style_name: titleStyleData.value.styleName || null,
         },
         (chunk, fullContent) => {
           generatedContent.value = fullContent
@@ -600,7 +610,7 @@ export function useUnitSummariesGeneration(deps) {
       )
 
       if (result && !result.cancelled) {
-        const newUnits = parseUnitSummariesFromContent(result.content)
+        const newUnits = parseUnitSummariesFromContent(result.content, toBackendContentType(type.value))
         for (const [num, unit] of Object.entries(newUnits)) {
           const actualNum = parseInt(num) + startFromUnit.value - 1
           unitSummaries.value[actualNum.toString()] = {

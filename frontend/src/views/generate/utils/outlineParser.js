@@ -34,7 +34,7 @@ export function parseChapterCountFromOutline(outlineContent) {
   }
   
   // 如果没有找到明确标识，尝试找最大的章节号
-  const chapterPattern = /第(\d+)章/g
+  const chapterPattern = /第(\d+)(?:章|集|场)/g
   let maxChapter = 0
   let match
   while ((match = chapterPattern.exec(outlineContent)) !== null) {
@@ -45,50 +45,65 @@ export function parseChapterCountFromOutline(outlineContent) {
   }
   
   if (maxChapter > 0) {
-    console.log(`[ParseOutline] 从大纲中找到最大章节号: ${maxChapter}`)
+    console.log(`[ParseOutline] 从大纲中找到最大单元号: ${maxChapter}`)
     return maxChapter
   }
   
-  console.log(`[ParseOutline] 未能从大纲中解析到章节数`)
+  console.log(`[ParseOutline] 未能从大纲中解析到单元数`)
   return null
 }
 
 /**
  * 从生成内容中解析单元概述
  * @param {string} content - 生成的单元概述内容
+ * @param {string} contentType - 可选的内容类型 (novel/series_outline/movie_outline/...)，用于精确判断单元字符
  * @returns {Object} 键为单元号的单元概述对象
  */
-export function parseUnitSummariesFromContent(content) {
+export function parseUnitSummariesFromContent(content, contentType) {
   const result = {}
-  const isMovie = content.includes('场') && !content.includes('集')
-  
-  // v2.4: 支持加粗标记的章节标题，兼容 ### **第X章：** 和 ### 第X章：
-  const pattern = isMovie 
-    ? /\*\*第(\d+)场[：:]\s*(.+?)(?:\n|$)/g
-    : /###\s*\*{0,2}\s*第(\d+)(?:章|集)\s*\*{0,2}[：:]\s*(.+?)(?:\n|$)/g
-  
+  if (!content) return result
+
+  // [2026-05-05] 修复：优先使用显式content_type，回退到基于内容推测
+  const isMovie = contentType
+    ? contentType.includes('movie')
+    : (content.includes('场') && !content.includes('集'))
+  const isSeries = contentType
+    ? contentType.includes('series')
+    : (content.includes('集') && !content.includes('场'))
+  const unitChar = isMovie ? '场' : (isSeries ? '集' : '章')
+
+  // [2026-05-05] 修复：支持**第N集**：和**第N集：**两种bold格式
+  // ### 第N章：、**第N集**：、**第N集：、第N场**：、第N集：（纯文本）
+  const pattern = new RegExp(
+    `(?:###\\s*|\\*\\*)\\s*第(\\d+)${unitChar}(?:\\*\\*)?[：:]\\s*(.+?)(?:\\n|$)`,
+    'g'
+  )
+
   let match
   while ((match = pattern.exec(content)) !== null) {
     const unitNum = parseInt(match[1])
-    const title = match[2].trim()
-    
-    // 提取梗概
-    const summaryPattern = isMovie
-      ? new RegExp(`\\*\\*本场梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`, 's')
-      : new RegExp(`\\*\\*本(?:章|集)梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`, 's')
-    
+    // [2026-05-05] 修复：去除标题末尾可能残留的**标记
+    let title = match[2].trim().replace(/\*\*$/, '').trim()
+
+    // 提取梗概（根据单元类型使用不同的梗概标签）
+    const summaryLabel = isMovie ? '本场' : (isSeries ? '本集' : '本章')
+    const summaryPattern = new RegExp(
+      `\\*\\*${summaryLabel}梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`,
+      's'
+    )
+
     const summaryMatch = content.slice(match.index, match.index + 500).match(summaryPattern)
     const summary = summaryMatch ? summaryMatch[1].trim() : ''
-    
-    // v2.1: 提取完整单元内容（从当前单元到下一单元之间）
-    const nextUnitPattern = isMovie
-      ? new RegExp(`\\*\\*第${unitNum + 1}场`)
-      : new RegExp(`###\\s*第${unitNum + 1}(?:章|集)`)
+
+    // [2026-05-05] 修复：匹配下一个单元边界，使用动态unitChar
+    const nextUnitPattern = new RegExp(
+      `(?:###\\s*|\\*\\*)\\s*第${unitNum + 1}${unitChar}`
+    )
     const nextMatch = content.slice(match.index).search(nextUnitPattern)
-    const fullContent = nextMatch > 0 
+    const fullContent = nextMatch > 0
       ? content.slice(match.index, match.index + nextMatch).trim()
       : content.slice(match.index).trim()
-    
+
     result[unitNum.toString()] = {
       unit_id: `unit-${unitNum}-${Date.now().toString(36)}`,
       unit_number: unitNum,
@@ -98,6 +113,6 @@ export function parseUnitSummariesFromContent(content) {
       status: 'completed'
     }
   }
-  
+
   return result
 }

@@ -27,8 +27,9 @@ class AtomicChapterGeneratorMixin:
     MAX_BOUNDARY_RETRIES = 2
     LOCKED_CONTEXT_WINDOW = 5
     BOUNDARY_VIOLATION_TEMPERATURE_DELTA = 0.1
-    LLM_429_MAX_RETRIES = 3
-    LLM_429_BASE_DELAY = 5
+    # [2026-05-05] 从 LLM_429_* 重命名为 LLM_RETRY_*，扩展覆盖 RemoteProtocolError 等网络断联错误
+    LLM_RETRY_MAX_ATTEMPTS = 3
+    LLM_RETRY_BASE_DELAY = 5
 
     async def generate_all_chapters_atomic(
         self,
@@ -111,7 +112,7 @@ class AtomicChapterGeneratorMixin:
                             0.1, temperature -
                             retry * self.BOUNDARY_VIOLATION_TEMPERATURE_DELTA)
 
-                    llm_response = await self._call_llm_with_429_retry(
+                    llm_response = await self._call_llm_with_retry(
                         llm_provider=llm_provider,
                         prompt=prompt if retry == 0 else
                         self._add_boundary_retry_instruction(
@@ -278,38 +279,199 @@ class AtomicChapterGeneratorMixin:
             title_guidance = get_title_style_guidance(
                 title_style, title_style_name or "")
 
+        # [2026-05-05] 修复：根据 content_type 使用正确的梗概标签
+        # novel→本章梗概, series→本集梗概, movie→本场梗概
+        summary_label = {"novel": "本章", "series_script": "本集", "series_outline": "本集",
+                         "movie_script": "本场", "movie_outline": "本场"}.get(content_type, "本章")
+
+        # [2026-05-05] 新增：剧集/电影的专属专业要求（嵌入到输出格式示例中）
+        content_type_guidance = ""
+        if content_type in ("series_script", "series_outline"):
+            content_type_guidance = f"""
+
+# 📺 剧集专属输出格式要求
+
+除上述基础格式外，剧集概述**必须**包含以下专业要素：
+
+## 1. 场景划分（必填）
+在梗概开头或情节要点中标注场景信息：
+- 场景1：[室内/室外] [日/夜] [地点]
+- 场景2：[室内/室外] [日/夜] [地点]
+- ...
+
+## 2. 集内结构（必填）
+- **开头**：[承接上集悬念/开启新线索]
+- **中段**：[核心冲突展开，多条线索交织]
+- **结尾**：[制造悬念或留下思考空间]
+
+## 3. 视听语言提示（必填，至少2处）
+在情节要点或梗概中标注关键镜头：
+- [特写/跟拍/广角/俯拍/仰拍] [描述画面]
+- 例："[特写镜头] 孙昭龙的眼神从迷茫转为坚定"
+
+## 4. 时长控制
+本集时长控制在{episode_duration_range or '30-45分钟'}，确保情节紧凑不拖
+
+## 5. 类型特征
+{series_type or '网剧'}类型应突出其独特的叙事风格和题材特征
+
+---
+
+### ✅ 剧集输出示例：
+
+### 第1集：穿越山林，医者初现
+
+**本集梗概**：[200-500字情节概要]
+
+**场景划分**：
+- 场景1：[外景] [夜] [播州山林]
+- 场景2：[内景] [日] [聚英村]
+- 场景3：[内景] [夜] [秦家营帐]
+
+**集内结构**：
+- **开头**：孙昭龙穿越至古代山林，遭遇野猪袭击
+- **中段**：被秦家车队所救，秦良玉突发疫病
+- **结尾**：孙昭龙施救成功，但身份成谜，留下悬念
+
+**视听语言提示**：
+- [跟拍镜头] 孙昭龙在山林中奔跑，镜头晃动增加紧张感
+- [特写] 听诊器贴到秦良玉胸前，展现现代医疗工具与古代环境的强烈反差
+- [广角] 聚英村全貌，萧瑟破败的氛围
+
+- **情节要点**：
+  1. ...
+  2. ...
+  ...
+
+- **人物状态标注**：
+  - ...
+
+- **核心冲突**：...
+
+- **关键转折**：...
+
+- **【集专属事件清单】**：
+  1. ...
+  2. ...
+  ...
+"""
+        elif content_type in ("movie_script", "movie_outline"):
+            content_type_guidance = f"""
+
+# 🎬 电影专属输出格式要求
+
+除上述基础格式外，电影概述**必须**包含以下专业要素：
+
+## 1. 场次划分（必填）
+本场应包含完整的起承转合，标注场景信息：
+- 开场场景：[室内/室外] [日/夜] [地点]
+- 发展场景：[室内/室外] [日/夜] [地点]
+- 高潮场景：[室内/室外] [日/夜] [地点]
+- 结局场景：[室内/室外] [日/夜] [地点]
+
+## 2. 场次结构（必填）
+- **开场**：[建立场景氛围，引入冲突或悬念]
+- **发展**：[矛盾升级，角色关系变化]
+- **高潮**：[冲突爆发或关键转折]
+- **结局**：[场景收尾，为下一场铺垫]
+
+## 3. 视听呈现（必填，至少3处）
+标注关键镜头语言：
+- [特写/长镜头/蒙太奇/跟拍/俯拍/仰拍] [描述画面]
+- 例："[长镜头] 角色从房间一端走到另一端，展现内心挣扎"
+
+## 4. 时长控制
+本场时长控制在{episode_duration_range or '10-15分钟'}，确保节奏紧凑
+
+## 5. 戏剧张力
+本场应有明确的戏剧冲突和情感高潮
+
+## 6. 类型特征
+{series_type or '电影'}类型应突出其独特的叙事风格和题材特征
+
+---
+
+### ✅ 电影输出示例：
+
+### 第1场：雨夜惊魂
+
+**本场梗概**：[200-500字情节概要]
+
+**场次结构**：
+- **开场**：[外景] [夜] [雨夜街道]，主角独行，氛围压抑
+- **发展**：[内景] [夜] [废弃仓库]，发现线索，紧张升级
+- **高潮**：[内景] [夜] [仓库地下室]，与反派正面冲突
+- **结局**：[外景] [黎明] [街道]，暂时脱险，但留下悬念
+
+**视听呈现**：
+- [跟拍镜头] 主角在雨夜中奔跑，雨水模糊视线，增加紧迫感
+- [特写] 反派手中的凶器，展现威胁感
+- [长镜头] 角色从仓库一端逃到另一端，无剪辑增强真实感
+- [蒙太奇] 快速切换主角和反派的行动，制造紧张节奏
+
+- **情节要点**：
+  1. ...
+  2. ...
+  ...
+
+- **人物状态标注**：
+  - ...
+
+- **核心冲突**：...
+
+- **关键转折**：...
+
+- **【场专属事件清单】**：
+  1. ...
+  2. ...
+  ...
+"""
+
         return f"""# 任务：创作第{chapter_num}{unit_label}的详细单元概述
 
 # 全局大纲参考
 {global_reference}
 
-# 本章专属大纲（仅本章内容，严格据此创作）
+# {unit_label}专属大纲（仅{unit_label}内容，严格据此创作）
 {chapter_outline_segment}
 
-# 本章边界说明
+# {unit_label}边界说明
 {boundary_context}
 
 # 前文摘要（已生成完毕，仅供参考衔接）
 {locked_context}
 
-# 上一章结尾衔接点
+# 上一{unit_label}结尾衔接点
 {last_ending}
 
-# 本章创作指引
-1. 本章应专注于上述「本章专属大纲」和「本章边界说明」中描述的内容
-2. 从上一章结尾状态自然过渡，保持叙事连贯
+# {unit_label}创作指引
+1. {unit_label}应专注于上述「{unit_label}专属大纲」和「{unit_label}边界说明」中描述的内容
+2. 从上一{unit_label}结尾状态自然过渡，保持叙事连贯
 3. 在内容范围内尽情发挥创造力，细化场景描写、对话设计和情感渲染
-4. 结尾自然为下一章做好铺垫和过渡
-5. 在完成梗概后，列出本章专属的核心事件清单，便于后续质量核查
-6. ⚠️ 请严格核对全局大纲中的角色姓名、地点名称等关键信息，确保完全一致
+4. 结尾自然为下一{unit_label}做好铺垫和过渡
+5. 在完成梗概后，列出{unit_label}专属的核心事件清单，便于后续质量核查
+6. ️ 请严格核对全局大纲中的角色姓名、地点名称等关键信息，确保完全一致
 {title_guidance}
 
 # 输出格式
 请按以下格式输出第{chapter_num}{unit_label}的完整概述：
 
+🚨 **硬性格式要求——标题和梗概必须分行！**
+- 标题独占一行：`### 第{chapter_num}{unit_label}：[标题]`
+- 下一行必须是空行
+- 再下一行才是梗概：`**{summary_label}梗概**：[内容]`
+- ❌ 错误格式：`### 第{chapter_num}{unit_label}：标题 {summary_label}梗概：内容` （放在同一行）
+- ✅ 正确格式：
+  ```
+  ### 第{chapter_num}{unit_label}：[标题]
+  
+  **{summary_label}梗概**：[内容]
+  ```
+{content_type_guidance}
+
 ### 第{chapter_num}{unit_label}：[标题]
 
-**本章梗概**：[200-500字的本章情节概要]
+**{summary_label}梗概**：[200-500字的{unit_label}情节概要]
 
 - **情节要点**：
   1. [情节要点1]
@@ -323,7 +485,7 @@ class AtomicChapterGeneratorMixin:
 
 - **关键转折**：[本章的关键情节点或转折]
 
-- **【本章专属事件清单】**：
+- **【{unit_label}专属事件清单】**：
   1. [本章发生的核心事件1]
   2. [本章发生的核心事件2]
   ...（列出本章覆盖的所有关键事件，用于后续边界验证）
@@ -396,14 +558,18 @@ class AtomicChapterGeneratorMixin:
             query_parts.append("前文摘要：" + " | ".join(recent_entities[-3:]))
         return " ".join(query_parts)
 
-    async def _call_llm_with_429_retry(
+    async def _call_llm_with_retry(
         self,
         llm_provider,
         prompt: str,
         temperature: float,
         context: str = "",
     ):
-        """调用LLM生成并自动处理429限流错误（指数退避重试）
+        """调用LLM生成并自动处理限流和网络断联错误（指数退避重试）
+
+        遇到以下错误时自动重试：
+        - 429 限流错误
+        - httpx.RemoteProtocolError / 网络断联错误
 
         Args:
             llm_provider: LLM提供商实例
@@ -415,29 +581,32 @@ class AtomicChapterGeneratorMixin:
             LLM响应对象
 
         Raises:
-            Exception: 非429错误直接抛出；429错误重试耗尽后抛出
+            Exception: 非可重试错误直接抛出；重试耗尽后抛出最后一次异常
         """
+        from app.utils.llm_retry import is_network_error, is_rate_limit_error
+
         ctx_suffix = f" | {context}" if context else ""
-        for attempt in range(self.LLM_429_MAX_RETRIES):
+        for attempt in range(self.LLM_RETRY_MAX_ATTEMPTS):
             try:
                 return await llm_provider.generate(
                     prompt=prompt, temperature=temperature)
             except Exception as e:
-                error_str = str(e)
-                is_429 = any(kw in error_str for kw in (
-                    '429', 'TooManyRequests', 'ServerOverloaded', 'rate_limit'))
-                if not is_429:
+                should_retry = is_rate_limit_error(e) or is_network_error(e)
+                if not should_retry:
                     raise
-                if attempt < self.LLM_429_MAX_RETRIES - 1:
-                    wait_time = self.LLM_429_BASE_DELAY * (2 ** attempt)
+                if attempt < self.LLM_RETRY_MAX_ATTEMPTS - 1:
+                    wait_time = self.LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                    error_type = "限流" if is_rate_limit_error(e) else "网络断联"
                     self.logger.warning(
-                        f"[原子化生成] LLM返回429限流错误{ctx_suffix}，"
-                        f"第{attempt + 1}次重试，等待{wait_time}秒...")
+                        f"[原子化生成] LLM{error_type}错误{ctx_suffix}，"
+                        f"第{attempt + 1}次重试，等待{wait_time}秒..."
+                        f"{type(e).__name__}: {str(e)[:200]}")
                     await asyncio.sleep(wait_time)
                 else:
                     self.logger.error(
-                        f"[原子化生成] LLM 429限流错误{ctx_suffix}，"
-                        f"已重试{self.LLM_429_MAX_RETRIES}次仍失败")
+                        f"[原子化生成] LLM重试耗尽{ctx_suffix}，"
+                        f"已重试{self.LLM_RETRY_MAX_ATTEMPTS}次仍失败: "
+                        f"{type(e).__name__}: {str(e)[:200]}")
                     raise
 
     def _add_boundary_retry_instruction(
@@ -509,12 +678,12 @@ class AtomicChapterGeneratorMixin:
                 rf"第[{chinese_nums}\d]*{chinese_chapter}[{chinese_nums}\d]*章.*?$",
                 rf"第[{chinese_nums}\d]*{chapter_num}[{chinese_nums}\d]*章.*?$",
             ]
-        elif content_type in ("series_script", "script"):
+        elif content_type in ("series_script", "script", "series_outline"):
             patterns = [
                 rf"第[{chinese_nums}\d]*{chinese_chapter}[{chinese_nums}\d]*集[^\n]*\n(?:(?!第[{chinese_nums}\d]+集).)*",
                 rf"第[{chinese_nums}\d]*{chapter_num}[{chinese_nums}\d]*集[^\n]*\n(?:(?!第[{chinese_nums}\d]+集).)*",
             ]
-        elif content_type == "movie_script":
+        elif content_type in ("movie_script", "movie_outline"):
             patterns = [
                 rf"第[{chinese_nums}\d]*{chinese_chapter}[{chinese_nums}\d]*场[^\n]*\n(?:(?!第[{chinese_nums}\d]+场).)*",
                 rf"第[{chinese_nums}\d]*{chapter_num}[{chinese_nums}\d]*场[^\n]*\n(?:(?!第[{chinese_nums}\d]+场).)*",

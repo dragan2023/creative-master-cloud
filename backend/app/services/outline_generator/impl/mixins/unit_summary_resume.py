@@ -345,9 +345,9 @@ class UnitSummaryResumeMixin:
             start_num = min(missing_units)
             end_num = max(missing_units)
             # 统一使用content_type判断(修复:与_continue_single_unit保持一致)
-            unit_label = "章" if content_type == "novel" else (
-                "集" if content_type == "series_script" else "场"
-            )
+            # [2026-05-05] 修复：补全 movie_outline/series_outline 映射
+            unit_label = {"novel": "章", "series_script": "集", "movie_script": "场",
+                         "movie_outline": "场", "series_outline": "集"}.get(content_type, "章")
 
             prompt = f"""你是专业的创意写作顾问。
 
@@ -377,8 +377,10 @@ class UnitSummaryResumeMixin:
 
 """
             else:
-                prompt += """**第X集**：[集标题]
-**本集梗概**：[概述内容，200-300字]
+                # [2026-05-05] 修复：根据 content_type 使用正确的单元标签和梗概标签
+                summary_label = "本集" if content_type in ("series_script", "series_outline") else "本场"
+                prompt += f"""**第X{unit_label}**：[{unit_label}标题]
+**{summary_label}梗概**：[概述内容，200-300字]
 
 """
 
@@ -419,8 +421,9 @@ class UnitSummaryResumeMixin:
             前序单元参考文本
         """
         units_text = []
-        unit_label = "章" if content_type == "novel" else (
-            "集" if content_type == "series_script" else "场")
+        # [2026-05-05] 修复：补全 movie_outline/series_outline 映射
+        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场",
+                     "movie_outline": "场", "series_outline": "集"}.get(content_type, "章")
 
         # 获取最后max_units个单元
         sorted_units = sorted(parsed.items(), key=lambda x: int(x[0]))

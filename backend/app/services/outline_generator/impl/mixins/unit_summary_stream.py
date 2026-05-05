@@ -134,7 +134,7 @@ class UnitSummaryStreamMixin:
                 )
 
                 # 添加unit_label到续生成模式
-                unit_label_resume = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                unit_label_resume = {"novel": "章", "series_script": "集", "movie_script": "场", "movie_outline": "场", "series_outline": "集"}.get(
                     content_type, "章"
                 )
 
@@ -166,20 +166,24 @@ class UnitSummaryStreamMixin:
                 )
             else:
                 # 全新生成模式
-                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场", "movie_outline": "场", "series_outline": "集"}.get(
                     content_type, "章"
                 )
                 input_params = {
                     "global_outline": global_outline,
                     "chapter_count": str(unit_count),
                     "episode_count": str(unit_count),
+                    "scene_count": str(unit_count),
                     "series_type": series_type or "网剧",
+                    "movie_type": series_type or "电影",
                     "episode_duration_range": episode_duration_range or "30-45分钟",
+                    "duration_range": episode_duration_range or "90-120分钟",
+                    "script_mode": "virtual",
                     "unit_label": unit_label_stream  # 新增：单元标签变量
                 }
 
                 # 生成标题风格指导文本（新增）
-                if content_type == "novel" and title_style:
+                if title_style:
                     from app.agents.writing.prompts.title_style_guidance import get_title_style_guidance
                     title_style_guidance = get_title_style_guidance(
                         title_style, title_style_name or "")
@@ -201,36 +205,36 @@ class UnitSummaryStreamMixin:
                 )
                 
                 # 章节边界识别机制（v4.0正向版）- 放在全局大纲之前
-                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场", "movie_outline": "场", "series_outline": "集"}.get(
                     content_type, "章"
                 )
                 boundary_constraint_stream = f"""# 章节边界指引（请首先阅读）
 
-## 全局大纲中的分章结构
+## 全局大纲中的单元内容规划
 
-全局大纲包含【分章大纲】部分，其中为每个章节分配了专属内容。在开始创作之前，请先做以下工作：
+全局大纲包含【单元内容规划】部分，其中为每个单元分配了专属内容。在开始创作之前，请先做以下工作：
 
-### 第一步：定位分章大纲
-在全局大纲中找到【分章大纲】部分，这是每个章节最细粒度的内容分配。
+### 第一步：定位单元内容规划
+在全局大纲中找到【单元内容规划】部分，这是每个单元最细粒度的内容分配。
 
-### 第二步：建立章节内容映射
-为每个章节建立明确的内容归属，例如：
+### 第二步：建立单元内容映射
+为每个单元建立明确的内容归属，例如：
 
-| 章节范围 | 本章专属内容 |
+| 单元范围 | 本单元专属内容 |
 |---------|------------|
 | 第1-10章 | 主角初入江湖，结识伙伴 |
 | 第11-30章 | 江湖历练，逐渐成长 |
 | 第91-98章 | 战前部署，各方势力集结 |
 | 第99-100章 | 平播之战一触即发。第一部完。 |
 
-### 第三步：逐章细化原则
-- 每一章只展开其编号范围内分章大纲分配的内容
+### 第三步：逐单元细化原则
+- 每个单元只展开其编号范围内【单元内容规划】分配的内容
 - 第98章只写到"战前准备完毕，即将开战"为止
 - 第99章开始才展开平播之战的实际过程
-- 如果分章大纲中某个事件在第50章才出现，在第30章时仅为该事件做铺垫和伏笔
+- 如果【单元内容规划】中某个事件在第50章才出现，在第30章时仅为该事件做铺垫和伏笔
 
 ### 核心创作原则
-你的创造性体现在**如何写**（场景描写、对话设计、情感渲染），而非**写什么**（事件、角色、结果——这些由分章大纲决定）。
+你的创造性体现在**如何写**（场景描写、对话设计、情感渲染），而非**写什么**（事件、角色、结果——这些由【单元内容规划】决定）。
 
 ---
 
@@ -259,31 +263,31 @@ class UnitSummaryStreamMixin:
 
 ### 内容分配原则
 - 根据全局大纲中第1-{unit_count}{unit_label}的情节分配逐一展开
-- 每个章节只展开其编号范围内分章大纲分配的内容
-- 严格按照分章大纲中的时间线和事件顺序展开
-- 为后续章节留下合理的发展空间
+- 每个单元只展开其编号范围内【单元内容规划】分配的内容
+- 严格按照【单元内容规划】中的时间线和事件顺序展开
+- 为后续单元留下合理的发展空间
 
-### 逐章细化指南（核心）
+### 逐单元细化指南（核心）
 
-你的任务是**将分章大纲细化为详细的章节概述**，以下原则帮助你在正确的范围内创作：
+你的任务是**将【单元内容规划】细化为详细的单元概述**，以下原则帮助你在正确的范围内创作：
 
 1. **忠于大纲内容**
-   - 分章大纲中已列出的事件，你负责细化、展开和丰富
-   - 分章大纲中的人物、地点、事件走向均已确定，你负责将它们写得更生动
+   - 【单元内容规划】中已列出的事件，你负责细化、展开和丰富
+   - 【单元内容规划】中的人物、地点、事件走向均已确定，你负责将它们写得更生动
 
 2. **尊重内容归属**
-   - 每个章节只涵盖其编号范围内分章大纲分配的内容
-   - 例如：分章大纲中"第99-100章：平播之战一触即发"意味着第98章写到"战前准备完毕"即可
-   - 例如：分章大纲中某个事件在第50章才出现，在第5章时只需为该事件做铺垫
+   - 每个单元只涵盖其编号范围内【单元内容规划】分配的内容
+   - 例如：【单元内容规划】中"第99-100章：平播之战一触即发"意味着第98章写到"战前准备完毕"即可
+   - 例如：【单元内容规划】中某个事件在第50章才出现，在第5章时只需为该事件做铺垫
 
 3. **创造性范围**
    - 你可以发挥创造力的地方：场景如何描写、对话如何设计、情感如何渲染
-   - 由分章大纲决定的地方：发生什么事件、谁参与、事件的结果
+   - 由【单元内容规划】决定的地方：发生什么事件、谁参与、事件的结果
 
-4. **逐章自查指南**
-   - 本章的编号范围在分章大纲中对应什么内容？
+4. **逐单元自查指南**
+   - 本单元的编号范围在【单元内容规划】中对应什么内容？
    - 我写的内容是否恰好覆盖了这些内容？
-   - 下一章将展开的事件，本章是否做好了合理的铺垫和过渡？
+   - 下一单元将展开的事件，本单元是否做好了合理的铺垫和过渡？
 
 ### 输出格式
 ```
@@ -365,7 +369,7 @@ class UnitSummaryStreamMixin:
 
             if is_resume:
                 # 续生成模式：合并已有内容和新生成内容
-                unit_label = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+                unit_label = {"novel": "章", "series_script": "集", "movie_script": "场", "movie_outline": "场", "series_outline": "集"}.get(
                     content_type, "章"
                 )
                 full_content = existing_content + "\n\n" + new_content
@@ -523,6 +527,28 @@ class UnitSummaryStreamMixin:
                 "type": "qc_hint",
                 "message": "质控检测已改为手动触发，请在生成完成后点击'质量检测'按钮"
             })
+
+            # ==================== 保存解析结果到 project.unit_summaries ====================
+            # [2026-05-05] 修复续生成检测bug：流式生成完成后必须将full_parsed
+            # 保存到NovelProject.unit_summaries，否则get_unit_summaries_resume_info
+            # 端点读取到的数据永远是空的，导致续生成从第1集开始而非从已生成N集后开始
+            if project_id and full_parsed:
+                try:
+                    from app.models.novel_project import NovelProject
+                    from sqlalchemy import select
+                    stmt = select(NovelProject).where(NovelProject.id == project_id)
+                    result = await self.db.execute(stmt)
+                    project = result.scalar_one_or_none()
+                    if project:
+                        project.unit_summaries = full_parsed
+                        await self.db.commit()
+                        self.logger.info(
+                            f"[单元概述流式] ✅ 已保存 {len(full_parsed)} 个单元概述到项目 {project_id}"
+                        )
+                except Exception as save_err:
+                    self.logger.error(
+                        f"[单元概述流式] ❌ 保存单元概述到项目失败: {save_err}"
+                    )
 
             # 发送完成事件
             yield self._format_sse("workflow", {"type": "complete"})

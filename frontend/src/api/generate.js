@@ -333,6 +333,10 @@ export function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, s
       headers: headers,
       body: JSON.stringify(data)
     }).then(response => {
+      // [2026-05-05] 从响应头中捕获generation_id
+      const generationId = response.headers.get('X-Generation-ID')
+      const generationIdNum = generationId ? parseInt(generationId) : null
+
       if (!response.ok) {
         response.json().then(errData => {
           reject(new Error(errData?.detail || `请求失败: ${response.status}`))
@@ -352,7 +356,7 @@ export function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, s
       function readChunk() {
         reader.read().then(({ done, value }) => {
           if (done) {
-            resolve({ content: fullContent })
+            resolve({ content: fullContent, generation_id: generationIdNum })
             return
           }
 
@@ -392,7 +396,7 @@ export function streamGenerateSimple(endpoint, data, onMessage, onStreamStart, s
           }
           readChunk()
         }).catch(error => {
-          if (error.name === 'AbortError') resolve({ content: fullContent, cancelled: true })
+          if (error.name === 'AbortError') resolve({ content: fullContent, cancelled: true, generation_id: generationIdNum })
           else reject(error)
         })
       }

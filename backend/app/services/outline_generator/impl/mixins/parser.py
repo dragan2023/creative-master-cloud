@@ -38,7 +38,7 @@ class ParserMixin:
             if content_type == "novel":
                 result = self._parse_novel_chapters(content, expected_count)
             else:
-                result = self._parse_script_episodes(content, expected_count)
+                result = self._parse_script_episodes(content, expected_count, content_type)
 
             self.logger.info(
                 f"[单元概述解析] 解析完成，预期: {expected_count}，实际: {len(result)}")
@@ -112,6 +112,43 @@ class ParserMixin:
                 chapter_num = int(raw_num)
             chapter_title = match[1].strip()
 
+            # [2026-05-05 诊断] 打印原始标题内容
+            self.logger.info(
+                f"[单元概述解析] 第{chapter_num}章原始title行(前100字): [{chapter_title[:100]}]"
+            )
+
+            # [2026-05-05] 修复：处理标题与梗概合并到同一行的情况
+            # LLM可能输出"第N章：标题 本章梗概：摘要内容"——将标题和摘要放在同一行
+            summary_from_title = ""
+            title_cleaned = chapter_title
+            merged_pattern = re.search(
+                r'^(.*?)\s+(?:\*\*)?(?:本章)?梗概(?:\*\*)?[：:]\s*(.+)$',
+                chapter_title
+            )
+            if merged_pattern:
+                title_cleaned = merged_pattern.group(1).strip()
+                summary_from_title = merged_pattern.group(2).strip()
+                self.logger.info(
+                    f"[单元概述解析] 第{chapter_num}章标题与梗概在同一行，已分离: "
+                    f"title={title_cleaned[:30]}, summary_len={len(summary_from_title)}"
+                )
+            elif '梗概' in chapter_title:
+                # 回退：简单字符串拆分（正则未匹配时使用）
+                idx = chapter_title.find('梗概')
+                start = idx
+                while start > 0 and chapter_title[start-1] in ('*', '本', '章', '回'):
+                    start -= 1
+                if start > 0 and chapter_title[start-1] in (' ', '	'):
+                    start -= 1
+                title_cleaned = chapter_title[:start].strip().rstrip('：:').strip()
+                colon_pos = max(chapter_title.find('：', idx), chapter_title.find(':', idx))
+                if colon_pos >= 0 and colon_pos < len(chapter_title) - 1:
+                    summary_from_title = chapter_title[colon_pos+1:].strip()
+                    self.logger.info(
+                        f"[单元概述解析] 第{chapter_num}章标题与梗概在同一行(回退拆分)，已分离: "
+                        f"title={title_cleaned[:30]}, summary_len={len(summary_from_title)}"
+                    )
+
             # 提取章节概要
             # v3.4: 兼容古典章回体(回)的start_marker
             if matched_layer == 'classical_hui':
@@ -147,13 +184,21 @@ class ParserMixin:
             )
             summary = summary_match.group(1).strip() if summary_match else ""
 
+            # [2026-05-05] 如果从标题行提取到了摘要，与chapter_content中的摘要合并处理
+            if summary_from_title:
+                if not summary:
+                    summary = summary_from_title
+                elif len(summary_from_title) > len(summary):
+                    # 两者都有时，优先使用更长的（更完整的）
+                    summary = summary_from_title
+
             # v2.1: 为每个单元分配唯一ID
             unit_id = f"unit-{chapter_num}-{uuid.uuid4().hex[:8]}"
 
             result[str(chapter_num)] = {
                 "unit_id": unit_id,
                 "unit_number": chapter_num,
-                "title": chapter_title,
+                "title": title_cleaned,  # [2026-05-05] 使用清理后的标题
                 "summary": summary,
                 "full_content": chapter_content,  # v2.1: 保存完整内容
                 "status": "completed",
@@ -166,31 +211,98 @@ class ParserMixin:
     def _parse_script_episodes(
         self,
         content: str,
-        expected_count: int
+        expected_count: int,
+        content_type: str = "series_script"
     ) -> Dict[str, Dict[str, Any]]:
-        """解析剧本分集/分场概述"""
+        """解析剧本分集/分场概述（v5.1: 多层回退解析）
+
+        支持格式：
+        - ### 第N集：标题 / ### 第N集: 标题 (markdown heading)
+        - **第N集：标题** (bold)
+        - 第N集：标题 (plain text)
+        - ### 第N场：标题 / **第N场：标题** (电影)
+        """
         result = {}
         import uuid
 
-        # 判断是电影类型还是剧集类型
-        is_movie = "第" in content and "场" in content and "集" not in content
+        # ==================== 根据content_type确定单元标签 ====================
+        is_movie = content_type in ("movie_script", "movie_outline")
+        unit_char = "场" if is_movie else "集"
 
-        if is_movie:
-            pattern = r'\*\*第(\d+)场[：:]\s*(.+?)(?:\n|$)'
-        else:
-            pattern = r'\*\*第(\d+)集[：:]\s*(.+?)(?:\n|$)'
+        # ==================== 多层回退正则以适应不同标题风格 ====================
+        episode_patterns = [
+            # 第0层: ### 第N集/场：标题 (markdown heading+冒号)
+            (rf'###\s*第(\d+){unit_char}[：:]\s*(.+?)(?:\n|$)', 'heading_colon'),
+            # 第1层: ### 第N集/场 [标题] (markdown heading+空格)
+            (rf'###\s*第(\d+){unit_char}\s+(.+?)(?:\n|$)', 'heading_space'),
+            # 第2层: **第N集/场：标题** (bold+冒号)
+            (rf'\*\*第(\d+){unit_char}[：:]\s*(.+?)\*\*', 'bold_colon'),
+            # 第3层: 无前缀 第N集/场：标题 (plain text+冒号)
+            (rf'(?:^|\n)\s*第(\d+){unit_char}[：:]\s*(.+?)(?:\n|$)', 'plain_colon'),
+            # 第4层: 无前缀+空格 第N集/场 标题 (plain text+空格)
+            (rf'(?:^|\n)\s*第(\d+){unit_char}\s+(.+?)(?:\n|$)', 'plain_space'),
+        ]
 
-        matches = re.findall(pattern, content)
+        matches = []
+        matched_layer = None
+
+        for pattern, layer_name in episode_patterns:
+            raw_matches = re.findall(pattern, content, re.MULTILINE)
+            if raw_matches:
+                matches = raw_matches
+                matched_layer = layer_name
+                self.logger.info(
+                    f"[单元概述解析] 使用'{layer_name}'模式匹配到{len(matches)}个{unit_char}")
+                break
+
+        # 诊断日志: 所有模式均未匹配
+        if not matches:
+            self.logger.warning(
+                f"[单元概述解析] ⚠️ 所有正则模式均未匹配到{unit_char}！"
+                f" 内容长度={len(content)}字符, content_type={content_type}"
+            )
+            return result
 
         for match in matches:
             unit_num = int(match[0])
             unit_title = match[1].strip()
 
-            if is_movie:
-                start_marker = f"第{unit_num}场"
-            else:
-                start_marker = f"第{unit_num}集"
+            # [2026-05-05 诊断] 打印原始标题内容
+            self.logger.info(
+                f"[单元概述解析] 第{unit_num}{unit_char}原始title行(前100字): [{unit_title[:100]}]"
+            )
 
+            # [2026-05-05] 修复：处理标题与梗概合并到同一行的情况
+            summary_from_title = ""
+            title_cleaned = unit_title
+            merged_pattern = re.search(
+                r'^(.*?)\s+(?:\*\*)?(?:本集|本场|本章)?梗概(?:\*\*)?[：:]\s*(.+)$',
+                unit_title
+            )
+            if merged_pattern:
+                title_cleaned = merged_pattern.group(1).strip()
+                summary_from_title = merged_pattern.group(2).strip()
+                self.logger.info(
+                    f"[单元概述解析] 第{unit_num}{unit_char}标题与梗概在同一行，已分离"
+                )
+            elif '梗概' in unit_title:
+                # 回退：简单字符串拆分（正则未匹配时使用）
+                idx = unit_title.find('梗概')
+                start = idx
+                while start > 0 and unit_title[start-1] in ('*', '本', '章', '集', '场'):
+                    start -= 1
+                if start > 0 and unit_title[start-1] in (' ', '	'):
+                    start -= 1
+                title_cleaned = unit_title[:start].strip().rstrip('：:').strip()
+                colon_pos = max(unit_title.find('：', idx), unit_title.find(':', idx))
+                if colon_pos >= 0 and colon_pos < len(unit_title) - 1:
+                    summary_from_title = unit_title[colon_pos+1:].strip()
+                    self.logger.info(
+                        f"[单元概述解析] 第{unit_num}{unit_char}标题与梗概在同一行(回退拆分)，已分离"
+                    )
+
+            # 定位内容边界
+            start_marker = f"第{unit_num}{unit_char}"
             start_idx = content.find(start_marker)
             if start_idx == -1:
                 continue
@@ -200,28 +312,42 @@ class ParserMixin:
                 continue
 
             next_unit = unit_num + 1
-            if is_movie:
-                end_marker = f"第{next_unit}场"
-            else:
-                end_marker = f"第{next_unit}集"
+            end_marker = f"第{next_unit}{unit_char}" if next_unit <= expected_count else None
 
-            end_idx = content.find(end_marker, start_idx)
-            if end_idx == -1:
+            if end_marker:
+                end_idx = content.find(end_marker, start_idx)
+                if end_idx == -1:
+                    end_idx = len(content)
+            else:
                 end_idx = len(content)
 
             unit_content = content[start_idx:end_idx].strip()
 
-            if is_movie:
+            # 提取梗概（兼容本集/本章/本场梗概等多种变体）
+            summary_match = re.search(
+                rf'\*\*(?:本{unit_char}|本章)梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|\n-\s|\n###|$)',
+                unit_content, re.DOTALL
+            )
+            # 回退：无bold标记 本集/本章梗概：
+            if not summary_match:
                 summary_match = re.search(
-                    r'\*\*本场梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|$)',
+                    rf'(?:本{unit_char}|本章)梗概[：:]\s*(.+?)(?:\n\n|\n\*\*|\n-\s|\n###|$)',
                     unit_content, re.DOTALL
                 )
-            else:
+            # 再回退：仅匹配 梗概：
+            if not summary_match:
                 summary_match = re.search(
-                    r'\*\*本集梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|$)',
+                    r'梗概[：:]\s*(.+?)(?:\n\n|\n\*\*|\n-\s|\n###|$)',
                     unit_content, re.DOTALL
                 )
             summary = summary_match.group(1).strip() if summary_match else ""
+
+            # [2026-05-05] 如果从标题行提取到了摘要，与unit_content中的摘要合并处理
+            if summary_from_title:
+                if not summary:
+                    summary = summary_from_title
+                elif len(summary_from_title) > len(summary):
+                    summary = summary_from_title
 
             # v2.1: 为每个单元分配唯一ID
             unit_id = f"unit-{unit_num}-{uuid.uuid4().hex[:8]}"
@@ -229,9 +355,9 @@ class ParserMixin:
             result[str(unit_num)] = {
                 "unit_id": unit_id,
                 "unit_number": unit_num,
-                "title": unit_title,
+                "title": title_cleaned,
                 "summary": summary,
-                "full_content": unit_content,  # v2.1: 保存完整内容
+                "full_content": unit_content,
                 "status": "completed",
                 "created_at": datetime.now().isoformat()
             }

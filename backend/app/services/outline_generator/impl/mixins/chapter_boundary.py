@@ -42,13 +42,13 @@ class ChapterBoundaryMixin:
         '知道', '觉得', '认为', '以为', '希望', '决定', '准备', '打算',
     }
 
-    # 分章大纲段落定位正则
+    # 单元内容规划段落定位正则（兼容旧名"分章大纲"）
     _CHAPTER_OUTLINE_HEADER_RE = re.compile(
-        r'#+\s*(?:分章大纲|章节分配|章节划分|分章规划|章节计划)',
+        r'#+\s*(?:单元内容规划|分章大纲|章节分配|章节划分|分章规划|章节计划)',
         re.IGNORECASE
     )
     _CHAPTER_OUTLINE_SECTION_RE = re.compile(
-        r'(?:【|\[)?分章大纲(?:】|\])?[\s\S]*?(?=\n#+\s|\n---|\Z)',
+        r'(?:【|\[)?(?:单元内容规划|分章大纲)(?:】|\])?[\s\S]*?(?=\n#+\s|\n---|\Z)',
         re.IGNORECASE
     )
 
@@ -73,7 +73,7 @@ class ChapterBoundaryMixin:
         从全局大纲中程序化提取每章的边界描述
 
         策略：
-        1. 定位【分章大纲】段落
+        1. 定位【单元内容规划】（或旧名【分章大纲】）段落
         2. 解析分章范围（如"第11-30章：江湖历练"）
         3. 解析单章分配（如"第1章：主角穿越"）
         4. 为每章生成标准化的边界描述
@@ -91,7 +91,7 @@ class ChapterBoundaryMixin:
         # 步骤1：定位分章大纲段落
         chapter_section = self._find_chapter_outline_section(global_outline)
         if not chapter_section:
-            self.logger.warning("[边界提取] 未找到【分章大纲】段落，回退到全文解析")
+            self.logger.warning("[边界提取] 未找到【单元内容规划】或【分章大纲】段落，回退到全文解析")
             chapter_section = global_outline
 
         # 步骤2：按行解析
@@ -256,8 +256,8 @@ class ChapterBoundaryMixin:
     # ==================== 内部辅助方法 ====================
 
     def _find_chapter_outline_section(self, text: str) -> Optional[str]:
-        """定位分章大纲段落"""
-        # 策略1：查找【分章大纲】标记
+        """定位单元内容规划段落（兼容旧名"分章大纲"）"""
+        # 策略1：查找【单元内容规划】或【分章大纲】标记
         match = self._CHAPTER_OUTLINE_SECTION_RE.search(text)
         if match:
             section = match.group(0)
@@ -266,9 +266,9 @@ class ChapterBoundaryMixin:
                 section = section[:2000]
             return section
 
-        # 策略2：查找标题行
+        # 策略2：查找标题行（兼容旧名）
         for pattern in [
-            r'#{1,3}\s*分章大纲[\s\S]*?(?=\n#{1,3}\s|\Z)',
+            r'#{1,3}\s*(?:单元内容规划|分章大纲)[\s\S]*?(?=\n#{1,3}\s|\Z)',
             r'#{1,3}\s*章节分配[\s\S]*?(?=\n#{1,3}\s|\Z)',
         ]:
             match = re.search(pattern, text)

@@ -618,6 +618,7 @@ const {
   backendResumeInfo,
   logicChecking,
   logicCheckResult,
+  generationId,
   handleWorkflowEvent,
 })
 
@@ -1188,6 +1189,14 @@ async function handleTwoStageGenerate(apiKeyStoreRef, routerRef, kbParams = {}) 
     )
     
     if (result && !result.cancelled) {
+      // [2026-05-05] 修复：从SSE响应中提取generation_id，用于后续单元概述生成时传递project_id
+      if (result.generation_id) {
+        currentGenerationId.value = result.generation_id
+        generationId.value = result.generation_id
+        console.log('[handleTwoStageGenerate] 捕获generation_id:', result.generation_id)
+      } else {
+        console.warn('[handleTwoStageGenerate] ⚠️ generation_id未获取到，续生成功能将不可用')
+      }
       outlineStage.value = 2
       ElMessage.success('全局大纲生成完成，请审核后继续生成单元概述')
     }

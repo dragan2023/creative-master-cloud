@@ -54,6 +54,13 @@ TEMPLATE = {
 - 总集数：{episode_count}
 - 自写大纲：{custom_outline}
 
+**剧集风格选择**（可选）
+- 已选风格：{script_style_names}
+- 风格类型：{script_style_type}
+- 风格强度：{script_style_intensity}
+- 风格维度：{script_style_dimensions}
+- 剧集子类型：{script_series_sub_type}
+
 ---
 
 ## 输出格式
@@ -139,10 +146,40 @@ TEMPLATE = {
 - 中点转折：故事中段的重要转折
 - 高潮设计：最终冲突的核心
 
-### 6.3 分集划分
-- 如适用，将全剧分为若干部/季
-- 每部/季的独立主题和小高潮
-- 每集的核心功能和情感使命
+### 6.3 单元内容规划（⚠️ 必须严格按此格式输出）
+
+**格式要求**：为全部「{episode_count}集」完整输出每集的一句话描述，必须严格遵循以下格式：
+```
+- 第1集：[一句话描述本集核心情节]
+- 第2集：[一句话描述本集核心情节]
+- 第3集：[一句话描述本集核心情节]
+...
+第{episode_count}集：[一句话描述本集核心情节]
+```
+
+**🚨 硬性约束**：
+- **每个单元独占一行，单元之间必须用换行符分隔**，严禁将两个或多个单元的「第X集：[描述]」写在**同一行**
+- 每集**只输出一行**，格式严格为「第X集：[一句话描述]」
+- 一句话描述控制在 **15-30字**，概括本集最核心的情节
+- **不允许**输出集标题、梗概、看点、结尾钩子等额外内容
+- **不允许**使用任何 markdown 标题符号（###、**等）
+- **必须**为全部 {episode_count} 集逐一输出，不得遗漏
+
+**正确示例**：
+```
+- 第1集：林风在现代社会遭遇车祸，意外穿越到大周王朝成为庶子
+- 第2集：林风利用现代知识制作肥皂，在京城引起轰动吸引各方注意
+- 第3集：太子派人暗查林风底细，林风机智应对化险为夷
+- 第{episode_count}集：[一句话描述本集核心情节]
+```
+
+**错误示例（禁止）**：
+```
+**第1集：废柴崛起**
+**本集梗概**：林风穿越到大周王朝...
+**本集看点**：...
+**结尾钩子**：...
+```
 
 ## 七、视觉与节奏规划
 
@@ -184,5 +221,5 @@ TEMPLATE = {
 
 该方案已经过全能创意大师修正完善。
 """,
-    "variables": ["series_type", "theme", "audience", "platform", "reference_works", "synopsis", "episode_count", "custom_outline", "episode_duration_range", "format_standard", "dialogue_narration_ratio", "script_mode", "style_guide", "style_guidance"]
+    "variables": ["series_type", "theme", "audience", "platform", "reference_works", "synopsis", "episode_count", "custom_outline", "episode_duration_range", "format_standard", "dialogue_narration_ratio", "script_mode", "script_style_dimensions", "script_style_names", "script_style_intensity", "script_style_type", "script_series_sub_type", "style_guidance"]
 }

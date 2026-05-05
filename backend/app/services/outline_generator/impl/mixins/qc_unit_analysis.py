@@ -242,7 +242,8 @@ class QcUnitAnalysisMixin:
         content_type: str
     ) -> str:
         """格式化所有单元为完整文本"""
-        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场"}.get(
+        unit_label = {"novel": "章", "series_script": "集", "movie_script": "场",
+                      "movie_outline": "场", "series_outline": "集"}.get(
             content_type, "章"
         )
 
