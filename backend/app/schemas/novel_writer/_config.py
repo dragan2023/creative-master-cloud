@@ -169,6 +169,12 @@ class SeriesScriptConfig(BaseModel):
         description="剧本模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成）"
     )
 
+    # 风格选择器配置（新增）
+    style_selector_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="剧集风格选择器配置，来自 SeriesStyleSelectorDialog"
+    )
+
     model_config = {
         "from_attributes": True
     }
@@ -248,6 +254,12 @@ class MovieScriptConfig(BaseModel):
     script_mode: str = Field(
         default="real",
         description="剧本模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成）"
+    )
+
+    # 风格选择器配置（新增）
+    style_selector_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="电影风格选择器配置，来自 MovieStyleSelectorDialog"
     )
 
     model_config = {

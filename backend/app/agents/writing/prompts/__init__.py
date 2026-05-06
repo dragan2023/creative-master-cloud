@@ -13,10 +13,11 @@
     - KNOWLEDGE_PROMPTS: 知识顾问Agent提示词
     - ASSEMBLER_PROMPTS: 合成Agent提示词
     - CHARACTER_STATE_PROMPTS: 人物状态追踪提示词
+    - VIRTUAL_MODE_PROMPTS: 虚拟模式AIGC提示词模板
 
 创建时间: 2026-03-27
-最后修改: 2026-04-01
-版本: 2.0.0
+最后修改: 2026-05-06
+版本: 2.1.0
 作者: AI Assistant
 """
 
@@ -38,6 +39,13 @@ from .character_state_prompts import (
     get_editor_system_prompt,
     get_editor_user_prompt,
     format_state_change_table
+)
+from .virtual_mode_prompts import (
+    build_virtual_mode_prompt,
+    get_image_prompt_templates,
+    get_video_prompt_templates,
+    VIRTUAL_MODE_FULL_TEMPLATE,
+    STORYBOARD_TEMPLATE,
 )
 
 __all__ = [
@@ -62,4 +70,10 @@ __all__ = [
     "get_editor_system_prompt",
     "get_editor_user_prompt",
     "format_state_change_table",
+    # virtual_mode_prompts
+    "build_virtual_mode_prompt",
+    "get_image_prompt_templates",
+    "get_video_prompt_templates",
+    "VIRTUAL_MODE_FULL_TEMPLATE",
+    "STORYBOARD_TEMPLATE",
 ]

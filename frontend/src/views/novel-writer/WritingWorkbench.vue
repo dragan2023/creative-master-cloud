@@ -211,6 +211,69 @@
                 </el-col>
               </el-row>
             </el-form>
+
+            <!-- 剧集专属参数 -->
+            <el-form v-if="actualContentType === 'series_script'" :model="taskForm" label-width="80px" class="task-form" style="margin-top: 12px">
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item label="剧集类型">
+                    <el-select v-model="taskForm.series_type" style="width: 150px">
+                      <el-option label="电视剧" value="电视剧" />
+                      <el-option label="网络剧" value="网络剧" />
+                      <el-option label="短剧" value="短剧" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="每集时长(分钟)">
+                    <el-input-number v-model="taskForm.episode_duration_min" :min="1" :max="120" size="small" style="width: 80px" controls-position="right" /> -
+                    <el-input-number v-model="taskForm.episode_duration_max" :min="1" :max="120" size="small" style="width: 80px" controls-position="right" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-row :gutter="20">
+                <el-col :span="24">
+                  <el-form-item label="生成模式">
+                    <el-radio-group v-model="taskForm.script_mode">
+                      <el-radio-button value="real">现实模式</el-radio-button>
+                      <el-radio-button value="virtual">虚拟模式（AI生成）</el-radio-button>
+                    </el-radio-group>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </el-form>
+
+            <!-- 电影专属参数 -->
+            <el-form v-if="actualContentType === 'movie_script'" :model="taskForm" label-width="80px" class="task-form" style="margin-top: 12px">
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item label="电影类型">
+                    <el-select v-model="taskForm.movie_type" style="width: 150px">
+                      <el-option label="电影" value="电影" />
+                      <el-option label="网络电影" value="网络电影" />
+                      <el-option label="微电影" value="微电影" />
+                      <el-option label="动画电影" value="动画电影" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="每场时长(分钟)">
+                    <el-input-number v-model="taskForm.scene_duration_min" :min="1" :max="60" size="small" style="width: 80px" controls-position="right" /> -
+                    <el-input-number v-model="taskForm.scene_duration_max" :min="1" :max="60" size="small" style="width: 80px" controls-position="right" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-row :gutter="20">
+                <el-col :span="24">
+                  <el-form-item label="生成模式">
+                    <el-radio-group v-model="taskForm.script_mode">
+                      <el-radio-button value="real">现实模式</el-radio-button>
+                      <el-radio-button value="virtual">虚拟模式（AI生成）</el-radio-button>
+                    </el-radio-group>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </el-form>
           </el-card>
 
           <!-- 架构优化：已移除单元大纲生成面板 -->
@@ -620,7 +683,8 @@ const wbTask = useWorkbenchTask({
   unitSummaries,
   chapters: displayUnits,
   emit,
-  loadProjectData
+  loadProjectData,
+  actualContentType,
 })
 const {
   taskForm,

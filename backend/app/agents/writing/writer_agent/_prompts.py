@@ -203,8 +203,16 @@ class WriterPromptsMixin:
             prompt_parts.append(f"目标字数：{target_words}字（误差不超过±10%）")
             prompt_parts.append("")
 
-        # 7. 创作要求
-        prompt_parts.append("""【创作要求】
+        # 7. 输出格式（按内容类型独立化）
+        if content_type == "series_script":
+            prompt_parts.append(self._build_series_output_format(context))
+        elif content_type == "movie_script":
+            prompt_parts.append(self._build_movie_output_format(context))
+        elif content_type == "script":
+            # 兼容旧的统一script类型
+            prompt_parts.append(self._build_legacy_script_output_format(context))
+        else:
+            prompt_parts.append("""【创作要求】
 1. 直接输出正文内容，不要包含章节标题等标记
 2. 内容要充实，有完整的故事情节，符合全局主线发展
 3. 场景描写要生动，对话要自然
@@ -383,3 +391,251 @@ class WriterPromptsMixin:
 现在请开始创作：""")
 
         return "\n".join(prompt_parts)
+
+    # ==================== Task 4: 剧集/电影独立输出格式 ====================
+
+    def _build_legacy_script_output_format(self, context: AgentContext) -> str:
+        """兼容旧的统一script类型的输出格式（向后兼容）"""
+        return """【创作要求】
+1. 使用标准剧本格式输出
+2. 对话简洁有力，动作描述清晰
+3. 场景转换流畅
+4. 在场景结尾设置适当的钩子或过渡
+5. 严格控制时长，不要超出或不足太多
+6. **核心要求**：
+   - 确保人物位置、身份、关系与状态追踪信息一致
+   - 剧情发展不脱离全局故事背景设定的主线
+   - 与前文内容紧密衔接，避免剧情跳脱
+
+现在请开始创作剧本内容："""
+
+    def _build_series_output_format(self, context: AgentContext) -> str:
+        """Task 4.2: 构建剧集专属输出格式模板
+
+        嵌入剧集风格选择器配置（5维度）和系列参数。
+        """
+        series_type = context.config.get("series_type", "电视剧")
+        duration = context.config.get("episode_duration_range", [30, 45])
+        style_dims = context.config.get("series_style_dimensions", {})
+        style_names = context.config.get("series_style_names", [])
+        style_intensity = context.config.get("series_style_intensity", 0.7)
+        script_mode = context.config.get("script_mode", "real")
+        scenes_per_episode = context.config.get("scenes_per_episode_range", None)
+
+        style_guidance = self._format_series_style_for_prompt(
+            style_dims, style_names, style_intensity)
+
+        parts = []
+        parts.append(f"""# 剧集剧本输出格式要求
+
+## 已选剧集风格（强度{int(style_intensity * 100)}%）
+{style_guidance}
+请在叙事风格、对话特点、场景描述中充分体现上述风格特征。
+
+## 本集信息
+- 剧集类型：{series_type}
+- 时长控制：{duration[0]}-{duration[1]}分钟""")
+
+        if scenes_per_episode:
+            parts.append(f"- 场景数范围：{scenes_per_episode[0]}-{scenes_per_episode[1]}个场景")
+
+        parts.append(f"""
+## 输出结构
+### 第X集：[标题]
+**场景列表**：（标注场景号、日/夜景、室内/室外、地点）
+**剧本正文**：（标准剧本格式，含动作描述与对白）
+
+### 拍摄脚本参考
+#### 运镜设计
+每一场关键场景标注：推/拉/摇/移/跟/升降 + 景别（特写/近景/中景/全景/远景）
+#### 光影方案
+光源方向、色温（暖/冷/中性）、氛围关键词
+#### 演出指导
+关键节点的演员表情、肢体动作、台词节奏与停顿建议
+#### 剪辑思路
+转场方式（切/淡入淡出/叠化/闪回）、本集节奏控制、蒙太奇建议
+#### 连续性衔接
+本集与上一集的衔接设计、本集结尾为下一集铺设的悬念/过渡
+
+## 创作要求
+1. **集间连续性**：本集开头自然承接上一集结尾状态；本集结尾铺设明确的悬念或过渡
+2. **场景密度**：每集场景数量合理，情节密度适中
+3. **时长控制**：严格遵守{series_type}每集{duration[0]}-{duration[1]}分钟的时长范围
+4. **集内结构**：开头（3-5分钟）→ 中段（核心冲突展开）→ 结尾（悬念/收束）
+5. **多线叙事**：合理安排主线与支线的交织节奏""")
+
+        if script_mode == "virtual":
+            parts.append(self._build_virtual_mode_section("series"))
+            parts.append(f"\n> 当前风格参考：{', '.join(style_names) if style_names else '通用剧集风格'}")
+
+        parts.append("\n现在请开始创作本集剧本内容：")
+        return "\n".join(parts)
+
+    def _build_movie_output_format(self, context: AgentContext) -> str:
+        """Task 4.3: 构建电影专属输出格式模板
+
+        嵌入电影风格选择器配置（6维度，含台词风格）和电影参数。
+        """
+        movie_type = context.config.get("movie_type", "电影")
+        duration = context.config.get("duration_range", [10, 15])
+        style_dims = context.config.get("movie_style_dimensions", {})
+        style_names = context.config.get("movie_style_names", [])
+        style_intensity = context.config.get("movie_style_intensity", 0.7)
+        script_mode = context.config.get("script_mode", "real")
+        total_scenes = context.config.get("total_scenes", 0)
+
+        style_guidance = self._format_movie_style_for_prompt(
+            style_dims, style_names, style_intensity)
+
+        parts = []
+        parts.append(f"""# 电影剧本输出格式要求
+
+## 已选电影风格（强度{int(style_intensity * 100)}%）
+{style_guidance}
+请在叙事风格、台词设计、场景描述中充分体现上述风格特征。
+
+## 本场信息
+- 电影类型：{movie_type}
+- 时长控制：每场约{duration[0]}-{duration[1]}分钟""")
+
+        if total_scenes > 0:
+            parts.append(f"- 总场次数：{total_scenes}场")
+
+        parts.append(f"""
+## 场次结构要求（核心）
+每场须包含完整的：开场（建立氛围/引入冲突）→ 发展（矛盾升级/角色关系变化）→ 高潮（冲突爆发/关键转折）→ 结局（场景收尾/为下一场铺垫）
+
+## 输出结构
+### 第X场：[标题]
+**场次结构**：（开场→发展→高潮→结局简述）
+**剧本正文**：（标准剧本格式）
+
+### 拍摄脚本参考
+#### 运镜设计
+标注：景别 + 镜头运动 + 画面描述 + 情感意图
+#### 光影方案
+光源方向、色温倾向、氛围关键词、色彩基调
+#### 演出指导
+表情序列设计、肢体动作编排、台词节奏（语速/停顿/重音）
+#### 剪辑思路
+转场方式、本场节奏曲线、蒙太奇风格（基于已选剪辑/蒙太奇流派）
+#### 台词风格
+基于已选台词风格维度，标注对白的语言特征（简练/诗意/生活化/戏剧化等）
+
+## 创作要求
+1. **场次起承转合**：每场完整包含 开场→发展→高潮→结局 四个阶段
+2. **戏剧张力**：每场有明确的戏剧冲突和情感高潮，避免平铺直叙
+3. **视听语言**：每场至少标注3处关键镜头语言（特写/长镜头/蒙太奇/跟拍/俯拍/仰拍）
+4. **台词风格**：严格遵循已选台词风格维度，对白体现该风格的语言特征
+5. **时长控制**：严格遵守每场{duration[0]}-{duration[1]}分钟时长范围，节奏紧凑
+6. **类型特征**：电影叙事比剧集更凝练，每场都需要推动主线或揭示关键信息""")
+
+        if script_mode == "virtual":
+            parts.append(self._build_virtual_mode_section("movie"))
+            parts.append(f"\n> 当前风格参考：{', '.join(style_names) if style_names else '通用电影风格'}")
+
+        parts.append("\n现在请开始创作本场电影剧本内容：")
+        return "\n".join(parts)
+
+    def _build_virtual_mode_section(self, content_type: str) -> str:
+        """Task 4.4 + Task 7 集成: 构建虚拟模式AIGC提示词段落
+
+        在剧本正文下方提供分镜设计 + AI场景图提示词 + AI视频提示词，
+        使用 Gemini/豆包 和 Seedance 2.0/Veo 最佳实践。
+        模板来源：virtual_mode_prompts.py（单一数据源）
+
+        Args:
+            content_type: "series" 或 "movie"
+        """
+        from app.agents.writing.prompts.virtual_mode_prompts import (
+            STORYBOARD_TEMPLATE, IMAGE_PROMPT_INTRO, IMAGE_PROMPT_EXAMPLE,
+            VIDEO_PROMPT_INTRO,
+        )
+        unit_label = "集" if content_type == "series" else "场"
+
+        storyboard_section = STORYBOARD_TEMPLATE.format(
+            storyboard_rows=f"| 1 | — | — | 待LLM根据剧本内容生成 | — | — |\n| ... | ... | ... | ... | ... | ... |"
+        )
+
+        return f"""
+### 虚拟模式 — AI视频生成分镜设计
+
+## 分镜设计表（为每{unit_label}关键场景填写）
+{storyboard_section}
+
+{IMAGE_PROMPT_INTRO}
+
+{IMAGE_PROMPT_EXAMPLE}
+
+{VIDEO_PROMPT_INTRO}
+
+请为每一场关键场景分别生成上述格式的生成提示词，确保视觉风格与已选风格维度保持一致。
+"""
+
+    def _format_series_style_for_prompt(
+        self, style_dims: dict, style_names: list, intensity: float
+    ) -> str:
+        """Task 4.4: 将剧集风格选择器的维度选择格式化为提示词段落
+
+        剧集5维度：风格流派/导演风格/叙事风格/镜头剪辑风格/演绎风格
+        """
+        if not style_dims:
+            return "（未选择特定风格，使用通用剧集风格）"
+
+        dim_labels = {
+            "genre": "风格流派", "director": "导演风格",
+            "narrative": "叙事风格", "cinematography": "镜头剪辑风格",
+            "performance": "演绎风格"
+        }
+        lines = []
+        for dim_id, style_obj in style_dims.items():
+            dim_name = dim_labels.get(dim_id, dim_id)
+            if isinstance(style_obj, dict):
+                lines.append(
+                    f"- **{dim_name}**：{style_obj.get('name', '')} — {style_obj.get('description', '')}")
+            elif isinstance(style_obj, list) and style_obj:
+                s = style_obj[0] if isinstance(style_obj[0], dict) else {}
+                lines.append(
+                    f"- **{dim_name}**：{s.get('name', '') if isinstance(s, dict) else ''}")
+
+        if style_names:
+            lines.append(f"\n已选风格标签：{'、'.join(style_names)}")
+
+        # 阈值与 _context_builder._build_style_config_section() 保持一致
+        intensity_level = "强烈-非常突出" if intensity > 0.7 else (
+            "适中-明显但不突兀" if intensity > 0.4 else "淡入-轻微体现")
+        return f"风格强度：{intensity_level}\n" + "\n".join(lines) if lines else "（未选择特定风格）"
+
+    def _format_movie_style_for_prompt(
+        self, style_dims: dict, style_names: list, intensity: float
+    ) -> str:
+        """Task 4.4: 将电影风格选择器的维度选择格式化为提示词段落
+
+        电影6维度：电影风格流派/导演风格/叙事风格/剪辑蒙太奇流派/演绎表演风格/台词风格
+        """
+        if not style_dims:
+            return "（未选择特定风格，使用通用电影风格）"
+
+        dim_labels = {
+            "genre": "电影风格流派", "director": "导演风格",
+            "narrative": "叙事风格", "editing": "剪辑/蒙太奇流派",
+            "performance": "演绎/表演风格", "dialogue": "台词风格"
+        }
+        lines = []
+        for dim_id, style_obj in style_dims.items():
+            dim_name = dim_labels.get(dim_id, dim_id)
+            if isinstance(style_obj, dict):
+                lines.append(
+                    f"- **{dim_name}**：{style_obj.get('name', '')} — {style_obj.get('description', '')}")
+            elif isinstance(style_obj, list) and style_obj:
+                s = style_obj[0] if isinstance(style_obj[0], dict) else {}
+                lines.append(
+                    f"- **{dim_name}**：{s.get('name', '') if isinstance(s, dict) else ''}")
+
+        if style_names:
+            lines.append(f"\n已选风格标签：{'、'.join(style_names)}")
+
+        # 阈值与 _context_builder._build_style_config_section() 保持一致
+        intensity_level = "强烈-非常突出" if intensity > 0.7 else (
+            "适中-明显但不突兀" if intensity > 0.4 else "淡入-轻微体现")
+        return f"风格强度：{intensity_level}\n" + "\n".join(lines) if lines else "（未选择特定风格）"

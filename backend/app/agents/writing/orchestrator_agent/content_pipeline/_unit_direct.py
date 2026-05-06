@@ -180,6 +180,7 @@ class UnitDirectMixin:
                 },
                 config={
                     "words_per_scene": words_per_unit,
+                    "content_type": context.config.get("content_type", "novel"),
                     "style_document_features": style_document_features,
                     **context.config
                 }

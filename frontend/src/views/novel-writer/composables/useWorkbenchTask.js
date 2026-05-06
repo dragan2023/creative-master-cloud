@@ -29,7 +29,8 @@ export function useWorkbenchTask(options) {
     unitSummaries,
     chapters,
     emit,
-    loadProjectData
+    loadProjectData,
+    actualContentType,
   } = options
 
   // ==================== 知识库状态（P1改造新增） ====================
@@ -112,6 +113,16 @@ export function useWorkbenchTask(options) {
       compliance: null,
       knowledge: null,
     },
+    // 剧集/电影专属参数（Task 8）
+    series_type: '电视剧',
+    episode_duration_min: 30,
+    episode_duration_max: 45,
+    scenes_per_episode_range: null,
+    movie_type: '电影',
+    scene_duration_min: 10,
+    scene_duration_max: 15,
+    total_scenes: 0,
+    script_mode: 'real',
   })
 
   // ==================== 响应式状态 ====================
@@ -158,6 +169,50 @@ export function useWorkbenchTask(options) {
     } finally {
       testingAgent[agentRole] = false;
     }
+  }
+
+  /**
+   * Task 8: 按内容类型构建专属配置参数
+   * 将风格选择器数据和类型专属参数嵌入到任务config中
+   */
+  function buildTypeSpecificConfig() {
+    const ct = actualContentType?.value || 'novel'
+
+    if (ct === 'series_script') {
+      return {
+        content_type: 'series_script',
+        series_type: taskForm.value.series_type || '电视剧',
+        episode_duration_range: [
+          taskForm.value.episode_duration_min || 30,
+          taskForm.value.episode_duration_max || 45
+        ],
+        scenes_per_episode_range: taskForm.value.scenes_per_episode_range || null,
+        series_style_dimensions: styleMgmt?.seriesStyleData?.value?.dimensions || {},
+        series_style_names: styleMgmt?.seriesStyleData?.value?.selectedNames || [],
+        series_style_intensity: styleMgmt?.seriesStyleData?.value?.intensity || 0.7,
+        series_style_type: styleMgmt?.seriesStyleData?.value?.seriesSubType || 'long',
+        script_mode: taskForm.value.script_mode || 'real',
+      }
+    }
+
+    if (ct === 'movie_script') {
+      return {
+        content_type: 'movie_script',
+        movie_type: taskForm.value.movie_type || '电影',
+        duration_range: [
+          taskForm.value.scene_duration_min || 10,
+          taskForm.value.scene_duration_max || 15
+        ],
+        total_scenes: taskForm.value.total_scenes || 0,
+        movie_style_dimensions: styleMgmt?.movieStyleData?.value?.dimensions || {},
+        movie_style_names: styleMgmt?.movieStyleData?.value?.selectedNames || [],
+        movie_style_intensity: styleMgmt?.movieStyleData?.value?.intensity || 0.7,
+        script_mode: taskForm.value.script_mode || 'real',
+      }
+    }
+
+    // novel 类型无需额外参数
+    return { content_type: 'novel' }
   }
 
   // 创建任务
@@ -256,6 +311,8 @@ export function useWorkbenchTask(options) {
           writing_styles: styleMgmt?.selectedStyleIds?.value?.length > 0 ? styleMgmt.selectedStyleIds.value : null,
           style_intensity: styleMgmt?.styleIntensity?.value !== 0.7 ? styleMgmt.styleIntensity.value : null,
         },
+        // Task 8: 按内容类型发送专属参数
+        ...buildTypeSpecificConfig(),
       },
     });
     if (task) {

@@ -205,6 +205,19 @@ class ContextBuilderMixin(PipelineConfigMixin):
 
             logger.info(f"[上下文构建] AI文风消除: enabled={ai_elimination_enabled}, threshold={ai_elimination_threshold}")
 
+        # Task 1.2/2.2: 提取风格选择器配置
+        style_selector_config = None
+        if content_type == "series_script":
+            style_selector_config = task_config.get("series_style_dimensions")
+            if not style_selector_config and project and project.series_script_config:
+                ssc = project.series_script_config if isinstance(project.series_script_config, dict) else {}
+                style_selector_config = ssc.get("style_selector_config")
+        elif content_type == "movie_script":
+            style_selector_config = task_config.get("movie_style_dimensions")
+            if not style_selector_config and project and project.movie_script_config:
+                msc = project.movie_script_config if isinstance(project.movie_script_config, dict) else {}
+                style_selector_config = msc.get("style_selector_config")
+
         style_guide = task_config.get("style_guide", {})
         if not isinstance(style_guide, dict):
             style_guide = {}
@@ -231,8 +244,40 @@ class ContextBuilderMixin(PipelineConfigMixin):
                 except Exception as e:
                     logger.warning(f"[上下文构建] 兜底重建 style_library_guide 失败: {e}")
 
+        # Task 1.2: 将风格选择器配置注入 style_guide
+        if style_selector_config:
+            style_config_section = self._build_style_config_section(style_selector_config)
+            if style_config_section:
+                existing_guide = style_guide.get("style_library_guide", "")
+                style_guide["style_library_guide"] = f"{style_config_section}\n\n{existing_guide}" if existing_guide else style_config_section
+                logger.info(f"[上下文构建] 注入风格选择器配置到 style_guide，长度: {len(style_config_section)}")
+
         if temp_session:
             await db_session.close()
+
+        # Task 1.2: 按内容类型构建专属配置
+        type_specific_config = {}
+        if content_type == "series_script":
+            type_specific_config = {
+                "series_type": task_config.get("series_type", "电视剧"),
+                "episode_duration_range": task_config.get("episode_duration_range", [30, 45]),
+                "scenes_per_episode_range": task_config.get("scenes_per_episode_range", None),
+                "script_mode": task_config.get("script_mode", "real"),
+                "series_style_dimensions": task_config.get("series_style_dimensions", {}),
+                "series_style_names": task_config.get("series_style_names", []),
+                "series_style_intensity": task_config.get("series_style_intensity", 0.7),
+                "series_style_type": task_config.get("series_style_type", "long"),
+            }
+        elif content_type == "movie_script":
+            type_specific_config = {
+                "movie_type": task_config.get("movie_type", "电影"),
+                "duration_range": task_config.get("duration_range", [10, 15]),
+                "total_scenes": task_config.get("total_scenes", 0),
+                "script_mode": task_config.get("script_mode", "real"),
+                "movie_style_dimensions": task_config.get("movie_style_dimensions", {}),
+                "movie_style_names": task_config.get("movie_style_names", []),
+                "movie_style_intensity": task_config.get("movie_style_intensity", 0.7),
+            }
 
         return AgentContext(
             task_id=self.task.uuid,
@@ -258,6 +303,7 @@ class ContextBuilderMixin(PipelineConfigMixin):
                 "ai_elimination_enabled": ai_elimination_enabled,
                 "ai_elimination_threshold": ai_elimination_threshold,
                 "style_document_features": style_document_features,
+                **type_specific_config,
                 **task_config.get("agent_config", {})
             }
         )
@@ -304,3 +350,23 @@ class ContextBuilderMixin(PipelineConfigMixin):
                     characters.append({"name": char, "role": "角色"})
 
         return characters
+
+    @staticmethod
+    def _build_style_config_section(config: dict) -> str:
+        """Task 1.2: 将风格选择器配置转为提示词可用的文本段落"""
+        if not config or not config.get("dimensions"):
+            return ""
+
+        intensity = config.get("intensity", 0.7)
+        intensity_desc = "淡入-轻微体现" if intensity <= 0.4 else (
+            "适中-明显但不突兀" if intensity <= 0.7 else "强烈-非常突出"
+        )
+
+        lines = [f"## 用户选择的创作风格（强度: {intensity_desc}）"]
+        for dim_name, styles in config["dimensions"].items():
+            if styles:
+                s = styles[0] if isinstance(styles, list) else styles
+                lines.append(
+                    f"- **{dim_name}**: {s.get('name', '')} — {s.get('description', '')}"
+                )
+        return "\n".join(lines)
