@@ -207,6 +207,9 @@ class UnitDirectMixin:
             unit.status = UnitStatus.COMPLETED
             unit.duration_ms = int((time.time() - unit_start_time) * 1000)
 
+            # [v3.0] 保存 LLM 初稿（永不覆盖，供下载对比使用）
+            unit.content_after_generation = final_content
+
             # 创建单个场景记录（用于兼容）
             scene = WritingScene(
                 unit_id=unit.id,
@@ -219,6 +222,24 @@ class UnitDirectMixin:
             )
             self.db.add(scene)
             await self.db.commit()
+            
+            # 同步更新 NovelChapter 表（正文表单显示依赖此表）
+            # 使用共享同步函数，确保 NovelChapter 永远存在
+            from app.services.novel_writer.chapter_sync import sync_writing_unit_to_novel_chapter
+            try:
+                await sync_writing_unit_to_novel_chapter(
+                    db=self.db,
+                    project_id=context.project_id,
+                    unit_index=unit_index,
+                    final_content=final_content,
+                    unit_title=getattr(unit, 'unit_title', '') or f"第{unit_index}章",
+                    logger=self.logger
+                )
+            except Exception as sync_error:
+                self.logger.error(
+                    f"[整章生成-单元{unit_index}] NovelChapter 同步失败（内容已保存到WritingUnit，但正文表单可能无法显示）: {sync_error}",
+                    exc_info=True
+                )
 
             # 同步触发实时质控
             import asyncio as _asyncio

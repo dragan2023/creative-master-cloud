@@ -263,21 +263,39 @@ export function useWritingTaskWebSocket(state) {
                 fixes_applied: qcData.fixes_applied || [],
                 original_content: qcData.original_content || null,
                 fixed_content: qcData.fixed_content || null,
+                // v3.0: 六维度分数与版本内容
+                dimension_scores: qcData.dimension_scores || {},
+                change_list: qcData.change_list || [],
+                context_summary: qcData.context_summary || '',
+                content_after_generation: qcData.content_after_generation || null,
+                content_after_qc_fix: qcData.content_after_qc_fix || null,
                 updated_at: Date.now(),
                 _from_ws: true  // 标记数据来自WebSocket，优先级高于API数据
               }
             }
+
+            // 质控修正完成后，同步更新单元的 final_content 和 word_count
+            // 确保 WritingWorkbench 页面实时显示修正后的正文内容
+            if (qcData.fixed_content && qcData.status === 'completed') {
+              updatedUnit.final_content = qcData.fixed_content
+              updatedUnit.word_count = qcData.fixed_content.length
+              console.log(
+                '[WritingTask Store] 质控修正内容已同步: unit=%d, word_count=%d',
+                unitIndex, qcData.fixed_content.length
+              )
+            }
+
             state.units.value.splice(unitIdx, 1, updatedUnit)
             console.log('[WritingTask Store] 单元质控信息已更新(splice):', updatedUnit.quality_control)
           } else {
             // 单元尚未在列表中(可能unit_progress消息还未到达)，创建一个带质控信息的单元
             console.log('[WritingTask Store] 单元未找到，创建带质控信息的新单元:', unitIndex)
-            state.units.value.push({
+            const newUnit = {
               unit_index: unitIndex,
               unit_title: qcData.unit_title || `第${unitIndex}章`,
               status: qcData.status === 'running' ? 'processing' : 'completed',
               progress: qcData.status === 'running' ? 0 : 100,
-              word_count: 0,
+              word_count: qcData.fixed_content ? qcData.fixed_content.length : 0,
               quality_control: {
                 status: qcData.status,
                 score: qcData.score || 0,
@@ -289,10 +307,21 @@ export function useWritingTaskWebSocket(state) {
                 fixes_applied: qcData.fixes_applied || [],
                 original_content: qcData.original_content || null,
                 fixed_content: qcData.fixed_content || null,
+                // v3.0: 六维度分数与版本内容
+                dimension_scores: qcData.dimension_scores || {},
+                change_list: qcData.change_list || [],
+                context_summary: qcData.context_summary || '',
+                content_after_generation: qcData.content_after_generation || null,
+                content_after_qc_fix: qcData.content_after_qc_fix || null,
                 updated_at: Date.now(),
                 _from_ws: true  // 标记数据来自WebSocket
               }
-            })
+            }
+            // 质控修正完成后，同步设置 final_content
+            if (qcData.fixed_content && qcData.status === 'completed') {
+              newUnit.final_content = qcData.fixed_content
+            }
+            state.units.value.push(newUnit)
           }
           
           console.log(

@@ -144,7 +144,7 @@ async def create_project(
         await db.commit()
         await db.refresh(project)
 
-        # 处理知识图谱继承（从四阶段流程构建的项目继承）
+        # [已废弃] 处理知识图谱继承（v4.2遗留功能：当前四阶段流程不再构建知识图谱，保留代码仅向后兼容）
         if request.inherit_kb_from_project_id:
             try:
                 # 安全校验：确认源项目归属当前用户

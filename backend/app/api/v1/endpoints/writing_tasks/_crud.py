@@ -201,18 +201,8 @@ def register_crud_routes(router: APIRouter):
 
             task_config["style_guide"] = style_guide
 
-            # 根据项目类型和章节数自动判断生成模式
-            # 短篇小说（少于5章）或剧本类型使用整章生成模式
-            if not task_config.get("generation_mode"):
-                if project.project_type and project.project_type.value == "script":
-                    # 剧本类型使用场景拆解模式
-                    task_config["generation_mode"] = "scene_split"
-                elif actual_unit_count <= 5 and project.project_type.value == "novel":
-                    # 短篇小说使用整章生成模式
-                    task_config["generation_mode"] = "direct"
-                else:
-                    # 默认使用场景拆解模式
-                    task_config["generation_mode"] = "scene_split"
+            # 系统统一使用整章直接生成模式（direct mode）
+            task_config["generation_mode"] = "direct"
 
             logger.info(f"任务配置注入完成: has_outline={bool(task_config.get('outline'))}, "
                         f"has_unit_summaries={bool(task_config.get('unit_summaries'))}, "

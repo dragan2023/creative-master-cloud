@@ -47,17 +47,84 @@ export const generateApi = {
   reviseGlobalOutlineWithKnowledge: (data) => api.post('/api/v1/generate/outline/global/revise', data),
 
   // 流式修订全局大纲（多轮对话）
+  // [2026-05-12 修复] 改为自定义 SSE 解析器，支持 diff_complete/error 事件
   reviseGlobalOutlineStream: (data, onMessage, onDone, onError) => {
-    // streamGenerate的参数: (endpoint, data, onMessage, onWorkflow, onStreamStart, sessionId)
     return new Promise((resolve, reject) => {
-      streamGenerate(
-        '/api/v1/generate/outline/global/revise-stream',
-        data,
-        onMessage,
-        () => {},  // onWorkflow - 修订不需要
-        () => {},  // onStreamStart - 修订不需要
-        null       // sessionId - 修订不需要
-      ).then(resolve).catch(reject)
+      const url = `${API_BASE_URL}/api/v1/generate/outline/global/revise-stream`
+      const token = getToken()
+      const headers = { 'Content-Type': 'application/json' }
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(data)
+      }).then(response => {
+        if (!response.ok) {
+          response.json().then(errData => {
+            reject(new Error(errData?.detail || `请求失败: ${response.status}`))
+          }).catch(() => reject(new Error(`请求失败: ${response.status}`)))
+          return
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let fullContent = ''
+        let currentEventType = ''
+        let pendingData = ''
+
+        function readChunk() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              resolve({ content: fullContent, success: true })
+              return
+            }
+
+            const text = decoder.decode(value, { stream: true })
+            pendingData += text
+            const lines = pendingData.split('\n')
+            pendingData = lines.pop() || ''
+
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                currentEventType = line.slice(7).trim()
+                continue
+              }
+              if (line.startsWith('data: ')) {
+                try {
+                  const jsonStr = line.slice(6)
+                  if (jsonStr.trim()) {
+                    const eventData = JSON.parse(jsonStr)
+
+                    if (currentEventType === 'content' && eventData.text) {
+                      fullContent += eventData.text
+                      if (onMessage) onMessage(fullContent, eventData.text)
+                    } else if (currentEventType === 'diff_complete') {
+                      if (onDone) onDone({ type: 'diff_complete', data: eventData })
+                    } else if (currentEventType === 'error') {
+                      const errMsg = eventData.data || eventData.message || '修订失败'
+                      // 同时通知 onDone（兼容旧回调统一处理）和 onError
+                      if (onDone) onDone({ type: 'error', data: eventData })
+                      if (onError) onError(new Error(errMsg))
+                    }
+                    currentEventType = ''
+                  }
+                } catch (e) {
+                  console.warn('[ReviseStream] JSON parse failed:', e.message)
+                }
+              }
+            }
+            readChunk()
+          }).catch(error => {
+            if (error.name === 'AbortError') {
+              resolve({ content: fullContent, cancelled: true })
+            } else {
+              reject(error)
+            }
+          })
+        }
+        readChunk()
+      }).catch(error => reject(error))
     })
   },
 

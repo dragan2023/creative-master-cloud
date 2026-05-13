@@ -333,13 +333,43 @@ export function useWorkbenchTask(options) {
 
   // 续传任务
   async function handleResume() {
-    await writingStore.resumeTask(writingStore.currentTask.id);
+    try {
+      await writingStore.resumeTask(writingStore.currentTask.id);
+    } catch (error) {
+      const msg = error?.response?.data?.detail || error?.message || '续传失败';
+      ElMessage.error(`续传失败: ${msg}`);
+      console.error('续传任务失败:', error);
+    }
   }
 
   // 继续生成任务
   async function handleContinue(unitCount) {
+    console.log('[继续生成] handleContinue 被调用:', { unitCount, type: typeof unitCount })
+    
+    // 验证输入
     if (!unitCount || unitCount < 1) {
       ElMessage.warning("请输入有效的生成数量");
+      return;
+    }
+
+    // 验证不能超过剩余单元数
+    const completedUnits = writingStore.currentTask?.completed_units || 0;
+    // 优先使用 projectTotalUnits，确保基于项目总章节数计算
+    const totalUnits = projectTotalUnits.value || writingStore.currentTask?.total_units || 0;
+    const remainingUnits = totalUnits - completedUnits;
+
+    console.log('[继续生成] 验证参数:', {
+      completedUnits,
+      totalUnits,
+      remainingUnits,
+      unitCount,
+      projectTotalUnits: projectTotalUnits.value
+    })
+
+    if (unitCount > remainingUnits) {
+      ElMessage.warning(
+        `生成数量不能超过剩余单元数（剩余 ${remainingUnits} 个单元）`
+      );
       return;
     }
 

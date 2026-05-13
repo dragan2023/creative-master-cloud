@@ -50,7 +50,18 @@ class FormatConsistencyReportForPromptMixin:
         if report["unfinished_events"]:
             lines.append("## 未完成事件")
             for event in report["unfinished_events"]:
-                lines.append(f"- {event['name']}: {event['status']}")
+                event_status = event.get('status', '进行中')
+                first_ch = event.get('first_chapter', '?')
+                last_up = event.get('last_update_chapter', '?')
+                
+                # 🆕 区分可能已完结和真正进行中的事件
+                if event_status == "可能已完结":
+                    lines.append(f"- ⚠️ [待确认] {event['name']}: {event_status}")
+                    lines.append(f"  始于第{first_ch}章, 最后更新第{last_up}章")
+                else:
+                    lines.append(f"- {event['name']}: {event_status}")
+                    lines.append(f"  始于第{first_ch}章")
+                
                 if event.get('involved_characters'):
                     lines.append(
                         f"  涉及人物: {', '.join(event['involved_characters'])}")

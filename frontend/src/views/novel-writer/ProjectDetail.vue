@@ -188,6 +188,8 @@
           :loading-status="loadingKbStatus"
           :building="buildingKb"
           :resetting="resettingKbStatus"
+          @build="handleBuildKnowledgeBase"
+          @rebuild-global="handleBuildKnowledgeBase"
           @refresh="refreshKnowledgeBaseStatus"
           @reset="handleResetKbStatus"
           @delete="handleDeleteKnowledgeBase"

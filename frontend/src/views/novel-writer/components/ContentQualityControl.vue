@@ -25,24 +25,24 @@
       <div class="qc-overview">
         <div class="stat-row">
           <div class="stat-item">
-            <el-statistic title="已完成" :value="qcSummary.completed">
+            <el-statistic title="已完成" :value="statValue(qcSummary.completed)">
               <template #suffix>
                 <span class="stat-unit">/ {{ qcSummary.total }}单元</span>
               </template>
             </el-statistic>
           </div>
           <div class="stat-item">
-            <el-statistic title="平均得分" :value="qcSummary.avgScore">
+            <el-statistic title="平均得分" :value="statValue(qcSummary.avgScore)">
               <template #suffix>
                 <el-tag :type="getScoreTagType(qcSummary.avgScore)" size="small">分</el-tag>
               </template>
             </el-statistic>
           </div>
           <div class="stat-item pending">
-            <el-statistic title="待质控" :value="qcSummary.pending" />
+            <el-statistic title="待质控" :value="statValue(qcSummary.pending)" />
           </div>
           <div class="stat-item failed">
-            <el-statistic title="失败" :value="qcSummary.failed" />
+            <el-statistic title="失败" :value="statValue(qcSummary.failed)" />
           </div>
         </div>
 
@@ -136,7 +136,7 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="200" fixed="right">
+          <el-table-column label="操作" width="260" fixed="right">
             <template #default="{ row }">
               <el-button
                 v-if="row.status === 'completed' && row.qc_status === 'pending'"
@@ -165,6 +165,27 @@
               >
                 撤销修正
               </el-button>
+              <!-- v3.0: 双版本下载按钮 -->
+              <el-dropdown
+                v-if="row.qc_status === 'completed'"
+                trigger="click"
+                size="small"
+              >
+                <el-button type="info" size="small" link>
+                  <el-icon><Download /></el-icon>
+                  下载
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="handleDownload(row.unit_index, 'draft')">
+                      📝 下载初稿
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="handleDownload(row.unit_index, 'revised')">
+                      ✅ 下载修正稿
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </template>
           </el-table-column>
         </el-table>
@@ -218,6 +239,7 @@ import {
   getSeverityType,
   getDimensionName
 } from '../composables/useContentQualityControl'
+import { useWritingTaskStore } from '@/stores/writingTask'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -259,10 +281,42 @@ const {
   triggerBatchQC,
   revertFix,
   applySelectedFixes,
+  downloadContent,
   getScoreColor: qcGetScoreColor,
   getSeverityType: qcGetSeverityType,
   getDimensionName: qcGetDimensionName
 } = qc
+
+// BUG#6 修复: 监听 writingTaskStore 中 units 的质控更新
+// 当 WebSocket 质控消息到达时，自动触发 content composable 的内容同步
+const writingStore = useWritingTaskStore()
+const processedQCUnits = new Set()  // 防止重复处理同一单元的质控消息
+watch(
+  () => writingStore.units,
+  (newUnits) => {
+    if (!newUnits || newUnits.length === 0) return
+    for (const unit of newUnits) {
+      const qcData = unit?.quality_control
+      // 仅处理来自 WebSocket 的质控消息且尚未处理过的单元
+      if (qcData?._from_ws && qcData.fixed_content && !processedQCUnits.has(unit.unit_index)) {
+        processedQCUnits.add(unit.unit_index)
+        qc.handleQCMessage('unit_quality_control', {
+          unit_index: unit.unit_index,
+          status: qcData.status,
+          score: qcData.score,
+          issues_count: qcData.issues_count,
+          fixed_count: qcData.fixed_count,
+          issues: qcData.issues,
+          fixes_applied: qcData.fixes_applied,
+          report: qcData.report,
+          original_content: qcData.original_content,
+          fixed_content: qcData.fixed_content
+        })
+      }
+    }
+  },
+  { deep: true }
+)
 
 // 本地状态
 const autoFixEnabled = ref(true)
@@ -327,6 +381,12 @@ function getScoreTagType(score) {
   if (score >= 80) return 'success'
   if (score >= 60) return 'warning'
   return 'danger'
+}
+
+// Element Plus el-statistic 兼容：value=0 会导致 InvalidCharacterError
+// 用此包装器确保传给组件的值永远不是裸数字 0
+function statValue(val) {
+  return val === 0 ? '0' : val
 }
 
 // 批量质控
@@ -430,6 +490,11 @@ async function handleRevertFromDialog(data) {
     handleViewReport(data.unitIndex)
     emit('unit-updated', { unitIndex: data.unitIndex, data: result })
   }
+}
+
+// 下载单元内容（v3.0: 初稿/修正稿）
+function handleDownload(unitIndex, version) {
+  downloadContent(unitIndex, version)
 }
 
 // 对话框关闭时重置

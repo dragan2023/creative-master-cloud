@@ -8,7 +8,7 @@
   依赖关系:
       - API: /api/v1/writing-tasks/*, /api/v1/novel-writer/*
       - Store: writingTask
-      - 组件: ProjectSetupPanel, KnowledgeGraphDialog
+      - 组件: TaskCreationPanel, WorkbenchHeader, KnowledgeGraphDialog
   
   创建时间: 2026-03-28
   最后修改: 2026-03-30
@@ -47,326 +47,74 @@
       @open-quality-control="showQualityControlVisualization = true"
     />
 
-    <!-- 主内容区（无任务时显示）-->
-    <div v-if="!writingStore.currentTask" class="task-creation">
-      <div class="workbench-layout">
-        <!-- 左侧边栏：项目准备面板-->
-        <div class="left-sidebar">
-          <ProjectSetupPanel
-            :project="projectData"
-            :chapters="displayUnits"
-            :unit-label="unitLabel"
-            :generating-directory="generatingDirectory"
-            @upload-outline="showOutlineUploadDialog = true"
-            @upload-unit-summaries="showUnitSummariesUploadDialog = true"
-            @generate-directory="handleGenerateDirectory"
-            @show-knowledge-graph="knowledgeGraphVisible = true"
-            @show-consistency-report="consistencyReportVisible = true"
-            @show-settings="showSettingsDialog = true"
-          />
-          <!-- 架构优化：移除:chapter-outlines, @generate-chapter-outlines, @view-chapter-outlines -->
-          
-          <!-- 知识库面板 -->
-          <KnowledgeBasePanel
-            :kb-status="kbStatus"
-            :has-outline="hasOutline"
-            :building="buildingKb"
-            @build="handleBuildKnowledgeBase"
-            @rebuild-global="handleBuildKnowledgeBase"
-            @show-graph="knowledgeGraphVisible = true"
-            @delete="handleDeleteKnowledgeBase"
-            @refresh="loadKbStatus"
-          />
-        </div>
-
-        <!-- 右侧主区域-->
-        <div class="right-main-area">
-          <!-- 单元概述缺失提示（仅小说类型显示）-->
-          <el-alert
-            v-if="
-              !hasUnitSummaries &&
-              (actualContentType === 'novel')
-            "
-            type="warning"
-            :closable="false"
-            show-icon
-            class="unit-summaries-alert"
-          >
-            <template #title>
-              <span>缺少单元概述数据</span>
-            </template>
-            <div class="alert-content">
-              <p>章节详细大纲功能需要先上传单元概述数据</p>
-              <p style="color: #909399; font-size: 12px; margin-top: 4px">
-                单元概述可从“创意生成”板块导出后上传，或直接在下方输入。
-              </p>
-              <el-button
-                type="primary"
-                size="small"
-                style="margin-top: 8px"
-                @click="showUnitSummariesUploadDialog = true"
-              >
-                <el-icon><Upload /></el-icon>
-                上传单元概述
-              </el-button>
-            </div>
-          </el-alert>
-
-          <!-- 任务配置面板 -->
-          <el-card shadow="hover" class="creation-card">
-            <template #header>
-              <div class="card-header">
-                <span class="header-title">
-                  <el-icon><EditPen /></el-icon>
-                  正文生成配置
-                </span>
-                <div class="header-actions">
-                  <el-button
-                    type="primary"
-                    @click="handleCreateTask"
-                    :loading="writingStore.loading"
-                  >
-                    <el-icon><VideoPlay /></el-icon>
-                    开始生成正文
-                  </el-button>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    plain
-                    @click="showAgentConfigDialog = true"
-                  >
-                    <el-icon><Setting /></el-icon>
-                    Agent配置
-                  </el-button>
-                </div>
-              </div>
-            </template>
-
-            <!-- 知识库推荐提示 -->
-            <el-alert
-              v-if="!kbStatus || kbStatus.status !== 'ready'"
-              type="info"
-              :closable="true"
-              show-icon
-              style="margin-bottom: 12px"
-            >
-              <template #title>
-                推荐构建知识库以提升生成质量
-              </template>
-              <template #default>
-                知识库包含人物设定、世界观、历史事件等，可增强正文生成的一致性和质量。
-                请在左侧"知识库"面板中点击"构建知识库"按钮。
-              </template>
-            </el-alert>
-
-            <!-- 配置提示 -->
-            <el-alert
-              type="info"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 12px"
-            >
-              <template #title>
-                点击 "Agent配置" 按钮可配置模型参数和并发设置
-              </template>
-            </el-alert>
-
-            <!-- 架构优化：移除生成模式选择器，固定使用direct模式 -->
-
-            <!-- 基本参数 -->
-            <el-form :model="taskForm" label-width="80px" class="task-form">
-              <el-row :gutter="20">
-                <!-- 字数限制：仅小说类型显示 -->
-                <el-col :span="12" v-if="isNovelType">
-                  <el-form-item label="每章字数">
-                    <el-input-number
-                      v-model="taskForm.words_per_chapter"
-                      :min="500"
-                      :max="10000"
-                      :step="500"
-                      style="width: 150px"
-                      controls-position="right"
-                    />
-                  </el-form-item>
-                </el-col>
-                <!-- 时长提示：剧本类型显示-->
-                <el-col :span="12" v-else>
-                  <el-form-item :label="durationLabel">
-                    <el-text type="info" size="small">
-                      {{ durationHint }}
-                    </el-text>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="并发数">
-                    <el-input-number
-                      v-model="taskForm.concurrency"
-                      :min="1"
-                      :max="10"
-                      style="width: 150px"
-                      controls-position="right"
-                    />
-                    <span class="form-hint">写手并发数</span>
-                  </el-form-item>
-                </el-col>
-              </el-row>
-            </el-form>
-
-            <!-- 剧集专属参数 -->
-            <el-form v-if="actualContentType === 'series_script'" :model="taskForm" label-width="80px" class="task-form" style="margin-top: 12px">
-              <el-row :gutter="20">
-                <el-col :span="12">
-                  <el-form-item label="剧集类型">
-                    <el-select v-model="taskForm.series_type" style="width: 150px">
-                      <el-option label="电视剧" value="电视剧" />
-                      <el-option label="网络剧" value="网络剧" />
-                      <el-option label="短剧" value="短剧" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="每集时长(分钟)">
-                    <el-input-number v-model="taskForm.episode_duration_min" :min="1" :max="120" size="small" style="width: 80px" controls-position="right" /> -
-                    <el-input-number v-model="taskForm.episode_duration_max" :min="1" :max="120" size="small" style="width: 80px" controls-position="right" />
-                  </el-form-item>
-                </el-col>
-              </el-row>
-              <el-row :gutter="20">
-                <el-col :span="24">
-                  <el-form-item label="生成模式">
-                    <el-radio-group v-model="taskForm.script_mode">
-                      <el-radio-button value="real">现实模式</el-radio-button>
-                      <el-radio-button value="virtual">虚拟模式（AI生成）</el-radio-button>
-                    </el-radio-group>
-                  </el-form-item>
-                </el-col>
-              </el-row>
-            </el-form>
-
-            <!-- 电影专属参数 -->
-            <el-form v-if="actualContentType === 'movie_script'" :model="taskForm" label-width="80px" class="task-form" style="margin-top: 12px">
-              <el-row :gutter="20">
-                <el-col :span="12">
-                  <el-form-item label="电影类型">
-                    <el-select v-model="taskForm.movie_type" style="width: 150px">
-                      <el-option label="电影" value="电影" />
-                      <el-option label="网络电影" value="网络电影" />
-                      <el-option label="微电影" value="微电影" />
-                      <el-option label="动画电影" value="动画电影" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="每场时长(分钟)">
-                    <el-input-number v-model="taskForm.scene_duration_min" :min="1" :max="60" size="small" style="width: 80px" controls-position="right" /> -
-                    <el-input-number v-model="taskForm.scene_duration_max" :min="1" :max="60" size="small" style="width: 80px" controls-position="right" />
-                  </el-form-item>
-                </el-col>
-              </el-row>
-              <el-row :gutter="20">
-                <el-col :span="24">
-                  <el-form-item label="生成模式">
-                    <el-radio-group v-model="taskForm.script_mode">
-                      <el-radio-button value="real">现实模式</el-radio-button>
-                      <el-radio-button value="virtual">虚拟模式（AI生成）</el-radio-button>
-                    </el-radio-group>
-                  </el-form-item>
-                </el-col>
-              </el-row>
-            </el-form>
-          </el-card>
-
-          <!-- 架构优化：已移除单元大纲生成面板 -->
-
-          <!-- 单元列表预览 -->
-          <el-card class="units-panel" shadow="hover">
-            <template #header>
-              <div class="panel-header">
-                <span>
-                  <el-icon><List /></el-icon>
-                  单元列表（正文生成）
-                </span>
-                <el-tag type="info" size="small">
-                  {{ displayUnits.length }} {{ unitLabel }}
-                </el-tag>
-              </div>
-            </template>
-
-            <!-- 参数配置区：起始单元和生成数量（正文生成用） -->
-            <div class="unit-params-bar">
-              <div class="param-item-inline">
-                <span class="param-label">起始单元</span>
-                <div class="param-input-wrapper">
-                  <el-input-number
-                    v-model="taskForm.start_from"
-                    :min="1"
-                    :max="projectTotalUnits || 999"
-                    style="width: 90px"
-                    controls-position="right"
-                    size="small"
-                  />
-                  <span class="unit-name-badge" v-if="currentUnitName">
-                    {{ currentUnitName }}
-                  </span>
-                </div>
-              </div>
-              <div class="param-item-inline">
-                <span class="param-label">生成数量</span>
-                <el-input-number
-                  v-model="taskForm.unit_count"
-                  :min="1"
-                  :max="projectTotalUnits || 100"
-                  placeholder="全部"
-                  style="width: 100px"
-                  size="small"
-                  controls-position="right"
-                />
-                <span class="param-hint">留空=全部</span>
-              </div>
-            </div>
-
-            <div class="units-preview-list">
-              <div
-                v-for="unit in displayUnits"
-                :key="unit.unit_index"
-                class="unit-preview-item"
-                :class="{
-                  'is-selected': unit.unit_index === taskForm.start_from,
-                }"
-                @click="taskForm.start_from = unit.unit_index"
-              >
-                <span class="unit-index">#{{ unit.unit_index }}</span>
-                <span class="unit-name" :title="unit.unit_title">
-                  {{ unit.unit_title || `${unit.unit_index}${unitLabel}` }}
-                </span>
-              </div>
-              <el-empty
-                v-if="displayUnits.length === 0"
-                description="暂无单元数据，请先在项目中创建大纲"
-                :image-size="60"
-              />
-            </div>
-          </el-card>
-        </div>
+    <!-- 主内容区 -->
+    <div class="workbench-layout">
+      <!-- 左侧边栏：始终可见 -->
+      <div class="left-sidebar">
+        <ProjectSetupPanel
+          :project="projectData"
+          :chapters="displayUnits"
+          :unit-label="unitLabel"
+          :generating-directory="generatingDirectory"
+          @upload-outline="showOutlineUploadDialog = true"
+          @upload-unit-summaries="showUnitSummariesUploadDialog = true"
+          @generate-directory="handleGenerateDirectory"
+          @show-knowledge-graph="knowledgeGraphVisible = true"
+          @show-consistency-report="consistencyReportVisible = true"
+          @show-settings="showSettingsDialog = true"
+        />
+        <KnowledgeBasePanel
+          :kb-status="kbStatus"
+          :has-outline="hasOutline"
+          :building="buildingKb"
+          @build="handleBuildKnowledgeBase"
+          @rebuild-global="handleBuildKnowledgeBase"
+          @show-graph="knowledgeGraphVisible = true"
+          @delete="handleDeleteKnowledgeBase"
+          @refresh="loadKbStatus"
+        />
       </div>
-    </div>
 
-    <!-- 主内容区（有任务时）-->
-    <div v-else class="workbench-main">
+      <!-- 右侧主区域：条件渲染 -->
+      <div class="right-main-area">
+        <!-- 无任务时：任务创建面板 -->
+        <TaskCreationPanel
+          v-if="!writingStore.currentTask"
+          :project-data="projectData"
+          :display-units="displayUnits"
+          :unit-label="unitLabel"
+          :actual-content-type="actualContentType"
+          :is-novel-type="isNovelType"
+          :duration-label="durationLabel"
+          :duration-hint="durationHint"
+          :task-form="taskForm"
+          :project-total-units="projectTotalUnits"
+          :current-unit-name="currentUnitName"
+          :kb-status="kbStatus"
+          :building-kb="buildingKb"
+          :has-outline="hasOutline"
+          :has-unit-summaries="hasUnitSummaries"
+          :generating-directory="generatingDirectory"
+          :is-loading="writingStore.loading"
+          @upload-outline="showOutlineUploadDialog = true"
+          @upload-unit-summaries="showUnitSummariesUploadDialog = true"
+          @generate-directory="handleGenerateDirectory"
+          @show-knowledge-graph="knowledgeGraphVisible = true"
+          @show-consistency-report="consistencyReportVisible = true"
+          @show-settings="showSettingsDialog = true"
+          @build-kb="handleBuildKnowledgeBase"
+          @rebuild-global-kb="handleBuildKnowledgeBase"
+          @delete-kb="handleDeleteKnowledgeBase"
+          @refresh-kb="loadKbStatus"
+          @create-task="handleCreateTask"
+          @open-agent-config="showAgentConfigDialog = true"
+        />
+        
+        <!-- 有任务时：工作台主体 -->
+        <div v-else class="workbench-main">
       <el-row :gutter="20">
-        <!-- 左侧：实时进度面板-->
-        <el-col :span="14">
-          <AgentProgressPanel
-            :ws-connected="writingStore.wsConnected"
-            :agent-pipeline="agentPipeline"
-            :workflow-steps="workflowSteps"
-            :current-processing-info="currentProcessingInfo"
-            :progress-messages="writingStore.progressMessages"
-          />
-        </el-col>
-
-        <!-- 右侧：单元场景浏览面板 -->
-        <el-col :span="10">
+        <!-- 左侧：单元场景浏览面板（扩大区域） -->
+        <el-col :span="16">
           <UnitListPanel
             v-model:active-units="activeUnits"
             :display-units="displayUnits"
@@ -382,6 +130,17 @@
             @show-unit-qc="handleShowUnitQC"
           />
         </el-col>
+
+        <!-- 右侧：实时进度面板（缩小区域） -->
+        <el-col :span="8">
+          <AgentProgressPanel
+            :ws-connected="writingStore.wsConnected"
+            :agent-pipeline="agentPipeline"
+            :workflow-steps="workflowSteps"
+            :current-processing-info="currentProcessingInfo"
+            :progress-messages="writingStore.progressMessages"
+          />
+        </el-col>
       </el-row>
 
       <!-- 底部：统计仪表板 -->
@@ -391,6 +150,11 @@
         :current-task="writingStore.currentTask"
       />
     </div>
+
+      </div>
+      <!-- 关闭 right-main-area -->
+    </div>
+    <!-- 关闭 workbench-layout -->
 
     <!-- 场景内容查看对话框-->
     <SceneContentDialog
@@ -405,8 +169,9 @@
     <ContinueGenerateDialog
       v-model:visible="showContinueDialog"
       :completed-units="writingStore.currentTask?.completed_units || 0"
+      :total-units="projectTotalUnits || writingStore.currentTask?.total_units || 0"
       v-model:unit-count="continueUnitCount"
-      @confirm="handleContinue"
+      @confirm="handleContinue(continueUnitCount)"
       @cancel="showContinueDialog = false"
     />
 
@@ -510,7 +275,6 @@
       v-model:visible="showModelConfigDialog"
     />
 
-    <!-- 架构优化：已移除章节大纲预览对话框和已生成大纲列表对话框 -->
   </div>
 </template>
 
@@ -521,17 +285,11 @@ import { useWritingTaskStore } from "@/stores/writingTask";
 import { novelWriterApi } from "@/api/novel-writer";
 import { writingTaskApi } from "@/api/writing-task";
 import { ElMessage, ElMessageBox } from "element-plus";
-import {
-  VideoPlay,
-  EditPen,
-  List,
-  Setting,
-  Upload,
-} from "@element-plus/icons-vue";
-
-// 导入子组件
+import TaskCreationPanel from "./components/TaskCreationPanel.vue";
 import ProjectSetupPanel from "./components/ProjectSetupPanel.vue";
 import KnowledgeBasePanel from "./components/KnowledgeBasePanel.vue";
+
+// 导入子组件
 import KnowledgeGraphDialog from "./components/KnowledgeGraphDialog.vue";
 import ConsistencyReportDialog from "./components/ConsistencyReportDialog.vue";
 import ContentQualityControl from "./components/ContentQualityControl.vue";
@@ -740,8 +498,7 @@ const {
 } = wbPipeline
 
 // ==================== 内联状态（UI相关，不适合提取）====================
-const hasOutline = computed(() => !!projectData.value?.outline_content)
-const activeCollapse = ref(["agents"]);
+const hasOutline = computed(() => !!projectData.value?.outline_content || !!projectData.value?.global_outline_content)
 const activeUnits = ref([]);
 const interrupting = ref(false);
 const knowledgeGraphVisible = ref(false);
@@ -840,168 +597,26 @@ watch(
   min-height: 600px;
 }
 
-// 任务创建面板 - 工作台布局
-.task-creation {
-  .workbench-layout {
-    display: flex;
-    gap: 20px;
-    min-height: 600px;
-  }
-
-  .left-sidebar {
-    width: 350px;
-    flex-shrink: 0;
-    min-width: 300px;
-    position: sticky;
-    top: 20px;
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
-  }
-
-  .right-main-area {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .creation-card {
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      .header-title {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 16px;
-        font-weight: 600;
-
-        .el-icon {
-          color: #409eff;
-        }
-      }
-
-      .header-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-    }
-  }
-
-  .task-form {
-    padding: 10px 0;
-
-    .form-hint {
-      font-size: 12px;
-      color: #909399;
-      margin-left: 8px;
-    }
-  }
-}
-
-// 单元参数配置区
-.unit-params-bar {
+// 主布局：左侧边栏 + 右侧内容区
+.workbench-layout {
   display: flex;
-  gap: 16px;
-  padding: 12px 16px;
-  background: #f5f7fa;
-  border-radius: 8px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-
-  .param-item-inline {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-
-    .param-label {
-      font-size: 13px;
-      color: #606266;
-      white-space: nowrap;
-    }
-
-    .param-input-wrapper {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
-      .unit-name-badge {
-        padding: 2px 8px;
-        background: #f0f9eb;
-        border-radius: 4px;
-        font-size: 12px;
-        color: #67c23a;
-        white-space: nowrap;
-        max-width: 120px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-    }
-
-    .param-hint {
-      font-size: 11px;
-      color: #909399;
-    }
-  }
+  gap: 20px;
+  min-height: 600px;
 }
 
-// 单元预览列表
-.units-preview-list {
-  max-height: 500px;
+.left-sidebar {
+  width: 350px;
+  flex-shrink: 0;
+  min-width: 300px;
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
   overflow-y: auto;
-
-  .unit-preview-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    background: #f5f7fa;
-    border-radius: 6px;
-    transition: all 0.2s;
-
-    &:hover {
-      background: #ecf5ff;
-    }
-
-    &.is-selected {
-      background: #f0f9eb;
-      border-left: 3px solid #67c23a;
-    }
-
-    .unit-index {
-      font-weight: 600;
-      color: #409eff;
-      min-width: 40px;
-    }
-
-    .unit-name {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 13px;
-      color: #303133;
-    }
-  }
 }
 
-// 主内容区（有任务时）
-.workbench-main {
-  // 容器本身，子组件交由各自管理
-}
-
-// 单元概述缺失提示
-.unit-summaries-alert {
-  margin-bottom: 16px;
-
-  .alert-content {
-    p {
-      margin: 0;
-      line-height: 1.6;
-    }
-  }
+.right-main-area {
+  flex: 1;
+  min-width: 0;
 }
 
 // 项目设置弹窗中的模型配置入口

@@ -24,7 +24,7 @@
         <span>项目准备</span>
       </div>
       <el-steps :active="activeStep" direction="vertical" :space="32" simple>
-        <el-step title="上传大纲" :status="outlineStatus">
+        <el-step title="上传大纲" :status="outlineStatus" description="从创意生成页导出">
           <template #icon>
             <el-icon :class="{ 'step-done': hasOutline }">
               <Check v-if="hasOutline" />
@@ -40,7 +40,7 @@
             </el-icon>
           </template>
         </el-step>
-        <el-step title="单元概述" :status="unitSummariesStatus">
+        <el-step title="单元概述" :status="unitSummariesStatus" description="从创意生成页导入">
           <template #icon>
             <el-icon :class="{ 'step-done': hasUnitSummaries }">
               <Check v-if="hasUnitSummaries" />
@@ -48,7 +48,7 @@
             </el-icon>
           </template>
         </el-step>
-        <el-step title="开始生成" :status="readyStatus">
+        <el-step title="开始生成" :status="readyStatus" description="基于大纲+概述生成正文">
           <template #icon>
             <el-icon :class="{ 'step-done': canStartGenerate }">
               <Check v-if="canStartGenerate" />
@@ -153,8 +153,6 @@
         </el-button>
       </div>
     </div>
-
-    <!-- 架构优化：已移除章节大纲生成功能 -->
   </div>
 </template>
 
@@ -163,7 +161,6 @@ import { computed } from 'vue'
 import { 
   Setting, Check, Document, List, Reading, VideoPlay, Upload,
   DataAnalysis, Operation, Connection
-  // 架构优化：移除 View 图标
 } from '@element-plus/icons-vue'
 
 // ==================== Props ====================
@@ -188,7 +185,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   }
-  // 架构优化：移除 chapterOutlines prop
 })
 
 // ==================== Emits ====================
@@ -284,7 +280,6 @@ const unitSummariesCount = computed(() => {
 // 已完成单元数
 const completedUnits = computed(() => props.project?.completed_chapters || 0)
 
-// 架构优化：移除 chapterOutlinesCount 和 chapterOutlinesPercentage 计算属性
 </script>
 
 <style lang="scss" scoped>
@@ -441,5 +436,4 @@ const completedUnits = computed(() => props.project?.completed_chapters || 0)
   }
 }
 
-/* 架构优化：移除 .chapter-outlines-status 样式 */
 </style>

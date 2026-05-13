@@ -85,9 +85,37 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                     logger.error(f"任务不存在: task_id={self.task_id}")
                     return
 
-                # 安全检查：如果 total_units 为 0 或 None，尝试从数据库查询实际单元数并更新
-                if not self.task.total_units or self.task.total_units == 0:
-                    logger.warning(f"任务 total_units 为 0 或 None，尝试从数据库查询实际单元数")
+                # 安全检查：校准 total_units，覆盖以下场景：
+                # ① total_units 为 0/None → 强制查询
+                # ② total_units 落后于 unit_summaries 实际长度 → 动态校准
+                need_calibrate = (not self.task.total_units or self.task.total_units == 0)
+                actual_from_summaries = 0
+
+                # 先快速查询 unit_summaries 是否比 total_units 更长
+                if not need_calibrate:
+                    try:
+                        from app.models.novel_project import NovelProject
+                        project_result = await db.execute(
+                            select(NovelProject.unit_summaries).where(
+                                NovelProject.id == self.task.project_id).limit(1)
+                        )
+                        row = project_result.scalar_one_or_none()
+                        if row and isinstance(row, dict):
+                            actual_from_summaries = len(row)
+                        if actual_from_summaries > self.task.total_units:
+                            need_calibrate = True
+                            logger.warning(
+                                f"检测到 total_units 落后于 unit_summaries 实际长度: "
+                                f"task_id={self.task_id}, total_units={self.task.total_units}, "
+                                f"unit_summaries_count={actual_from_summaries}，触发校准")
+                    except Exception:
+                        pass
+
+                if need_calibrate:
+                    if not actual_from_summaries:
+                        logger.warning(f"任务 total_units 为 0 或 None，尝试从数据库查询实际单元数")
+                    else:
+                        logger.info(f"任务 total_units 需要校准，从数据库获取实际单元数")
 
                     from app.models.novel_project import NovelProject
                     from app.models.novel_chapter import NovelChapter

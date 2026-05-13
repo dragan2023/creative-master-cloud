@@ -71,10 +71,8 @@ class LLMAnalysisEngine:
 
             # 调用LLM
             response = await provider.generate(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
+                prompt=prompt,
+                system_prompt=system_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens
             )

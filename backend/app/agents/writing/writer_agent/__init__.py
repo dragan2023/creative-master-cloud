@@ -67,80 +67,8 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
                 # 整章生成模式
                 return await self._execute_direct_mode(context, start_time)
 
-            # 场景拆解模式（原有逻辑）
-            # 提取场景大纲
-            scene_outline = context.extra.get("scene_outline", {})
-            if not scene_outline:
-                return self._build_error_result("缺少场景大纲数据")
-
-            # 提取场景信息
-            scene_title = scene_outline.get("title", "未命名场景")
-            location = scene_outline.get("location", "")
-            characters = scene_outline.get("characters", [])
-            events = scene_outline.get("events", "")
-            mood = scene_outline.get("mood", "平静")
-
-            # 字数优先级获取：1. context.config 2. scene_outline 3. 默认值800
-            target_words = context.config.get(
-                "words_per_scene") or scene_outline.get("target_words") or 800
-
-            self.logger.info(
-                f"开始生成场景内容 - 标题: {scene_title}, "
-                f"目标字数: {target_words}, 角色: {characters}"
-            )
-
-            system_prompt = self._build_writer_system_prompt(context)
-
-            user_prompt = self._build_writer_user_prompt(
-                scene_outline=scene_outline,
-                previous_content=context.previous_content,
-                global_context=context.global_context,
-                context=context
-            )
-
-            # 调用LLM生成内容（不传递max_tokens，让LLM自主控制输出长度）
-            response = await self.call_llm(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                task_id=context.task_id,
-                scene_id=f"{context.unit_index}_{context.scene_index}"
-            )
-
-            # 提取结果
-            content = response.get("content", "")
-
-            # 清理内容（移除可能的markdown格式）
-            content = self._clean_content(content)
-
-            # 计算字数
-            word_count = len(content)
-
-            # 生成场景摘要
-            summary = await self._generate_summary(content, scene_title)
-
-            # 计算耗时
-            duration_ms = int((time.time() - start_time) * 1000)
-
-            self.logger.info(
-                f"场景内容生成完成 - 字数: {word_count}, "
-                f"目标: {target_words}, 偏差: {word_count - target_words}"
-            )
-
-            return self._build_success_result(
-                content=content,
-                token_usage={
-                    "input_tokens": response.get("input_tokens", 0),
-                    "output_tokens": response.get("output_tokens", 0),
-                    "total_tokens": response.get("total_tokens", 0)
-                },
-                duration_ms=duration_ms,
-                model_id=response.get("model", self.default_model),
-                summary=summary,
-                word_count=word_count,
-                scene_title=scene_title
-            )
+            # 非整章生成模式默认走直接生成模式
+            return await self._execute_direct_mode(context, start_time)
 
         except Exception as e:
             # 使用 {e!r} 避免异常消息中的花括号被误解析为格式化占位符
@@ -223,46 +151,3 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
             word_count=word_count,
             scene_title=unit_title
         )
-
-    async def generate_stream(
-        self,
-        context: AgentContext
-    ):
-        """流式生成内容（用于实时预览）
-
-        Args:
-            context: 执行上下文
-
-        Yields:
-            str: 内容片段
-        """
-        try:
-            # 提取场景大纲
-            scene_outline = context.extra.get("scene_outline", {})
-            if not scene_outline:
-                yield "[错误] 缺少场景大纲数据"
-                return
-
-            # 构建提示词
-            system_prompt = self._build_writer_system_prompt(context)
-            user_prompt = self._build_writer_user_prompt(
-                scene_outline=scene_outline,
-                previous_content=context.previous_content,
-                global_context=context.global_context
-            )
-
-            # 流式生成（不传递max_tokens，让LLM自主控制输出长度）
-            async for chunk in self.call_llm_stream(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                task_id=context.task_id,
-                scene_id=f"{context.unit_index}_{context.scene_index}"
-            ):
-                yield chunk
-
-        except Exception as e:
-            # 使用 {e!r} 避免异常消息中的花括号被误解析
-            self.logger.error(f"流式生成失败: {e!r}")
-            yield f"\n[错误] 生成中断: {str(e)[:200]}"

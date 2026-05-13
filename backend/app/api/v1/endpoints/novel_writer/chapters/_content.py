@@ -159,6 +159,33 @@ async def update_chapter(
         chapter.user_edited = 1
 
         await db.commit()
+        
+        # 同步更新 WritingUnit 表（质控系统依赖此表）
+        try:
+            from app.models.writing_unit import WritingUnit
+            from app.models.writing_task import WritingTask
+            task_query = select(WritingTask).where(
+                WritingTask.project_id == project_id
+            )
+            task_result = await db.execute(task_query)
+            tasks = task_result.scalars().all()
+            
+            if tasks:
+                task_ids = [task.id for task in tasks]
+                unit_query = select(WritingUnit).where(
+                    WritingUnit.unit_index == chapter_num,
+                    WritingUnit.task_id.in_(task_ids)
+                ).order_by(WritingUnit.id.desc())
+                unit_result = await db.execute(unit_query)
+                unit = unit_result.scalars().first()
+                
+                if unit:
+                    unit.final_content = request.content
+                    unit.word_count = len(request.content)
+                    await db.commit()
+                    logger.info(f"WritingUnit已同步: unit_index={chapter_num}")
+        except Exception as sync_error:
+            logger.warning(f"WritingUnit同步失败: {sync_error}")
 
         logger.info(f"章节内容更新: 第{chapter_num}章")
 

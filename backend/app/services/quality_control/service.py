@@ -313,7 +313,8 @@ class QualityControlService:
             return self._build_report_from_rules(rule_results, chapters_data)
 
         # 构建维度→LLM任务映射，仅对需要LLM的维度创建任务
-        llm_dimensions = ["structure", "character", "experience"]
+        # v3.0：扩展为全六维度，正文质控需要六个维度全部进行LLM深度分析
+        llm_dimensions = ["structure", "character", "scene", "prose", "experience", "technical"]
         llm_task_map: Dict[str, Any] = {}
         for dimension in dimensions:
             if dimension in llm_dimensions:
@@ -340,11 +341,15 @@ class QualityControlService:
             task_coros = list(llm_task_map.values())
             raw_results = await asyncio.gather(*task_coros, return_exceptions=True)
             for key, result in zip(task_keys, raw_results):
-                if not isinstance(result, Exception):
-                    if "issues" in result:
-                        all_issues.extend(result["issues"])
-                    if "score" in result:
-                        dimension_scores[key] = result["score"]
+                if isinstance(result, Exception):
+                    logger.error(
+                        f"[LLM分析] 维度 '{key}' 失败: {type(result).__name__}: {result}"
+                    )
+                    continue
+                if "issues" in result:
+                    all_issues.extend(result["issues"])
+                if "score" in result:
+                    dimension_scores[key] = result["score"]
 
         overall_score = sum(dimension_scores.values()) / len(dimension_scores) if dimension_scores else 0
 
@@ -362,6 +367,85 @@ class QualityControlService:
                 "llm_tokens": sum(r.get("tokens", 0) for r in raw_results if not isinstance(r, Exception))
             }
         }
+
+    async def analyze_content_with_context(
+        self,
+        chapters_data: List[Dict],
+        project: Any,
+        dimensions: List[str],
+        depth: str,
+        user_id: int,
+        qc_context: Dict[str, str] = None
+    ) -> Dict:
+        """
+        正文质控专用分析 — 接收综合信息上下文进行六维度深度检测
+
+        与现有的 analyze() 方法区别：
+        - analyze() 是通用入口，用于单元概述质控等场景
+        - analyze_content_with_context() 是正文质控专用，整合了知识图谱、
+          人物设定、前文摘要、一致性报告等综合信息上下文
+
+        Args:
+            chapters_data: 章节数据列表
+            project: 项目对象
+            dimensions: 分析维度（正文六维度）
+            depth: 分析深度
+            user_id: 用户ID
+            qc_context: 综合信息上下文（由ContentQCContextAggregator生成）
+
+        Returns:
+            质控报告字典
+        """
+        start_time = __import__('time').time()
+        logger.info(
+            f"[正文质控-六维度] 开始深度分析: dimensions={dimensions}, "
+            f"depth={depth}, 上下文提供={list(qc_context.keys()) if qc_context else '无'}"
+        )
+
+        # 使用相同的核心分析引擎
+        # TODO(Phase2): 将 qc_context 各信息源注入 _execute_analysis 内各维度分析器的 prompt，
+        #   使 LLM 能在六维度检测时参考知识图谱、人物设定、前文摘要、一致性报告等综合上下文，
+        #   当前仅将 qc_context 附加到报告供前端展示，尚未影响分析过程。
+        report = await self._execute_analysis(
+            chapters_data=chapters_data,
+            project=project,
+            dimensions=dimensions,
+            depth=depth,
+            user_id=user_id
+        )
+
+        # 将综合信息上下文注入报告（供前端展示和后续修正参考）
+        report["qc_context"] = qc_context or {}
+        report["context_summary"] = self._build_context_summary(qc_context)
+
+        duration_ms = int((__import__('time').time() - start_time) * 1000)
+        report["duration_ms"] = duration_ms
+
+        logger.info(
+            f"[正文质控-六维度] 分析完成: duration={duration_ms}ms, "
+            f"score={report.get('overall_score')}, issues={len(report.get('issues', []))}"
+        )
+        return report
+
+    @staticmethod
+    def _build_context_summary(qc_context: Dict[str, str]) -> str:
+        """构建上下文摘要（用于质控报告）"""
+        if not qc_context:
+            return ""
+
+        parts = []
+        labels = {
+            "knowledge_graph_context": "知识图谱",
+            "character_context": "人物设定",
+            "previous_content_summary": "前文信息",
+            "consistency_context": "一致性报告",
+            "timeline_spatial_context": "时间空间",
+            "ooc_constraints": "OOC约束"
+        }
+        for key, label in labels.items():
+            if qc_context.get(key):
+                parts.append(f"{label}: 已加载 ({len(qc_context[key])}字符)")
+        return "; ".join(parts) if parts else "无综合上下文"
 
     def _build_report_from_rules(self, rule_results: Dict, chapters_data: List[Dict]) -> Dict:
         """仅从规则引擎结果构建报告"""

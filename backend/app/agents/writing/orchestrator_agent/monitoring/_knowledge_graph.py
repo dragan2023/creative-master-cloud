@@ -6,8 +6,9 @@ monitoring/_knowledge_graph.py - 知识图谱操作 Mixin
 @date: 2026-04-24
 @version: v3.0.0
 """
+import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from app.agents.writing.base_agent import AgentRole
 
@@ -161,6 +162,24 @@ class MonitoringKnowledgeGraphMixin:
                 result["total_relations"] = len(relations)
                 result["success"] = True
 
+                # 🆕 [统一状态存储 v5.0] 维护轻量级一致状态索引
+                # 虽然单元实体不再同步到全局图谱（v3.2），但各维度状态需要跨章追踪
+                # 此处将所有维度状态变化持久化到 project 目录下的 consistency_state.json
+                await self._persist_unified_state(
+                    project_id=project_id,
+                    chapter_num=chapter_num,
+                    entities=entities,
+                    graph_dir=graph_dir
+                )
+
+                # 🆕 [事件生命周期 v4.0] 更新上下文累积器中的事件状态
+                if self._context_accumulator and unit_graph:
+                    try:
+                        self._context_accumulator.update_from_graph(unit_graph, chapter_num)
+                        self.logger.debug(f"事件状态累积器已更新: 章节{chapter_num}")
+                    except Exception as acc_err:
+                        self.logger.warning(f"更新事件状态累积器失败: {acc_err}")
+
                 # 🆕 [知识图谱优化 v3.2] 彻底禁用单元实体同步到全局图谱
                 # 原因：持续同步导致全局图谱无限膨胀（100章可达3550+实体）
                 # 优化：全局图谱仅保留全局大纲实体（~50个），跨章检索通过向量库实现
@@ -237,3 +256,319 @@ class MonitoringKnowledgeGraphMixin:
             self.logger.warning(f"获取扩展上下文信息失败: {e}")
 
         return context_info
+
+    async def _persist_unified_state(
+        self,
+        project_id: int,
+        chapter_num: int,
+        entities: List[Dict[str, Any]],
+        graph_dir: str
+    ) -> None:
+        """持久化统一一致性状态
+
+        从每章提取的扩展实体中抽取各维度状态信息，
+        合并到轻量级 consistency_state.json 文件中。
+        覆盖维度：事件、道具、设施、群体、伏笔、世界规则
+
+        解决 v3.2 优化后单元实体无法跨章追踪的问题。
+
+        Args:
+            project_id: 项目ID
+            chapter_num: 当前章节号
+            entities: 本章提取的实体列表
+            graph_dir: 图谱文件目录
+        """
+        try:
+            # 1. 从 entities 中按维度抽取状态信息
+            current_updates = {
+                "events": {},
+                "items": {},
+                "facilities": {},
+                "groups": {},
+                "foreshadows": {},
+                "world_rules": {},
+            }
+
+            for entity in entities:
+                entity_type = entity.get("type", "")
+                attrs = entity.get("attributes", {})
+                text = entity.get("text", "")
+
+                # --- 事件维度 ---
+                if entity_type == "事件":
+                    if text:
+                        current_updates["events"][text] = {
+                            "name": text,
+                            "type": attrs.get("事件类型", ""),
+                            "status": attrs.get("状态", "进行中"),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+                elif entity_type == "事件状态变化":
+                    event_name = attrs.get("事件名称", "")
+                    current_stage = attrs.get("当前阶段", "")
+                    if event_name and current_stage:
+                        if event_name not in current_updates["events"]:
+                            current_updates["events"][event_name] = {
+                                "name": event_name, "type": "",
+                                "first_chapter": chapter_num,
+                            }
+                        current_updates["events"][event_name]["status"] = current_stage
+                        current_updates["events"][event_name]["last_update_chapter"] = chapter_num
+
+                # --- 道具维度 ---
+                elif entity_type == "道具物品":
+                    if text:
+                        current_updates["items"][text] = {
+                            "name": text,
+                            "type": attrs.get("物品类型", ""),
+                            "status": attrs.get("状态", attrs.get("当前状态", "已知")),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+                elif entity_type in ("道具状态变化", "道具归属变更", "道具功能使用"):
+                    item_name = attrs.get("物品名称", attrs.get("item", ""))
+                    new_status = attrs.get("状态类型", attrs.get("新状态", "")) or text
+                    if item_name and new_status:
+                        if item_name not in current_updates["items"]:
+                            current_updates["items"][item_name] = {
+                                "name": item_name, "type": "",
+                                "first_chapter": chapter_num,
+                            }
+                        current_updates["items"][item_name]["status"] = new_status
+                        current_updates["items"][item_name]["last_update_chapter"] = chapter_num
+
+                # --- 设施维度 ---
+                elif entity_type == "设施":
+                    if text:
+                        current_updates["facilities"][text] = {
+                            "name": text,
+                            "type": attrs.get("功能类型", ""),
+                            "status": attrs.get("状态", attrs.get("当前状态", "正常运营")),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+                elif entity_type in ("设施状态变化", "设施归属变更", "设施物理状态"):
+                    facility_name = attrs.get("设施名称", "")
+                    new_status = attrs.get("状态类型", attrs.get("新状态", "")) or text
+                    if facility_name and new_status:
+                        if facility_name not in current_updates["facilities"]:
+                            current_updates["facilities"][facility_name] = {
+                                "name": facility_name, "type": "",
+                                "first_chapter": chapter_num,
+                            }
+                        current_updates["facilities"][facility_name]["status"] = new_status
+                        current_updates["facilities"][facility_name]["last_update_chapter"] = chapter_num
+
+                # --- 群体维度 ---
+                elif entity_type == "群体组织":
+                    if text:
+                        current_updates["groups"][text] = {
+                            "name": text,
+                            "type": attrs.get("性质", ""),
+                            "status": attrs.get("状态", attrs.get("当前状态", "活跃")),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+                elif entity_type in ("群体状态变化", "群体关系变化"):
+                    group_name = attrs.get("群体名称", attrs.get("group", ""))
+                    new_status = attrs.get("变化类型", attrs.get("新状态", "")) or text
+                    if group_name and new_status:
+                        if group_name not in current_updates["groups"]:
+                            current_updates["groups"][group_name] = {
+                                "name": group_name, "type": "",
+                                "first_chapter": chapter_num,
+                            }
+                        current_updates["groups"][group_name]["status"] = new_status
+                        current_updates["groups"][group_name]["last_update_chapter"] = chapter_num
+
+                # --- 伏笔维度 ---
+                elif entity_type == "伏笔":
+                    if text:
+                        current_updates["foreshadows"][text] = {
+                            "name": text,
+                            "type": attrs.get("重要程度", "普通"),
+                            "status": attrs.get("状态", "已埋下"),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+                elif entity_type == "伏笔回收":
+                    foreshadow_name = attrs.get("伏笔名称", attrs.get("foreshadowing", "")) or text
+                    if foreshadow_name:
+                        if foreshadow_name not in current_updates["foreshadows"]:
+                            current_updates["foreshadows"][foreshadow_name] = {
+                                "name": foreshadow_name, "type": "",
+                                "first_chapter": chapter_num,
+                            }
+                        current_updates["foreshadows"][foreshadow_name]["status"] = "已回收"
+                        current_updates["foreshadows"][foreshadow_name]["last_update_chapter"] = chapter_num
+
+                # --- 世界规则维度 ---
+                elif entity_type == "世界规则":
+                    if text:
+                        current_updates["world_rules"][text] = {
+                            "name": text,
+                            "type": attrs.get("规则类型", ""),
+                            "status": attrs.get("状态", attrs.get("当前状态", "生效")),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+
+            # 2. 确定统一状态文件路径
+            project_graph_base = os.path.dirname(graph_dir)
+            unified_path = os.path.join(project_graph_base, "consistency_state.json")
+
+            # 3. 加载已有统一状态（含旧 event_status_index.json 迁移）
+            existing_state = self._load_or_migrate_unified_state(unified_path, project_graph_base)
+
+            # 4. 合并：逐维度合并更新
+            for dim_key in current_updates:
+                if dim_key not in existing_state:
+                    existing_state[dim_key] = {}
+                dim_existing = existing_state[dim_key]
+                for entity_name, update in current_updates[dim_key].items():
+                    if entity_name in dim_existing:
+                        existing = dim_existing[entity_name]
+                        if update.get("status"):
+                            existing["status"] = update["status"]
+                        if update.get("type") and not existing.get("type"):
+                            existing["type"] = update["type"]
+                        existing["last_update_chapter"] = max(
+                            existing.get("last_update_chapter", 0),
+                            update.get("last_update_chapter", chapter_num)
+                        )
+                    else:
+                        dim_existing[entity_name] = update
+
+            # 5. 写回统一状态文件
+            with open(unified_path, "w", encoding="utf-8") as f:
+                json.dump(existing_state, f, ensure_ascii=False, indent=2)
+
+            # 6. 日志汇总
+            summary_parts = []
+            for dim_key in ["events", "items", "facilities", "groups", "foreshadows", "world_rules"]:
+                dim_data = existing_state.get(dim_key, {})
+                total = len(dim_data)
+                if dim_key == "events":
+                    completed = sum(1 for v in dim_data.values() if v.get("status") in ["已完成", "已结束", "已取消"])
+                    summary_parts.append(f"事件={total}(已完成{completed})")
+                elif dim_key == "items":
+                    inactive = sum(1 for v in dim_data.values() if v.get("status") in ["已使用", "已销毁", "已遗失", "已回收", "已损坏"])
+                    summary_parts.append(f"道具={total}(离场{inactive})")
+                elif dim_key == "facilities":
+                    abnormal = sum(1 for v in dim_data.values() if v.get("status") in ["关闭", "损坏", "暂停营业", "已拆除"])
+                    summary_parts.append(f"设施={total}(异常{abnormal})")
+                elif dim_key == "groups":
+                    inactive_g = sum(1 for v in dim_data.values() if v.get("status") in ["解散", "合并", "消亡"])
+                    summary_parts.append(f"群体={total}(解散{inactive_g})")
+                elif dim_key == "foreshadows":
+                    resolved = sum(1 for v in dim_data.values() if v.get("status") == "已回收")
+                    summary_parts.append(f"伏笔={total}(已回收{resolved})")
+                else:
+                    summary_parts.append(f"规则={total}")
+            
+            self.logger.info(
+                f"[统一状态存储 v5.0] 一致性状态已更新: 章节{chapter_num}, "
+                + ", ".join(summary_parts)
+            )
+
+        except Exception as e:
+            self.logger.warning(f"持久化统一一致性状态失败: {e}")
+
+    @staticmethod
+    def load_unified_state(project_graph_dir: str) -> Dict[str, Any]:
+        """加载统一一致性状态
+
+        供一致性报告等模块读取跨章各维度状态。
+        自动兼容旧版 event_status_index.json → 迁移到 consistency_state.json。
+
+        Args:
+            project_graph_dir: 项目图谱数据目录路径
+
+        Returns:
+            统一状态字典
+            {
+                "events": {event_name: {name, type, status, first_chapter, last_update_chapter}},
+                "items": {...}, "facilities": {...},
+                "groups": {...}, "foreshadows": {...}, "world_rules": {...}
+            }
+        """
+        unified_path = os.path.join(project_graph_dir, "consistency_state.json")
+        old_events_path = os.path.join(project_graph_dir, "event_status_index.json")
+
+        result = {
+            "events": {}, "items": {}, "facilities": {},
+            "groups": {}, "foreshadows": {}, "world_rules": {},
+        }
+
+        # 优先读取新格式
+        if os.path.exists(unified_path):
+            try:
+                with open(unified_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for dim_key in result:
+                    if dim_key in data:
+                        result[dim_key] = data[dim_key]
+                return result
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # 兼容旧版 event_status_index.json：迁移到新格式
+        if os.path.exists(old_events_path):
+            try:
+                with open(old_events_path, "r", encoding="utf-8") as f:
+                    old_data = json.load(f)
+                if isinstance(old_data, dict) and old_data:
+                    result["events"] = old_data
+                    # 自动迁移写入新文件
+                    try:
+                        with open(unified_path, "w", encoding="utf-8") as f:
+                            json.dump(result, f, ensure_ascii=False, indent=2)
+                    except IOError:
+                        pass
+                    return result
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        return result
+
+    def _load_or_migrate_unified_state(
+        self, unified_path: str, project_graph_base: str
+    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """加载或迁移统一状态文件
+
+        内部方法：供 _persist_unified_state 调用，处理旧格式迁移
+        """
+        default = {
+            "events": {}, "items": {}, "facilities": {},
+            "groups": {}, "foreshadows": {}, "world_rules": {},
+        }
+
+        # 新格式文件存在：直接加载
+        if os.path.exists(unified_path):
+            try:
+                with open(unified_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for dim_key in default:
+                    if dim_key in data:
+                        default[dim_key] = data[dim_key]
+                return default
+            except (json.JSONDecodeError, IOError) as e:
+                self.logger.warning(f"统一状态文件读取失败，将重建: {e}")
+                return default
+
+        # 尝试从旧 event_status_index.json 迁移
+        old_path = os.path.join(project_graph_base, "event_status_index.json")
+        if os.path.exists(old_path):
+            try:
+                with open(old_path, "r", encoding="utf-8") as f:
+                    old_data = json.load(f)
+                if isinstance(old_data, dict) and old_data:
+                    default["events"] = old_data
+                    self.logger.info(
+                        f"[统一状态存储 v5.0] 从 event_status_index.json 迁移 {len(old_data)} 条事件记录"
+                    )
+            except (json.JSONDecodeError, IOError) as e:
+                self.logger.warning(f"旧事件索引迁移失败: {e}")
+
+        return default

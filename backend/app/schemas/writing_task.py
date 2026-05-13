@@ -97,9 +97,14 @@ class WritingUnitResponse(BaseModel):
     quality_control_fixes: Optional[list] = Field(
         default=None, description="应用的修正列表")
     original_content_before_fix: Optional[str] = Field(
-        default=None, description="修正前的原始内容")
+        default=None, description="[DEPRECATED] 修正前的原始内容")
     final_content: Optional[str] = Field(
         default=None, description="最终内容(修正后)")
+    # 双版本内容字段 (v3.0新增)
+    content_after_generation: Optional[str] = Field(
+        default=None, description="LLM初稿(生成完成后存储，永不覆盖)")
+    content_after_qc_fix: Optional[str] = Field(
+        default=None, description="质控修正稿(质控完成后存储)")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 

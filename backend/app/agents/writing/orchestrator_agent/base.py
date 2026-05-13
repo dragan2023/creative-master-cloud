@@ -8,7 +8,7 @@
 依赖关系:
     - 依赖: base_agent.py, agent_config.py, stats_interceptor.py
     - 依赖模型: WritingTask, WritingUnit, WritingScene, WritingCheckpoint
-    - 依赖其他Agent: StructuralAgent, WriterAgent, LogicEditorAgent, StyleEditorAgent, ComplianceAgent, AssemblerAgent
+    - 依赖其他Agent: WriterAgent（其他Agent按需通过 _get_agent 惰性创建）
     - 被依赖: API层、任务管理器
 
 使用说明:
@@ -63,20 +63,19 @@ class OrchestratorAgent(
     
     职责：
     1. 状态机管理：驱动任务从 pending → running → completed/failed 的完整生命周期
-    2. 任务拆解：将写作任务拆解为多个Unit，每个Unit包含多个Scene
+    2. 整章直接生成：对每个Unit使用整章直接生成模式（direct mode），由 WriterAgent 一次性生成完整章节
     3. 并发调度：使用asyncio.Semaphore控制并发写手数量
-    4. 流程编排：对每个Unit执行完整流水线：结构师 → 写手(并发) → 审阅(并行) → 合成
-    5. 中断/续传：支持中断当前任务，从最后检查点续传
-    6. 错误处理：单个场景失败不影响其他场景，支持重试
-    
+    4. 中断/续传：支持中断当前任务，从最后检查点续传
+    5. 错误处理：单个单元失败不影响其他单元，支持重试
+
     注意：本Agent为纯调度类Agent，不需要LLM调用。
-    
+
     架构说明：
     本类通过多重继承组合各功能模块：
     - MonitoringMixin: 中断控制、WebSocket通信、检查点管理、人物状态追踪
     - AgentCommunicationMixin: 各专业Agent的调用封装
     - TaskSchedulerMixin: 任务续传、调度控制
-    - ContentPipelineMixin: 核心执行流程、单元处理、并发写作
+    - ContentPipelineMixin: 核心执行流程、整章直接生成、数据库操作
     """
     
     agent_name = "总线Agent"

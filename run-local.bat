@@ -193,7 +193,7 @@ echo.
 REM 启动后端服务
 echo [后端] 正在启动后端服务...
 cd /d "%BACKEND_DIR%"
-start "Creative-Master-Backend" cmd /c "call venv\Scripts\activate.bat && python -m uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload"
+start "Creative-Master-Backend" cmd /k "venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload"
 cd /d "%PROJECT_ROOT%"
 
 REM 等待后端启动

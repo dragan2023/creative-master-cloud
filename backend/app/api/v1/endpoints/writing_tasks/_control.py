@@ -143,10 +143,11 @@ def register_control_routes(router: APIRouter):
             # 检查任务状态
             current_status = task.status.value if isinstance(
                 task.status, TaskStatus) else task.status
-            if current_status != TaskStatus.INTERRUPTED.value:
+            resumable_statuses = (TaskStatus.INTERRUPTED.value, TaskStatus.FAILED.value)
+            if current_status not in resumable_statuses:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"任务当前状态为 {current_status}，无法续传。只有已中断的任务才能续传。"
+                    detail=f"任务当前状态为 {current_status}，无法续传。只有已中断或失败的任务才能续传。"
                 )
 
             # 更新任务状态

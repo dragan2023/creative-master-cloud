@@ -37,9 +37,7 @@ export function useProjectForm(loadProjects) {
     kb_vertical_enabled: false,
     kb_user_specific_enabled: false,
     kb_manual_enabled: false,
-    graphrag_enabled: true,
-    // v4.2: 继承知识图谱的源项目ID
-    inheritKbId: null
+    graphrag_enabled: true
   })
 
   // ==================== 表单方法 ====================
@@ -66,9 +64,7 @@ export function useProjectForm(loadProjects) {
       kb_vertical_enabled: project.knowledge_base_config?.kb_vertical_enabled || false,
       kb_user_specific_enabled: project.knowledge_base_config?.kb_user_specific_enabled || false,
       kb_manual_enabled: project.knowledge_base_config?.kb_manual_enabled || false,
-      graphrag_enabled: project.knowledge_base_config?.graphrag_enabled !== false,
-      // v4.2: 编辑模式下继承来源不可追溯，设为null
-      inheritKbId: null
+      graphrag_enabled: project.knowledge_base_config?.graphrag_enabled !== false
     }
 
     dialogVisible.value = true
@@ -90,8 +86,6 @@ export function useProjectForm(loadProjects) {
         novel_config: projectForm.value.content_type === 'novel' ? projectForm.value.novel_config : null,
         series_script_config: projectForm.value.content_type === 'series_script' ? projectForm.value.series_script_config : null,
         movie_script_config: projectForm.value.content_type === 'movie_script' ? projectForm.value.movie_script_config : null,
-        // v4.2: 知识图谱继承
-        inherit_kb_from_project_id: projectForm.value.inheritKbId || null,
         knowledge_base_config: {
           kb_vertical_enabled: projectForm.value.kb_vertical_enabled,
           kb_user_specific_enabled: projectForm.value.kb_user_specific_enabled,
@@ -166,8 +160,7 @@ export function useProjectForm(loadProjects) {
       kb_vertical_enabled: false,
       kb_user_specific_enabled: false,
       kb_manual_enabled: false,
-      graphrag_enabled: true,
-      inheritKbId: null
+      graphrag_enabled: true
     }
   }
 

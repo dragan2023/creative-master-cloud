@@ -10,6 +10,38 @@ from ..utils import router, logger
 
 # ==================== 辅助函数 ====================
 
+def _normalize_chapter_number(raw_value: Any) -> int:
+    """
+    归一化章节号为 int 类型
+    
+    LLM 可能返回多种格式的 chapter_number：
+    - int: 1 → 1
+    - str: "1" → 1
+    - str: "第1单元" → 1
+    - str: "1-1" → 1（取第一个数字）
+    - None/0 → 0
+    
+    Args:
+        raw_value: 原始值
+        
+    Returns:
+        int 类型的章节号，无法解析时返回 0
+    """
+    if raw_value is None:
+        return 0
+    if isinstance(raw_value, int):
+        return raw_value
+    if isinstance(raw_value, float):
+        return int(raw_value)
+    
+    # 字符串类型：尝试提取第一个数字
+    import re
+    match = re.search(r'(\d+)', str(raw_value))
+    if match:
+        return int(match.group(1))
+    return 0
+
+
 async def _generate_fixes_for_issues(
     issues: list,
     chapters_data: list,
@@ -39,13 +71,32 @@ async def _generate_fixes_for_issues(
     # 按章节号分组问题
     issues_by_chapter = {}
     for issue in issues:
-        chapter_number = issue.get('location', {}).get('chapter_number', 0)
+        chapter_number = (
+            issue.get('location', {}).get('chapter_number') or
+            issue.get('location', {}).get('chapter') or
+            issue.get('location', {}).get('start_chapter') or
+            0
+        )
+        
+        # 归一化 chapter_number 为 int（LLM 可能返回字符串 "1"、"第1单元" 等格式）
+        chapter_number = _normalize_chapter_number(chapter_number)
+        
+        # 如果 chapter_number 为 0，尝试从 chapters_data 推断 fallback
+        if not chapter_number and chapters_data:
+            fallback = chapters_data[0].get('chapter_number')
+            if fallback:
+                logger.warning(
+                    f"[批量修正] issue {issue.get('id', '?')} 缺少chapter_number，"
+                    f"使用fallback chapter={fallback}"
+                )
+                chapter_number = int(fallback) if not isinstance(fallback, int) else fallback
+        
         if chapter_number:
             if chapter_number not in issues_by_chapter:
                 issues_by_chapter[chapter_number] = []
             issues_by_chapter[chapter_number].append(issue)
         else:
-            # 没有章节号的问题单独处理
+            # 没有章节号且无 fallback 的问题单独处理
             if 0 not in issues_by_chapter:
                 issues_by_chapter[0] = []
             issues_by_chapter[0].append(issue)
@@ -53,7 +104,11 @@ async def _generate_fixes_for_issues(
     # 对每个章节批量修正
     for chapter_number, chapter_issues in issues_by_chapter.items():
         if chapter_number == 0:
-            # 没有章节号的问题，跳过或逐个处理
+            # 没有章节号且无 fallback 的问题，跳过并记录日志
+            logger.warning(
+                f"[批量修正] {len(chapter_issues)}个问题缺少chapter_number且"
+                f"无chapters_data fallback可用，跳过修正生成"
+            )
             for issue in chapter_issues:
                 issue['auto_fix'] = None
             continue
@@ -61,14 +116,48 @@ async def _generate_fixes_for_issues(
         # 查找章节内容和单元概述
         chapter_content = ""
         chapter_summary = ""
+        matched_chapter = None
         for ch in chapters_data:
-            if ch.get('chapter_number') == chapter_number:
+            # 归一化比较：兼容 LLM 返回字符串 "1" 与 DB 中的整数 1
+            if str(ch.get('chapter_number')) == str(chapter_number):
                 chapter_content = ch.get('content', '')
                 chapter_summary = ch.get('summary', '') or ch.get('unit_summary', '')
+                matched_chapter = ch
                 break
         
+        # 单单元质控兜底：chapters_data 只有 1 条记录时，直接使用它
+        if not chapter_content and len(chapters_data) == 1:
+            first_ch = chapters_data[0]
+            logger.info(
+                f"[批量修正] 章节{chapter_number}在chapters_data中未精确匹配"
+                f"(issues中的chapter_number={chapter_number}, "
+                f"chapters_data中chapter_number={first_ch.get('chapter_number')})，"
+                f"单单元模式兜底使用该章节内容"
+            )
+            chapter_content = first_ch.get('content', '')
+            chapter_summary = first_ch.get('summary', '') or first_ch.get('unit_summary', '')
+            matched_chapter = first_ch
+        
+        # 多单元兜底：尝试从相邻章节获取内容
+        if not chapter_content and len(chapters_data) > 1:
+            for ch in chapters_data:
+                content = ch.get('content', '')
+                if content:
+                    logger.warning(
+                        f"[批量修正] 章节{chapter_number}精确匹配失败且目标章节内容为空，"
+                        f"降级使用章节{ch.get('chapter_number')}的内容"
+                    )
+                    chapter_content = content
+                    chapter_summary = ch.get('summary', '') or ch.get('unit_summary', '')
+                    matched_chapter = ch
+                    break
+        
         if not chapter_content:
-            logger.warning(f"[批量修正] 章节{chapter_number}内容为空，跳过")
+            logger.warning(
+                f"[批量修正] 章节{chapter_number}内容为空，跳过 "
+                f"(chapters_data共{len(chapters_data)}条，"
+                f"章节号列表={[c.get('chapter_number') for c in chapters_data]})"
+            )
             for issue in chapter_issues:
                 issue['auto_fix'] = None
             continue
@@ -179,8 +268,8 @@ class ImportedOutlineAutoReviseRequest(BaseModel):
 
 class UnitQualityControlRequest(BaseModel):
     """单单元质控检测请求（v2.0新增 - 实时质控）"""
-    project_id: int                  # 项目ID
-    unit_index: int                  # 单元序号
+    project_id: Optional[int] = None # 项目ID（路径中已含，请求体可选）
+    unit_index: Optional[int] = None  # 单元序号（路径中已含，请求体可选）
     content: str                     # 单元内容
     dimensions: Optional[List[str]] = None  # 分析维度（可选）
     depth: str = "standard"          # 分析深度
@@ -339,7 +428,13 @@ async def publish_qc_progress(
         event["data"] = data
 
     await _qc_subscriber.publish(task_id, event)
-    logger.debug(
+    logger.info(
         f"[SSE发布] task_id={task_id}, type={event_type}, "
         f"dimension={dimension}, progress={progress}"
     )
+
+
+# ==================== WritingUnit → NovelChapter 数据同步 ====================
+
+# 从共享服务模块导入统一同步函数，确保所有路径使用同一实现
+from app.services.novel_writer.chapter_sync import sync_writing_unit_to_novel_chapter as _sync_writing_unit_to_novel_chapter

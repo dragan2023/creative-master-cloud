@@ -7,6 +7,7 @@
 @version: v2.0.0
 """
 
+import re
 from typing import Dict, Any, List
 
 from app.agents.writing.base_agent import AgentContext
@@ -128,7 +129,70 @@ class WriterPromptsMixin:
             prompt_parts.append("\n请以上述单元概述为核心指导进行创作，确保情节发展与全局主线一致。")
         prompt_parts.append("")
 
-        # 4. 人物状态追踪信息
+        # 3.5 🔴 本单元出场人物识别 — 从单元概述中精准提取
+        relevant_characters = []
+        if context and context.character_profiles and unit_summary:
+            relevant_characters = self._identify_characters_in_unit_summary(
+                unit_summary=unit_summary,
+                character_profiles=context.character_profiles
+            )
+        elif context and context.character_profiles:
+            # 没有单元概述时回退到所有角色
+            relevant_characters = context.character_profiles
+
+        # 4. 角色设定（人物小传）— 仅本单元出场人物，优先级最高
+        if relevant_characters:
+            prompt_parts.append("【本单元角色设定（人物小传）— 必须严格遵循】")
+            prompt_parts.append("以下是从全局大纲中提取的本单元出场人物基础信息（年龄、性别、身份、性格、背景等）。")
+            prompt_parts.append("**仅本单元出场的人物列于此处；所有人物描写必须与此处的设定完全一致，严禁自由修改年龄、性别、身份等基础信息！**")
+            prompt_parts.append("")
+            for char in relevant_characters:
+                if not isinstance(char, dict):
+                    continue
+                char_name = char.get("name", "")
+                if not char_name:
+                    continue
+                lines = [f"### {char_name}"]
+                char_age = char.get("age", "")
+                char_gender = char.get("gender", "")
+                if char_age or char_gender:
+                    basic_parts = []
+                    if char_gender:
+                        basic_parts.append(char_gender)
+                    if char_age:
+                        basic_parts.append(f"{char_age}岁" if isinstance(char_age, str) and (char_age.isdigit() or char_age.replace('.','',1).replace('-','',1).isdigit()) else str(char_age))
+                    lines.append(f"- 基本信息：{'，'.join(basic_parts)}" if basic_parts else "")
+                char_role = char.get("role", char.get("identity", ""))
+                if char_role:
+                    lines.append(f"- 身份/角色：{char_role}")
+                char_personality = char.get("personality", "")
+                if char_personality:
+                    lines.append(f"- 性格特点：{char_personality}")
+                char_background = char.get("background", "")
+                if char_background:
+                    lines.append(f"- 背景/小传：{char_background}")
+                char_appearance = char.get("appearance", "")
+                if char_appearance:
+                    lines.append(f"- 外貌特征：{char_appearance}")
+                char_goals = char.get("goals", "")
+                if char_goals:
+                    lines.append(f"- 目标/动机：{char_goals}")
+                char_desc = char.get("description", "")
+                if char_desc and char_desc != char_background:
+                    lines.append(f"- 补充描述：{char_desc}")
+                # 过滤掉空行
+                lines = [l for l in lines if l.strip()]
+                if len(lines) > 1:  # 不只是标题行
+                    prompt_parts.extend(lines)
+                    prompt_parts.append("")
+            prompt_parts.append("")
+
+            # 4.5 🔴 OOC防偏约束段 — 基于本单元出场人物的强约束
+            ooc_section = self._build_character_ooc_section(relevant_characters)
+            if ooc_section:
+                prompt_parts.extend(ooc_section)
+
+        # 5. 人物状态追踪信息
         if context:
             # 🆕 [知识图谱优化 v3.1] 使用合并后的完整知识图谱上下文
             # 包含: 人物状态 + 扩展实体 (设施、事件、群体、道具、伏笔、规则)
@@ -173,21 +237,29 @@ class WriterPromptsMixin:
             #     prompt_parts.append(extended_consistency_context)
             #     prompt_parts.append("")
 
-        # 5. 前文内容参考（增强滑动窗口）
+        # 6. 前文内容参考（增强滑动窗口 + 精确接续点）
         if previous_content:
             # 扩展前文参考长度到3000字，增强连贯性
             prev_excerpt = previous_content[-3000:] if len(
                 previous_content) > 3000 else previous_content
-            prompt_parts.append(f"【前文内容（最后部分，请紧密衔接）】")
+            # 提取最后 ~500 字符作为精确接续点，帮助 LLM 定位上一章结尾位置
+            prev_tail = previous_content[-500:] if len(
+                previous_content) > 500 else previous_content
+            prompt_parts.append("【前文内容（最后部分，了解故事进展）】")
             prompt_parts.append("..." + prev_excerpt)
             prompt_parts.append("")
-            prompt_parts.append("【衔接要求】")
-            prompt_parts.append("1. 内容开头要自然承接前文，不要出现剧情跳跃")
-            prompt_parts.append("2. 保持人物性格、位置、身份与前文一致")
-            prompt_parts.append("3. 延续前文的情感基调和叙事节奏")
+            prompt_parts.append("【上一章结尾处（请由此直接继续，不要回溯）】")
+            prompt_parts.append(prev_tail)
+            prompt_parts.append("")
+            prompt_parts.append("【衔接要求 — 请严格遵循】")
+            prompt_parts.append("1. 本章开头应直接接续「上一章结尾处」的场景，从结尾之后开始叙述")
+            prompt_parts.append("2. **禁止重复**：不要重新描述上一章结尾处已经发生过的事件（如入村、进门、相遇等过渡情节）")
+            prompt_parts.append("3. 保持人物性格、位置、身份与上一章结尾处一致")
+            prompt_parts.append("4. 延续前文的情感基调和叙事节奏")
+            prompt_parts.append("5. 如果上一章结尾处人物已在某个地点或状态，本章直接从该地点/状态推进剧情")
             prompt_parts.append("")
 
-        # 6. 字数/时长要求（根据内容类型区分）
+        # 7. 字数/时长要求（根据内容类型区分）
         content_type = context.config.get(
             "content_type", "novel") if context else "novel"
         if content_type in ("script", "series_script", "movie_script"):
@@ -203,7 +275,7 @@ class WriterPromptsMixin:
             prompt_parts.append(f"目标字数：{target_words}字（误差不超过±10%）")
             prompt_parts.append("")
 
-        # 7. 输出格式（按内容类型独立化）
+        # 8. 输出格式（按内容类型独立化）
         if content_type == "series_script":
             prompt_parts.append(self._build_series_output_format(context))
         elif content_type == "movie_script":
@@ -225,170 +297,6 @@ class WriterPromptsMixin:
    - 与前文内容紧密衔接，避免剧情跳脱
 
 现在请开始创作整章内容：""")
-
-        return "\n".join(prompt_parts)
-
-    def _build_writer_system_prompt(self, context: AgentContext) -> str:
-        """构建写手Agent的系统提示词
-
-        增强版：根据内容类型（小说/剧本）选择不同的提示词，添加人物状态一致性提示。
-
-        Args:
-            context: 执行上下文
-
-        Returns:
-            系统提示词
-        """
-        # 获取内容类型
-        content_type = context.config.get("content_type", "novel")
-
-        # 使用专门的提示词获取函数，根据内容类型返回不同的系统提示词
-        from app.agents.writing.prompts.character_state_prompts import get_writer_system_prompt
-        base_prompt = get_writer_system_prompt(content_type)
-
-        # 优先使用文风知识库风格指南（新增）
-        style_library_guide = context.style_guide.get(
-            "style_library_guide", {}) if context.style_guide else {}
-        if style_library_guide:
-            from app.tools.style_library import format_style_for_prompt
-            style_section = format_style_for_prompt(style_library_guide)
-            if style_section:
-                base_prompt += "\n\n## 文风要求（**必须严格遵循**）\n\n"
-                base_prompt += style_section
-                base_prompt += "\n\n请在整个创作过程中始终保持上述文风特征，让读者能清晰感受到风格的独特性。\n"
-
-        # 兼容旧版风格指南（简单文字描述）
-        elif context.style_guide:
-            style_guide = context.style_guide
-            writing_style = style_guide.get("writing_style", "")
-            tone = style_guide.get("tone", "")
-            forbidden_words = style_guide.get("forbidden_words", [])
-
-            if writing_style or tone:
-                base_prompt += "\n## 风格要求\n\n"
-                if writing_style:
-                    base_prompt += f"**文风**：{writing_style}\n\n"
-                if tone:
-                    base_prompt += f"**基调**：{tone}\n\n"
-                if forbidden_words:
-                    base_prompt += f"**禁用词汇**：{', '.join(forbidden_words)}\n\n"
-
-        if context.world_settings:
-            base_prompt += "\n## 世界观提示\n\n"
-            base_prompt += "创作时请注意以下世界观设定，确保内容符合设定：\n"
-            base_prompt += "时间背景、地点特征、社会环境、特殊规则等要保持一致。\n\n"
-
-        return base_prompt
-
-    def _build_writer_user_prompt(
-        self,
-        scene_outline: Dict[str, Any],
-        previous_content: str,
-        global_context: str,
-        context: AgentContext = None
-    ) -> str:
-        """构建用户提示词
-
-        增强版：添加人物状态追踪信息，确保写作时遵循人物当前状态。
-
-        Args:
-            scene_outline: 场景大纲
-            previous_content: 前文内容
-            global_context: 全局上下文
-            context: 执行上下文（用于获取人物状态信息）
-
-        Returns:
-            用户提示词
-        """
-        title = scene_outline.get("title", "")
-        location = scene_outline.get("location", "")
-        characters = scene_outline.get("characters", [])
-        events = scene_outline.get("events", "")
-        mood = scene_outline.get("mood", "")
-        target_words = scene_outline.get("target_words", 800)
-        key_points = scene_outline.get("key_points", [])
-        conflict = scene_outline.get("conflict", "")
-        ending_hook = scene_outline.get("ending_hook", "")
-
-        prompt_parts = []
-
-        if global_context:
-            prompt_parts.append(f"【故事背景】\n{global_context}\n")
-
-        prompt_parts.append(f"【当前场景】\n标题：{title}")
-        if location:
-            prompt_parts.append(f"地点：{location}")
-        if characters:
-            prompt_parts.append(f"出场人物：{', '.join(characters)}")
-        if mood:
-            prompt_parts.append(f"情绪基调：{mood}")
-        prompt_parts.append("")
-
-        if events:
-            prompt_parts.append(f"【场景内容】\n{events}\n")
-
-        if key_points:
-            prompt_parts.append("【关键情节点】")
-            for i, point in enumerate(key_points, 1):
-                prompt_parts.append(f"{i}. {point}")
-            prompt_parts.append("")
-
-        if conflict:
-            prompt_parts.append(f"【核心冲突】\n{conflict}\n")
-
-        if context:
-            if context.character_state_snapshot:
-                prompt_parts.append("【人物状态追踪（重要：请确保一致性）】")
-                prompt_parts.append(context.character_state_snapshot)
-                prompt_parts.append("")
-
-            if context.relationship_summary and context.relationship_summary != "暂无人物关系变化记录":
-                prompt_parts.append("【人物关系链】")
-                prompt_parts.append(context.relationship_summary)
-                prompt_parts.append("")
-
-            if context.character_location_map:
-                prompt_parts.append("【人物当前位置】")
-                for char_name, char_location in context.character_location_map.items():
-                    if char_location:
-                        prompt_parts.append(f"  {char_name}: {char_location}")
-                prompt_parts.append("")
-
-            if context.character_identity_map:
-                prompt_parts.append("【人物身份/官职】")
-                for char_name, char_identity in context.character_identity_map.items():
-                    if char_identity:
-                        prompt_parts.append(f"  {char_name}: {char_identity}")
-                prompt_parts.append("")
-
-            knowledge_graph_states = context.extra.get(
-                "knowledge_graph_states", "") if context.extra else ""
-            if knowledge_graph_states:
-                prompt_parts.append("【知识图谱人物状态】")
-                prompt_parts.append(knowledge_graph_states)
-                prompt_parts.append("")
-
-        if previous_content:
-            prev_excerpt = previous_content[-2000:] if len(
-                previous_content) > 2000 else previous_content
-            prompt_parts.append(f"【前文内容（最后部分）】\n...{prev_excerpt}\n")
-            prompt_parts.append("请在内容开头注意与前文自然衔接，并保持人物性格与前文一致。\n")
-
-        if ending_hook:
-            prompt_parts.append(f"【结尾要求】\n{ending_hook}\n")
-
-        prompt_parts.append(f"【字数要求】\n目标字数：{target_words}字（误差不超过±10%）\n")
-
-        prompt_parts.append("""【创作要求】
-1. 直接输出正文内容，不要包含标题、章节号等标记
-2. 内容要充实，避免空洞描写
-3. 对话要自然，符合人物性格
-4. 注意细节描写，增强画面感
-5. 场景末尾设置悬念或转折，为下一场景铺垫
-6. 严格控制字数，不要超出或不足太多
-7. **重要**：确保人物位置、身份、关系与上述状态追踪信息一致
-
-现在请开始创作：""")
 
         return "\n".join(prompt_parts)
 
@@ -639,3 +547,169 @@ class WriterPromptsMixin:
         intensity_level = "强烈-非常突出" if intensity > 0.7 else (
             "适中-明显但不突兀" if intensity > 0.4 else "淡入-轻微体现")
         return f"风格强度：{intensity_level}\n" + "\n".join(lines) if lines else "（未选择特定风格）"
+
+    # ==================== 人物出场识别与OOC防偏机制 ====================
+
+    @staticmethod
+    def _identify_characters_in_unit_summary(
+        unit_summary: str,
+        character_profiles: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """从单元概述中正则匹配本单元出场人物
+
+        扫描 unit_summary 文本，识别其中提到的人物名称，
+        从 character_profiles 中筛选出本单元相关的角色。
+
+        算法：
+        1. 从 character_profiles 收集所有已知人物名称
+        2. 按名称长度降序排列（优先匹配长名称，避免「叶辰」与「叶」冲突）
+        3. 用正则在 unit_summary 中搜索每个名称
+        4. 返回匹配成功的角色 profile
+        5. 兜底：如果未匹配到任何人，返回主角（前3位）
+
+        Args:
+            unit_summary: 单元概述文本
+            character_profiles: 完整的人物设定列表
+
+        Returns:
+            本单元出场的人物设定列表
+        """
+        if not unit_summary or not character_profiles:
+            return character_profiles or []
+
+        # 1. 收集所有人物名称，按长度降序排列
+        name_profile_pairs = []
+        for char in character_profiles:
+            if not isinstance(char, dict):
+                continue
+            name = char.get("name", "")
+            if name and len(name) >= 2:  # 过滤掉单字名称避免误匹配
+                name_profile_pairs.append((name, char))
+
+        # 按名称长度降序：长名称优先匹配（避免"东方月初"被"东方"截胡）
+        name_profile_pairs.sort(key=lambda x: len(x[0]), reverse=True)
+
+        # 2. 在 unit_summary 中搜索每个名称
+        matched_profiles = []
+        matched_names = set()
+        summary_text = unit_summary
+
+        for name, profile in name_profile_pairs:
+            if name in matched_names:
+                continue
+            # 使用正则精确匹配：名称前后应为非字母数字字符或边界
+            pattern = re.compile(r'(?<!\w)' + re.escape(name) + r'(?!\w)')
+            if pattern.search(summary_text):
+                matched_profiles.append(profile)
+                matched_names.add(name)
+
+        # 3. 也检查单字名称（如"叶"、"萧"），但仅在长名未匹配时尝试
+        for char in character_profiles:
+            if not isinstance(char, dict):
+                continue
+            name = char.get("name", "")
+            if name and len(name) == 1 and name not in matched_names:
+                # 单字匹配要求更严格：前后必须是标点/空格/边界
+                pattern = re.compile(r'(?<=[，。！？、\s\)）])' + re.escape(name) + r'(?=[，。！？、\s\(（])')
+                if pattern.search(summary_text):
+                    matched_profiles.append(char)
+                    matched_names.add(name)
+
+        # 4. 兜底：如果完全没有匹配，返回前3个角色（默认主角团）
+        if not matched_profiles and character_profiles:
+            matched_profiles = character_profiles[:3]
+
+        return matched_profiles
+
+    @staticmethod
+    def _build_character_ooc_section(
+        relevant_characters: List[Dict[str, Any]]
+    ) -> List[str]:
+        """为本单元出场人物构建 OOC 防偏约束段
+
+        针对每个出场角色，生成强约束指令，防止AI生成时出现：
+        - 性格偏离（如冷静角色突然暴怒无铺垫）
+        - 身份错位（如平民突然拥有贵族特权）
+        - 关系紊乱（如敌人突然亲密无间）
+        - 语言风格不符（如古代人物说现代网络用语）
+
+        Args:
+            relevant_characters: 本单元出场的人物设定列表
+
+        Returns:
+            OOC约束提示词段落（字符串列表）
+        """
+        if not relevant_characters:
+            return []
+
+        lines = []
+        lines.append("【OOC防偏约束 — 必须严格遵循】")
+        lines.append("以下针对每个出场角色的行为、语言、性格设定约束，"
+                     "请在创作时逐条核对，严禁出现角色崩坏（OOC）：")
+        lines.append("")
+
+        for char in relevant_characters:
+            if not isinstance(char, dict):
+                continue
+            name = char.get("name", "")
+            if not name:
+                continue
+
+            char_lines = [f"### {name} — OOC约束"]
+
+            # 性格约束
+            personality = char.get("personality", "")
+            if personality:
+                char_lines.append(
+                    f"- **性格铁律**：此人性格为「{personality}」，"
+                    f"所有行为、语言、心理活动必须与此性格一致。"
+                    f"如需性格转变，必须有充分的情节铺垫，不可突变。"
+                )
+
+            # 身份约束
+            identity = char.get("role", char.get("identity", ""))
+            if identity:
+                char_lines.append(
+                    f"- **身份铁律**：此人身份为「{identity}」，"
+                    f"其行为权限、社交范围、语言方式必须符合此身份设定。"
+                )
+
+            # 年龄/性别约束
+            age = char.get("age", "")
+            gender = char.get("gender", "")
+            if age or gender:
+                parts = []
+                if gender:
+                    parts.append(f"性别为{gender}")
+                if age:
+                    age_str = str(age)
+                    parts.append(f"年龄为{age_str}岁" if age_str.isdigit() else f"年龄为{age_str}")
+                char_lines.append(f"- **基础属性铁律**：{'，'.join(parts)}，言行举止必须与其年龄性别相符。")
+
+            # 背景约束
+            background = char.get("background", "")
+            if background:
+                char_lines.append(
+                    f"- **背景铁律**：{background}，人物行为决策必须受此背景影响。"
+                )
+
+            # 目标/动机约束
+            goals = char.get("goals", "")
+            if goals:
+                char_lines.append(
+                    f"- **动机铁律**：此人的核心目标为「{goals}」，"
+                    f"其行为驱动力必须与此目标一致。"
+                )
+
+            char_lines.append(
+                f"- **兜底原则**：如不确定{name}在某情境下应如何反应，"
+                f"请回顾以上设定，选择最符合其性格和身份的行为，而非选择戏剧性但OOC的做法。"
+            )
+
+            lines.extend(char_lines)
+            lines.append("")
+
+        lines.append("**以上OOC约束优先级高于一切创作自由。宁可情节平淡，不可角色崩坏。**")
+        lines.append("")
+
+        return lines

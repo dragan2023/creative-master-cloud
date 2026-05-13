@@ -66,7 +66,13 @@ class WritingUnit(BaseModel):
     quality_control_completed_at = Column(
         DateTime, nullable=True, comment="质控完成时间")
     original_content_before_fix = Column(
-        Text, nullable=True, comment="修正前的原始内容(用于撤销)")
+        Text, nullable=True, comment="[DEPRECATED] 修正前的原始内容(用于撤销) — 请使用 content_after_generation")
+
+    # 双版本内容字段 (v3.0新增 - 正文质控版本管理)
+    content_after_generation = Column(
+        Text, nullable=True, comment="LLM生成的初稿内容(生成完成后存储，永不覆盖)")
+    content_after_qc_fix = Column(
+        Text, nullable=True, comment="质控修正后的内容(质控完成后存储)")
 
     # 关联关系
     task = relationship("WritingTask", back_populates="units")

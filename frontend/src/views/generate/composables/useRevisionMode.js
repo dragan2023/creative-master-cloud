@@ -118,9 +118,13 @@ export function useRevisionMode(deps) {
     })
 
     try {
+      // [2026-05-12 修复] content_type 连字符→下划线映射（后端只认下划线格式）
+      const contentTypeMap = { 'movie-outline': 'movie_outline', 'series-outline': 'series_outline' }
+      const contentTypeForApi = contentTypeMap[type.value] || type.value
+
       await generateApi.reviseGlobalOutlineStream(
         {
-          content_type: type.value,
+          content_type: contentTypeForApi,
           current_content: revisionContent.value,
           user_feedback: currentFeedback,
           revision_history: revisionHistory.value.map(h => ({

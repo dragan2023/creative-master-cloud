@@ -55,9 +55,9 @@ class NovelProjectCreate(BaseModel):
         None, description="知识库配置"
     )
 
-    # 知识图谱继承（从四阶段流程构建的项目继承）
+    # 知识图谱继承（已废弃：当前四阶段流程不再构建知识图谱，保留字段仅向后兼容）
     inherit_kb_from_project_id: Optional[int] = Field(
-        None, ge=1, description="继承知识图谱的源项目ID（四阶段流程中构建图谱后获得）"
+        None, ge=1, description="[已废弃] 继承知识图谱的源项目ID。四阶段流程不再构建知识图谱，此字段不再生效。"
     )
 
     # 兼容旧版字段（将被废弃）

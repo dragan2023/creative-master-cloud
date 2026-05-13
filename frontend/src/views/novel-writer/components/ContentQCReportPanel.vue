@@ -56,10 +56,10 @@
 
     <!-- 问题统计 -->
     <div class="issues-summary">
-      <el-statistic title="总问题数" :value="totalIssues" />
-      <el-statistic title="严重问题" :value="criticalCount" class="critical-stat" />
-      <el-statistic title="已修正" :value="fixedCount" class="fixed-stat" />
-      <el-statistic title="待处理" :value="pendingCount" class="pending-stat" />
+      <el-statistic title="总问题数" :value="statValue(totalIssues)" />
+      <el-statistic title="严重问题" :value="statValue(criticalCount)" class="critical-stat" />
+      <el-statistic title="已修正" :value="statValue(fixedCount)" class="fixed-stat" />
+      <el-statistic title="待处理" :value="statValue(pendingCount)" class="pending-stat" />
     </div>
 
     <el-divider />
@@ -210,6 +210,11 @@ function getScoreTagType(score) {
   if (score >= 80) return 'success'
   if (score >= 60) return 'warning'
   return 'danger'
+}
+
+// Element Plus el-statistic 兼容：value=0 会导致 InvalidCharacterError
+function statValue(val) {
+  return val === 0 ? '0' : val
 }
 
 // 获取维度得分颜色

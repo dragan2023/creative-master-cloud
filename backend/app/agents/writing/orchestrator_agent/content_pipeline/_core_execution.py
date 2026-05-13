@@ -59,7 +59,7 @@ class CoreExecutionMixin:
 
         这是总线Agent的核心方法，驱动整个写作流程：
         1. 加载或创建WritingTask记录
-        2. 遍历每个Unit，调用_process_unit
+        2. 遍历每个Unit，调用 _process_unit_direct 进行整章直接生成
         3. 汇总结果并返回
 
         Args:
@@ -89,8 +89,34 @@ class CoreExecutionMixin:
                 persist_dir=context.config.get("persist_dir")
             )
 
-            # 3. 确定要处理的单元范围
+            # [修复] 续传/继续生成时：从 DB 加载已完成的上一单元的结尾内容
+            # 填补 previous_content 为空的断层，确保后续单元能获取前文结尾
             start_unit = context.config.get("start_from", 1)
+            if start_unit > 1 and not context.previous_content:
+                try:
+                    from app.models.writing_unit import WritingUnit as _WritingUnit
+                    prev_unit_query = select(_WritingUnit).where(
+                        _WritingUnit.task_id == task.id,
+                        _WritingUnit.unit_index == start_unit - 1
+                    )
+                    prev_result = await self.db.execute(prev_unit_query)
+                    prev_unit = prev_result.scalar_one_or_none()
+                    if prev_unit and prev_unit.final_content:
+                        prev_content = prev_unit.final_content
+                        # 取结尾 3000 字符作为紧邻上文
+                        if len(prev_content) > 3000:
+                            prev_content = prev_content[-3000:]
+                        context.previous_content = prev_content
+                        self.logger.info(
+                            f"[上下文初始化] 从单元 {start_unit - 1} 加载前文结尾，"
+                            f"长度: {len(context.previous_content)} 字符"
+                        )
+                except Exception as init_error:
+                    self.logger.warning(
+                        f"[上下文初始化] 加载前文内容失败: {init_error}"
+                    )
+
+            # 3. 确定要处理的单元范围
             unit_count = context.config.get("unit_count")
 
             # 获取生成模式
@@ -143,6 +169,38 @@ class CoreExecutionMixin:
                     completed_units += 1
                     task.completed_units = completed_units
                     await self.db.commit()
+
+                    # [修复] 累积前文结尾内容到 context.previous_content
+                    # 从 DB 读取 QC 修正后的最终内容，确保下一单元获得正确的上下文
+                    try:
+                        from app.models.writing_unit import WritingUnit as _WritingUnit
+                        unit_query = select(_WritingUnit).where(
+                            _WritingUnit.task_id == task.id,
+                            _WritingUnit.unit_index == unit_index
+                        )
+                        db_unit_result = await self.db.execute(unit_query)
+                        db_unit = db_unit_result.scalar_one_or_none()
+                        if db_unit and db_unit.final_content:
+                            unit_content = db_unit.final_content
+                            if context.previous_content:
+                                context.previous_content += "\n\n" + unit_content
+                            else:
+                                context.previous_content = unit_content
+                            # 保留最后 5000 字符，控制 token 消耗
+                            if len(context.previous_content) > 5000:
+                                context.previous_content = context.previous_content[-5000:]
+                            self.logger.info(
+                                f"[上下文累积] 单元 {unit_index} 完成，"
+                                f"previous_content 长度: {len(context.previous_content)} 字符"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"[上下文累积] 单元 {unit_index} 未在 DB 中找到内容记录"
+                            )
+                    except Exception as accumulate_error:
+                        self.logger.warning(
+                            f"[上下文累积] 更新 previous_content 失败: {accumulate_error}"
+                        )
 
                     await self._send_ws_message("task_progress", {
                         "completed_units": completed_units,

@@ -13,8 +13,10 @@ from app.schemas.common import ResponseModel
 from ..utils import router, logger
 from ._common import (
     UnitQualityControlRequest,
-    _generate_fixes_for_issues
+    _generate_fixes_for_issues,
+    _sync_writing_unit_to_novel_chapter
 )
+from fastapi.responses import PlainTextResponse
 
 
 @router.post("/quality-control/unit/{project_id}/{unit_index}", response_model=ResponseModel)
@@ -76,7 +78,7 @@ async def analyze_single_unit_quality(
         unit_query = select(WritingUnit).where(
             WritingUnit.unit_index == unit_index,
             WritingUnit.task_id.in_(task_ids)
-        ).order_by(WritingUnit.created_at.desc())  # 按创建时间倒序，取最新的
+        ).order_by(WritingUnit.id.desc())  # 按id降序取最新记录，避免随机返回空QC记录
         unit_result = await db.execute(unit_query)
         unit = unit_result.scalars().first()  # 使用first()避免Multiple rows错误
 
@@ -96,7 +98,9 @@ async def analyze_single_unit_quality(
                 )
 
         # 构建章节数据格式（兼容现有质控服务）
+        # 必须包含 "id" 字段，_execute_analysis 使用 ch["id"] 构建 chapters_analyzed
         chapters_data = [{
+            "id": unit_index,       # Required by _execute_analysis
             "chapter_number": unit_index,
             "content": content,
             "summary": content,  # 不再截断，完整传递给质控服务
@@ -120,33 +124,36 @@ async def analyze_single_unit_quality(
 
         # 执行质控检测
         qc_service = QualityControlService(db=db)
-        outline_generator = OutlineGenerator(db=db)
 
+        # [v3.0] 正文质控使用六维度深度检测（区别于单元概述的五维度）
         dimensions = request.dimensions if request and request.dimensions else [
-            "unit_structure",
-            "unit_character",
-            "unit_consistency",
-            "unit_timeline_space",
-            "unit_ooc"
+            "structure",           # 宏观结构层
+            "character",           # 人物塑造层
+            "scene",               # 场景与感官层
+            "prose",               # 文笔与修辞层
+            "experience",          # 阅读体验层
+            "technical"            # 技术性排雷层
         ]
 
-        depth = request.depth if request else "standard"
+        depth = request.depth if request else "deep"  # [v3.0] 正文质控使用deep深度
 
-        # 调用质控分析
-        qc_report = await outline_generator._analyze_unit_summaries_quality(
-            qc_service=qc_service,
+        # [v3.0] 聚合综合信息上下文（知识图谱、人物设定、前文摘要、一致性报告等）
+        from app.services.quality_control.content_qc_context_aggregator import get_context_aggregator
+        context_aggregator = get_context_aggregator(db)
+        qc_context = await context_aggregator.aggregate(
+            project_id=project_id,
+            unit_index=unit_index,
+            current_content=content
+        )
+
+        # [v3.0] 使用正文质控专用的六维度深度分析方法，传入综合信息上下文
+        qc_report = await qc_service.analyze_content_with_context(
             chapters_data=chapters_data,
+            project=project,
             dimensions=dimensions,
             depth=depth,
-            global_outline=getattr(
-                project, 'global_outline_content', '') or "",
-            character_profiles=getattr(
-                project, 'character_profiles', []) or [],
-            worldview_settings=getattr(
-                project, 'worldview_settings', {}) or {},
-            db=db,
             user_id=current_user.id,
-            project_id=project_id
+            qc_context=qc_context
         )
 
         # 提取问题和得分
@@ -243,11 +250,41 @@ async def analyze_single_unit_quality(
                         logger.info(
                             f"[实时质控] 修正列表有{len(auto_fix_applied)}项，但正文未变化（LLM可能只生成了修正说明）")
 
+                # [v3.0] 双版本存储：在 commit 前设置所有字段，一次提交保证事务完整性
+                if auto_fix_applied and fixed_content != original_content:
+                    unit.content_after_qc_fix = fixed_content
+                    logger.info(
+                        f"[实时质控-版本] 修正稿已存储: unit={unit_index}, "
+                        f"初稿={len(original_content)}字符, 修正稿={len(fixed_content)}字符"
+                    )
+                elif not auto_fix_applied and unit.content_after_generation:
+                    # 无修正时，content_after_qc_fix 复制初稿内容
+                    unit.content_after_qc_fix = unit.content_after_generation
+                    logger.info(
+                        f"[实时质控-版本] 无修正，修正稿复制初稿: unit={unit_index}"
+                    )
+
                 await db.commit()
-                logger.info(f"[实时质控] 数据库更新成功: unit={unit_index}")
+                logger.info(f"[实时质控] WritingUnit 更新成功: unit={unit_index}")
         except Exception as db_error:
             logger.error(f"[实时质控] 数据库更新失败: {db_error}")
             await db.rollback()
+
+        # NovelChapter 同步（后置操作，失败不影响质控主流程）
+        if unit and auto_fix_applied and fixed_content != original_content:
+            try:
+                await _sync_writing_unit_to_novel_chapter(
+                    db=db,
+                    project_id=project_id,
+                    unit_index=unit_index,
+                    final_content=fixed_content,
+                    unit_title=getattr(unit, 'unit_title', '') or f"第{unit_index}章"
+                )
+                logger.info(f"[实时质控] NovelChapter 同步成功: chapter_number={unit_index}")
+            except Exception as sync_error:
+                logger.error(
+                    f"[实时质控] NovelChapter 同步失败: chapter_number={unit_index}, error={sync_error}"
+                )
 
         # 返回质控结果
         return ResponseModel(
@@ -261,8 +298,13 @@ async def analyze_single_unit_quality(
                 "issues": issues,
                 "fixes_applied": auto_fix_applied,
                 "report": qc_report,
+                "dimension_scores": qc_report.get("dimension_scores", {}),
+                "context_summary": qc_report.get("context_summary", ""),
                 "original_content": original_content if auto_fix_applied else None,
-                "fixed_content": fixed_content if auto_fix_applied else None
+                "fixed_content": fixed_content if auto_fix_applied else None,
+                "content_after_generation": getattr(unit, 'content_after_generation', None),
+                "content_after_qc_fix": getattr(unit, 'content_after_qc_fix', None),
+                "change_list": _build_change_list(original_content, fixed_content) if auto_fix_applied and fixed_content != original_content else []
             }
         )
 
@@ -309,7 +351,7 @@ async def revert_unit_fix(
         unit_query = select(WritingUnit).where(
             WritingUnit.unit_index == unit_index,
             WritingUnit.task_id.in_(task_ids)
-        )
+        ).order_by(WritingUnit.id.desc())  # 取最新记录（已完成QC的那条）
         unit_result = await db.execute(unit_query)
         unit = unit_result.scalars().first()  # 使用first()避免Multiple rows错误
 
@@ -331,6 +373,8 @@ async def revert_unit_fix(
         unit.final_content = original_content
         unit.word_count = len(original_content)
         unit.original_content_before_fix = None
+        # [v3.0] 撤销时重置 content_after_qc_fix，避免下载到过期修正稿
+        unit.content_after_qc_fix = None
 
         # 更新质控状态
         if fix_id:
@@ -344,6 +388,19 @@ async def revert_unit_fix(
             unit.quality_control_status = 'completed'
 
         await db.commit()
+
+        # 同步更新 NovelChapter 表（正文表单显示依赖此表）
+        try:
+            await _sync_writing_unit_to_novel_chapter(
+                db=db,
+                project_id=project_id,
+                unit_index=unit_index,
+                final_content=original_content,
+                unit_title=getattr(unit, 'unit_title', '') or ""
+            )
+            logger.info(f"[撤销修正] NovelChapter 同步成功: chapter_number={unit_index}")
+        except Exception as sync_error:
+            logger.error(f"[撤销修正] NovelChapter 同步失败: chapter_number={unit_index}, error={sync_error}")
 
         logger.info(f"[撤销修正] 成功: unit={unit_index}")
 
@@ -364,3 +421,104 @@ async def revert_unit_fix(
             success=False,
             message=f"撤销修正失败: {str(e)}"
         )
+
+
+# ==================== 辅助函数 ====================
+
+
+@router.get("/quality-control/unit/{project_id}/{unit_index}/download/{version}")
+async def download_unit_content(
+    project_id: int,
+    unit_index: int,
+    version: str,  # "draft" 或 "revised"
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """下载单元内容（v3.0: 初稿/修正稿双版本下载）
+    
+    Args:
+        version: 'draft' 下载 LLM 初稿，'revised' 下载质控修正稿
+    """
+    from app.models.writing_unit import WritingUnit
+    from app.models.writing_task import WritingTask
+    from sqlalchemy import select
+
+    if version not in ("draft", "revised"):
+        return PlainTextResponse("无效的版本参数，请使用 draft 或 revised", status_code=400)
+
+    try:
+        # 查找任务（必须校验 user_id 权限）
+        task_query = select(WritingTask).where(
+            WritingTask.project_id == project_id,
+            WritingTask.user_id == current_user.id
+        )
+        task_result = await db.execute(task_query)
+        tasks = task_result.scalars().all()
+
+        if not tasks:
+            return PlainTextResponse("未找到项目写作任务", status_code=404)
+
+        task_ids = [task.id for task in tasks]
+        unit_query = select(WritingUnit).where(
+            WritingUnit.unit_index == unit_index,
+            WritingUnit.task_id.in_(task_ids)
+        ).order_by(WritingUnit.id.desc())
+        unit_result = await db.execute(unit_query)
+        unit = unit_result.scalars().first()
+
+        if not unit:
+            return PlainTextResponse(f"未找到单元 {unit_index}", status_code=404)
+
+        # 获取对应版本的内容
+        if version == "draft":
+            content = getattr(unit, 'content_after_generation', None) or unit.final_content or ""
+        else:
+            content = getattr(unit, 'content_after_qc_fix', None) or unit.final_content or ""
+
+        if not content:
+            return PlainTextResponse("暂无内容", status_code=404)
+
+        # 生成文件名
+        unit_title = getattr(unit, 'unit_title', '') or f"第{unit_index}章"
+        safe_title = unit_title.replace('/', '_').replace('\\', '_')
+        version_label = "初稿" if version == "draft" else "修正稿"
+        filename = f"{safe_title}_{version_label}.txt"
+
+        # 返回 BOM + UTF-8 编码的文本，确保 Windows 记事本正确显示中文
+        bom = '\ufeff'
+        return PlainTextResponse(
+            bom + content,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            },
+            media_type="text/plain; charset=utf-8"
+        )
+
+    except Exception as e:
+        logger.error(f"[下载内容] 失败: {e}", exc_info=True)
+        return PlainTextResponse(f"下载失败: {str(e)}", status_code=500)
+
+
+def _build_change_list(original: str, fixed: str) -> list:
+    """构建修正变更列表（简化版：长度变化+关键差异标记）"""
+    if not original or not fixed:
+        return []
+
+    changes = []
+    orig_len = len(original)
+    fixed_len = len(fixed)
+
+    if orig_len != fixed_len:
+        delta = fixed_len - orig_len
+        change_type = "新增" if delta > 0 else "删除"
+        changes.append({
+            "type": change_type,
+            "description": f"内容{change_type}了 {abs(delta)} 字符"
+        })
+    else:
+        changes.append({
+            "type": "修改",
+            "description": f"内容长度不变({fixed_len}字符)，已有修改"
+        })
+
+    return changes

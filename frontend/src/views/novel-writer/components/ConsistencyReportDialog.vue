@@ -215,8 +215,22 @@
               >
                 <div class="entity-name">{{ event.name }}</div>
                 <div class="entity-details">
-                  <el-tag type="warning" size="small">{{ event.status }}</el-tag>
+                  <el-tag
+                    :type="event.status === '可能已完结' ? 'info' : 'warning'"
+                    size="small"
+                  >
+                    {{ event.status }}
+                  </el-tag>
                   <span v-if="event.type" class="detail-text">{{ event.type }}</span>
+                </div>
+                <!-- 🆕 事件生命周期元数据 -->
+                <div class="entity-meta" v-if="event.first_chapter">
+                  <span class="meta-text">
+                    始于第{{ event.first_chapter }}章
+                    <template v-if="event.last_update_chapter && event.last_update_chapter !== event.first_chapter">
+                      · 最后更新第{{ event.last_update_chapter }}章
+                    </template>
+                  </span>
                 </div>
               </div>
               <el-empty v-if="(reportData.unfinished_events || []).length === 0" :image-size="60" description="没有未完成事件" />
@@ -901,6 +915,15 @@ function getStatusType(status) {
           .detail-text {
             font-size: 12px;
             color: #909399;
+          }
+
+          .entity-meta {
+            margin-top: 4px;
+
+            .meta-text {
+              font-size: 11px;
+              color: #c0c4cc;
+            }
           }
         }
       }

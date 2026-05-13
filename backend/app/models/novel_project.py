@@ -245,6 +245,10 @@ class NovelProject(BaseModel):
     global_outline_graph_path = Column(
         String(255), nullable=True, comment="全局大纲图谱文件路径")
 
+    # 人物设定（从大纲中提取的结构化角色信息，供写作提示词和质控模块使用）
+    character_profiles = Column(
+        JSON, nullable=True, comment="人物设定列表(从大纲提取的结构化角色信息)")
+
     # 知识库状态
     kb_status = Column(
         String(20),

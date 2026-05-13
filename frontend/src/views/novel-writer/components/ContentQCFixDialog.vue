@@ -16,7 +16,8 @@
   <el-dialog
     v-model="dialogVisible"
     title="修正预览与选择"
-    width="900px"
+    width="90%"
+    :fullscreen="false"
     destroy-on-close
     top="5vh"
     class="fix-dialog"
@@ -376,6 +377,7 @@ watch(dialogVisible, (val) => {
         min-height: 200px;
         max-height: 400px;
         overflow-y: auto;
+        overflow-x: hidden; // 防止横向溢出
 
         .diff-view {
           display: flex;
@@ -383,9 +385,11 @@ watch(dialogVisible, (val) => {
 
           .diff-column {
             flex: 1;
+            min-width: 0; // 允许收缩
             border: 1px solid #e4e7ed;
             border-radius: 6px;
             padding: 12px;
+            overflow: hidden; // 防止内容溢出边框
 
             h5 {
               margin: 0 0 8px;
@@ -397,7 +401,8 @@ watch(dialogVisible, (val) => {
               font-size: 13px;
               line-height: 1.8;
               white-space: pre-wrap;
-              word-break: break-all;
+              word-break: break-word; // 允许长单词换行
+              overflow-wrap: break-word; // 兼容性更好
 
               .diff-removed {
                 background: #fde2e2;
@@ -422,11 +427,13 @@ watch(dialogVisible, (val) => {
             font-size: 13px;
             line-height: 1.8;
             white-space: pre-wrap;
-            word-break: break-all;
+            word-break: break-word; // 允许长单词换行
+            overflow-wrap: break-word; // 兼容性更好
             padding: 12px;
             background: #f5f7fa;
             border-radius: 6px;
             min-height: 200px;
+            overflow: auto; // 允许滚动
           }
         }
       }
@@ -439,27 +446,40 @@ watch(dialogVisible, (val) => {
 
       .fix-item {
         margin-bottom: 8px;
-        padding: 8px 12px;
+        padding: 10px 12px;
         background: #f5f7fa;
         border-radius: 6px;
         transition: background 0.2s;
+        overflow: hidden; // 防止内容溢出
 
         &:hover { background: #ebeef5; }
 
         .el-checkbox {
           display: flex;
-          align-items: center;
+          align-items: flex-start; // 改为顶部对齐，适配多行文本
           gap: 8px;
+          width: 100%; // 占满宽度
+          line-height: 1.6; // 统一行高
         }
 
         .fix-category {
           font-weight: 500;
           min-width: 80px;
+          flex-shrink: 0; // 防止被压缩
         }
 
         .fix-desc {
           color: #606266;
           flex: 1;
+          min-width: 0; // 允许收缩
+          word-break: break-word; // 允许长单词换行
+          overflow-wrap: break-word; // 兼容性更好
+          line-height: 1.6; // 增加行高提升可读性
+        }
+
+        .el-tag {
+          flex-shrink: 0; // 防止标签被压缩
+          margin-left: 8px;
         }
       }
     }

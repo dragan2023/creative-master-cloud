@@ -31,7 +31,8 @@ from ..utils import router, logger
 from ._common import (
     UnitQualityControlRequest,
     _generate_fixes_for_issues,
-    publish_qc_progress
+    publish_qc_progress,
+    _sync_writing_unit_to_novel_chapter
 )
 from ._unit import analyze_single_unit_quality
 
@@ -365,6 +366,16 @@ async def _execute_batch_qc_task(
                     
                     await task_db.commit()
                     
+                    # 同步更新 NovelChapter 表（正文表单显示依赖此表）
+                    if auto_fix_applied and fixed_content != content:
+                        await _sync_writing_unit_to_novel_chapter(
+                            db=task_db,
+                            project_id=project_id,
+                            unit_index=unit_index,
+                            final_content=fixed_content,
+                            unit_title=getattr(unit, 'unit_title', '') or f"第{unit_index}章"
+                        )
+                    
                     completed_units.append({
                         "unit_index": unit_index,
                         "score": score,
@@ -525,7 +536,7 @@ async def apply_selected_fixes_for_unit(
         from sqlalchemy import select
         
         logger.info(
-            f"[选择性修正] unit={unit_index}, fixes={request.fix_ids}, "
+            f"[选择性修正] 开始: unit={unit_index}, fixes={request.fix_ids}, "
             f"user={current_user.id}"
         )
         
@@ -547,7 +558,7 @@ async def apply_selected_fixes_for_unit(
         unit_query = select(WritingUnit).where(
             WritingUnit.unit_index == unit_index,
             WritingUnit.task_id.in_(task_ids)
-        )
+        ).order_by(WritingUnit.id.desc())  # 取最新记录（已完成QC的那条）
         unit_result = await db.execute(unit_query)
         unit = unit_result.scalars().first()
         
@@ -583,27 +594,47 @@ async def apply_selected_fixes_for_unit(
         project_result = await db.execute(project_query)
         project = project_result.scalar_one_or_none()
         
-        # 为选中的问题生成修正
-        chapters_data = [{
-            "chapter_number": unit_index,
-            "content": original_content,
-            "summary": original_content[:500],
-            "title": unit.unit_title or f"第{unit_index}章"
-        }]
+        # 分离已有 auto_fix 的问题和需要重新生成修正的问题
+        issues_with_existing_fix = []
+        issues_needing_fix = []
+        for issue in selected_issues:
+            existing_fix = issue.get("auto_fix")
+            if existing_fix and existing_fix.get("fixed"):
+                issues_with_existing_fix.append(issue)
+            else:
+                issues_needing_fix.append(issue)
         
-        issues_with_fixes = await _generate_fixes_for_issues(
-            issues=selected_issues,
-            chapters_data=chapters_data,
-            project=project,
-            db=db,
-            user_id=current_user.id
+        logger.info(
+            f"[选择性修正] 已有修正: {len(issues_with_existing_fix)}个, "
+            f"需生成修正: {len(issues_needing_fix)}个"
         )
+        
+        # 为需要生成修正的问题调用LLM生成
+        if issues_needing_fix:
+            chapters_data = [{
+                "chapter_number": unit_index,
+                "content": original_content,
+                "summary": original_content[:500],
+                "title": unit.unit_title or f"第{unit_index}章"
+            }]
+            
+            generated_issues = await _generate_fixes_for_issues(
+                issues=issues_needing_fix,
+                chapters_data=chapters_data,
+                project=project,
+                db=db,
+                user_id=current_user.id
+            )
+            # 合并：已有修正的保持原样，新生成的加入
+            all_issues = issues_with_existing_fix + generated_issues
+        else:
+            all_issues = issues_with_existing_fix
         
         # 应用修正
         applied_fixes = []
         fixed_content = original_content
         
-        for issue in issues_with_fixes:
+        for issue in all_issues:
             auto_fix = issue.get("auto_fix")
             if auto_fix and auto_fix.get("fixed"):
                 new_content = auto_fix.get("fixed", fixed_content)
@@ -616,11 +647,47 @@ async def apply_selected_fixes_for_unit(
                         "description": auto_fix.get("description")
                     })
         
+        # 如果没有新应用的修正，检查是否已在生成时自动应用
         if not applied_fixes:
-            return ResponseModel(
-                success=False,
-                message="未能生成有效的修正内容"
-            )
+            # 检查所有选中的问题：修正内容是否已与当前内容一致（即实时QC已自动应用）
+            already_applied_ids = []
+            for issue in all_issues:
+                af = issue.get("auto_fix")
+                if af and af.get("fixed") and af.get("fixed") == original_content:
+                    already_applied_ids.append(issue.get("id"))
+            
+            if already_applied_ids:
+                logger.info(
+                    f"[选择性修正] 修正已在生成时自动应用: "
+                    f"issues={already_applied_ids}"
+                )
+                
+                # 同步更新 NovelChapter 表，确保正文表单显示修正后的内容
+                # （QC自动修正时已更新WritingUnit，但NovelChapter可能未同步）
+                await _sync_writing_unit_to_novel_chapter(
+                    db=db,
+                    project_id=project_id,
+                    unit_index=unit_index,
+                    final_content=original_content,
+                    unit_title=unit.unit_title or ""
+                )
+                
+                return ResponseModel(
+                    success=True,
+                    message=f"选中的 {len(already_applied_ids)} 个修正已在生成时自动应用，无需重复操作",
+                    data={
+                        "unit_index": unit_index,
+                        "applied_count": 0,
+                        "already_applied": True,
+                        "already_applied_ids": already_applied_ids,
+                        "fixed_content": original_content
+                    }
+                )
+            else:
+                return ResponseModel(
+                    success=False,
+                    message="未能生成有效的修正内容"
+                )
         
         # 更新单元
         unit.final_content = fixed_content
@@ -631,6 +698,15 @@ async def apply_selected_fixes_for_unit(
         unit.quality_control_fixes = existing_fixes + applied_fixes
         
         await db.commit()
+        
+        # 同步更新 NovelChapter 表（正文表单显示依赖此表）
+        await _sync_writing_unit_to_novel_chapter(
+            db=db,
+            project_id=project_id,
+            unit_index=unit_index,
+            final_content=fixed_content,
+            unit_title=unit.unit_title or ""
+        )
         
         logger.info(
             f"[选择性修正] 完成: unit={unit_index}, "
@@ -701,7 +777,7 @@ async def preview_unit_fix(
         unit_query = select(WritingUnit).where(
             WritingUnit.unit_index == unit_index,
             WritingUnit.task_id.in_(task_ids)
-        )
+        ).order_by(WritingUnit.id.desc())  # 取最新记录（已完成QC的那条）
         unit_result = await db.execute(unit_query)
         unit = unit_result.scalars().first()
         

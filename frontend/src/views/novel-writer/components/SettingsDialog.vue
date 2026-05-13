@@ -340,13 +340,18 @@ function handleUploadError(error) {
 .style-settings-section {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 24px;
   padding: 0 4px;
 
   .style-library-section,
-  .style-document-section,
-  .ai-elimination-section {
+  .script-style-section,
+  .style-document-section {
     flex: 1;
+  }
+
+  .ai-elimination-section {
+    flex: 1 1 100%;
 
     .section-header {
       display: flex;

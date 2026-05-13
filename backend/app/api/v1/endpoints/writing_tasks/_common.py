@@ -59,6 +59,8 @@ def _build_unit_response(unit: WritingUnit) -> WritingUnitResponse:
         quality_control_fixes=qc_fixes if qc_fixes else None,
         original_content_before_fix=unit.original_content_before_fix,
         final_content=unit.final_content,
+        content_after_generation=unit.content_after_generation,
+        content_after_qc_fix=unit.content_after_qc_fix,
         created_at=unit.created_at,
         updated_at=unit.updated_at
     )

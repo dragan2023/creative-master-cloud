@@ -275,32 +275,36 @@ function getQCStatusLabel(status) {
       gap: 10px;
       flex: 1;
       padding-right: 16px;
-
+  
       .unit-index {
         font-weight: 600;
         color: #409eff;
         min-width: 40px;
       }
-
+  
       .unit-name {
         flex: 1;
+        min-width: 0; // 允许收缩
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-
+  
       .qc-badge {
         cursor: pointer;
         transition: transform 0.2s;
-
+        flex-shrink: 0; // 防止被压缩
+  
         &:hover {
           transform: scale(1.1);
         }
       }
-
+  
       .unit-word-count {
         font-size: 12px;
         color: #909399;
+        flex-shrink: 0; // 防止被压缩
+        white-space: nowrap; // 防止换行
       }
     }
 

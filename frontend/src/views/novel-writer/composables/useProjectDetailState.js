@@ -86,7 +86,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     startUnit: 1,
     count: 5,
     maxUnit: 100,
-    unitLabel: '�?,
+    unitLabel: '节',
     type: 'outline',
     contentType: 'chapter'
   })
@@ -169,10 +169,10 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   const interventionUserGuidance = ref('')
 
   const interventionOptions = [
-    { value: 'accept', label: '接受推断结果', desc: '使用系统推断的概要继续生�?, icon: 'CircleCheck' },
+    { value: 'accept', label: '接受推断结果', desc: '使用系统推断的概要继续生成', icon: 'CircleCheck' },
     { value: 'provide', label: '提供概要内容', desc: '自行输入章节概要', icon: 'Edit' },
-    { value: 'reference', label: '参考相邻章�?, desc: '使用前后章节信息重新生成', icon: 'Reading' },
-    { value: 'skip', label: '跳过此章�?, desc: '暂时跳过，稍后处�?, icon: 'VideoPause' }
+    { value: 'reference', label: '参考相邻章节', desc: '使用前后章节信息重新生成', icon: 'Reading' },
+    { value: 'skip', label: '跳过此章节', desc: '暂时跳过，稍后处理', icon: 'VideoPause' }
   ]
 
   // ==================== 对话框状�?====================
@@ -213,7 +213,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
 
   // ==================== 问题类型映射 ====================
   const ISSUE_TYPE_LABELS = {
-    'sensitive_word': '敏感�?,
+    'sensitive_word': '敏感词',
     'sensitive_location': '敏感地名',
     'sensitive_person': '名人姓名',
     'sensitive_event': '历史事件'
@@ -264,7 +264,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   }
 
   const DEFAULT_SERIES_SCRIPT_CONFIG = {
-    series_type: '电视�?,
+    series_type: '电视剧',
     episode_count: null,
     episode_duration_range: [30, 45],
     format_standard: '标准格式',
@@ -364,11 +364,11 @@ export function useProjectDetailState(refreshCallbacks = {}) {
 
   const unitLabel = computed(() => {
     const contentType = project.value?.content_type
-    if (contentType === 'novel') return '�?
-    if (contentType === 'series_script') return '�?
-    if (contentType === 'movie_script') return '�?
-    if (project.value?.project_type === 'script') return '�?
-    return '�?
+    if (contentType === 'novel') return '章'
+    if (contentType === 'series_script') return '集'
+    if (contentType === 'movie_script') return '场'
+    if (project.value?.project_type === 'script') return '场'
+    return '章'
   })
 
   // ==================== 内容类型标签辅助 ====================
@@ -549,7 +549,12 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     chapterContent.value = ''
     chapterRevisionInfo.value = null
 
-    if (chapter.status === 'completed') {
+    // 只要有内容可能（status为completed或word_count>0），都尝试获取章节内容
+    const shouldFetch = chapter.status === 'completed' || 
+                        chapter.status === 'pending' ||
+                        (chapter.word_count > 0)
+    
+    if (shouldFetch) {
       try {
         const res = await novelWriterApi.getChapter(projectId.value, chapter.chapter_number)
         if (res.success) {
@@ -558,6 +563,22 @@ export function useProjectDetailState(refreshCallbacks = {}) {
             chapterRevisionInfo.value = res.data.chapter_metadata.revision_info
             originalDraftContent.value = res.data.draft_content || ''
             revisedContent.value = res.data.final_content || ''
+          }
+
+          // 用最新的 word_count 同步更新 chapters 列表（侧边栏显示）
+          // 确保质控修正后章节列表的字数统计能实时反映
+          const fetchedWordCount = res.data.word_count || 0
+          if (fetchedWordCount > 0 && chapter.word_count !== fetchedWordCount) {
+            const chapterIdx = chapters.value.findIndex(
+              c => c.chapter_number === chapter.chapter_number
+            )
+            if (chapterIdx !== -1) {
+              chapters.value.splice(chapterIdx, 1, {
+                ...chapters.value[chapterIdx],
+                word_count: fetchedWordCount,
+                status: res.data.status || chapters.value[chapterIdx].status
+              })
+            }
           }
         }
       } catch (error) {
@@ -597,14 +618,14 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   async function handleUploadUnitSummariesContent(contentData) {
     // contentData = { format: 'json'|'markdown', parsedData: Object, rawContent: string }
     if (!contentData || !contentData.parsedData) {
-      ElMessage.warning('请输入单元概述内�?)
+      ElMessage.warning('请输入单元概述内容')
       return
     }
     const unitSummaries = contentData.parsedData
     
     // 验证数据格式
     if (typeof unitSummaries !== 'object' || Array.isArray(unitSummaries)) {
-      ElMessage.error('单元概述格式错误，应为对象格�?)
+      ElMessage.error('单元概述格式错误，应为对象格式')
       return
     }
 
@@ -733,7 +754,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
       })
       
       if (res.success) {
-        ElMessage.success('目录已重新生�?)
+        ElMessage.success('目录已重新生成')
         loadProject()
         loadChapters()
         if (project.value?.content_type === 'series_script' || project.value?.project_type === 'script') {
@@ -751,19 +772,19 @@ export function useProjectDetailState(refreshCallbacks = {}) {
 
   // ==================== 章节标题编辑 ====================
   function cleanChapterTitle(title) {
-    if (!title) return '未命�?
+    if (!title) return '未命名'
     let cleaned = title
     cleaned = cleaned.replace(/^第\d+[集章场]\s*/g, '')
     cleaned = cleaned.replace(/第None[集章场]\s*/g, '')
     cleaned = cleaned.replace(/第\d+[集章场]\s*第\d+[集章场]\s*/g, '')
     cleaned = cleaned.trim()
-    return cleaned || '未命�?
+    return cleaned || '未命名'
   }
 
   function startEditTitle(chapter) {
     editingChapter.value = chapter.chapter_number
     editTitleValue.value = cleanChapterTitle(chapter.chapter_title)
-    if (editTitleValue.value === '未命�?) {
+    if (editTitleValue.value === '未命名') {
       editTitleValue.value = ''
     }
   }
@@ -800,7 +821,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
       await novelWriterApi.updateChapterTitle(projectId.value, chapter.chapter_number, newTitle)
       chapter.chapter_title = newTitle
       editingChapter.value = null
-      ElMessage.success('标题已更�?)
+      ElMessage.success('标题已更新')
     } catch (error) {
       ElMessage.error('更新失败')
     } finally {
@@ -821,7 +842,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
 
     try {
       await ElMessageBox.confirm(
-        '确定要开始生成所有章节吗？这可能需要较长时间�?,
+        '确定要开始生成所有章节吗？这可能需要较长时间',
         '确认生成',
         { type: 'info' }
       )
@@ -884,7 +905,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
         selectedChapter.value.chapter_number,
         { content: chapterContent.value }
       )
-      ElMessage.success('已保�?)
+      ElMessage.success('已保存')
     } catch (error) {
       ElMessage.error('保存失败')
     }
@@ -893,24 +914,24 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   // ==================== 下载章节内容 ====================
   function handleDownloadChapter(format) {
     if (!chapterContent.value || !selectedChapter.value) {
-      ElMessage.warning('暂无内容可下�?)
+      ElMessage.warning('暂无内容可下载')
       return
     }
     
     const chapterNum = selectedChapter.value.chapter_number
-    const chapterTitle = selectedChapter.value.chapter_title || `�?{chapterNum}${unitLabel.value}`
-    const projectTitle = project.value?.title || '未命名项�?
+    const chapterTitle = selectedChapter.value.chapter_title || `第${chapterNum}${unitLabel.value}`
+    const projectTitle = project.value?.title || '未命名项目'
     
     let content = chapterContent.value
     let fileName = ''
     let mimeType = ''
     
     if (format === 'md') {
-      content = `# ${chapterTitle}\n\n> 来源�?{projectTitle}\n\n---\n\n${chapterContent.value}`
+      content = `# ${chapterTitle}\n\n> 来源：${projectTitle}\n\n---\n\n${chapterContent.value}`
       fileName = `${projectTitle}_${chapterTitle}.md`
       mimeType = 'text/markdown;charset=utf-8'
     } else {
-      content = `${chapterTitle}\n来源�?{projectTitle}\n${'='.repeat(40)}\n\n${chapterContent.value}`
+      content = `${chapterTitle}\n来源：${projectTitle}\n${'='.repeat(40)}\n\n${chapterContent.value}`
       fileName = `${projectTitle}_${chapterTitle}.txt`
       mimeType = 'text/plain;charset=utf-8'
     }
@@ -963,7 +984,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
       }
       
       await novelWriterApi.updateProject(projectId.value, updateData)
-      ElMessage.success('设置已保�?)
+      ElMessage.success('设置已保存')
       settingsVisible.value = false
       loadProject()
     } catch (error) {
@@ -1001,13 +1022,13 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   async function handleDelete() {
     try {
       await ElMessageBox.confirm(
-        '确定要删除此项目吗？删除后无法恢复�?,
+        '确定要删除此项目吗？删除后无法恢复',
         '确认删除',
         { type: 'warning' }
       )
 
       await novelWriterApi.deleteProject(projectId.value)
-      ElMessage.success('项目已删�?)
+      ElMessage.success('项目已删除')
       router.push('/novel-writer')
     } catch (error) {
       if (error !== 'cancel') {
@@ -1050,7 +1071,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   async function handleClearAllOutlines() {
     try {
       await ElMessageBox.confirm(
-        '确定要清空所有大纲吗？此操作不可恢复�?,
+        '确定要清空所有大纲吗？此操作不可恢复',
         '确认清空',
         { type: 'warning' }
       )
@@ -1067,7 +1088,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   async function handleClearAllContent() {
     try {
       await ElMessageBox.confirm(
-        '确定要清空所有正文吗？大纲将保留。此操作不可恢复�?,
+        '确定要清空所有正文吗？大纲将保留。此操作不可恢复',
         '确认清空',
         { type: 'warning' }
       )
@@ -1089,7 +1110,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
         { type: 'warning' }
       )
       await novelWriterApi.deleteAllContent(projectId.value)
-      ElMessage.success('所有大纲和正文已清�?)
+      ElMessage.success('所有大纲和正文已清空')
       await loadProject()
     } catch (error) {
       if (error !== 'cancel') {
@@ -1105,7 +1126,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   }
 
   function getStatusText(status) {
-    const texts = { init: '初始�?, generating: '生成�?, completed: '已完�?, failed: '失败', paused: '已暂�? }
+    const texts = { init: '初始化', generating: '生成中', completed: '已完成', failed: '失败', paused: '已暂停' }
     return texts[status] || status
   }
 
@@ -1115,7 +1136,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
   }
 
   function getChapterStatusText(status) {
-    const texts = { pending: '待生�?, drafting: '生成�?, completed: '已完�?, failed: '失败' }
+    const texts = { pending: '待生成', drafting: '生成中', completed: '已完成', failed: '失败' }
     return texts[status] || status
   }
 

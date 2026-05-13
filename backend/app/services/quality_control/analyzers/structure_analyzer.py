@@ -46,7 +46,7 @@ class StructureAnalyzer:
         total_tokens = 0
 
         # 1. 情节节奏分析
-        pacing_result = await self._analyze_pacing(chapters_data, depth)
+        pacing_result = await self._analyze_pacing(chapters_data, depth, db=db, user_id=user_id)
         all_issues.extend(pacing_result.get("issues", []))
         total_tokens += pacing_result.get("tokens", 0)
         pacing_score = pacing_result.get("score", 70)
@@ -76,7 +76,7 @@ class StructureAnalyzer:
             "tokens": total_tokens
         }
 
-    async def _analyze_pacing(self, chapters_data: List[Dict], depth: str) -> Dict:
+    async def _analyze_pacing(self, chapters_data: List[Dict], depth: str, db=None, user_id: int = 0) -> Dict:
         """情节节奏分析"""
         issues = []
 

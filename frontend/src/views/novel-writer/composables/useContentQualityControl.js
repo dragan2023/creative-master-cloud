@@ -176,20 +176,20 @@ export function useContentQualityControl(props) {
         {
           content,
           dimensions: options.dimensions || QC_DIMENSIONS.map(d => d.key),
-          depth: options.depth || 'standard',
+          depth: options.depth || 'deep',
           auto_fix: options.autoFix !== false, // 默认开启自动修正
           auto_fix_threshold: options.threshold || 0.8
         },
         { timeout: 300000 } // 5分钟超时
       )
 
-      if (response.data?.success) {
-        const result = response.data.data
+      if (response.success) {
+        const result = response.data
         
         // 更新单元质控报告缓存
         unitQCReports.value[unitIndex] = result
         
-        // 更新单元状态
+        // 更新单元状态（v3.0: 新增版本内容字段）
         updateUnitQCState(unitIndex, {
           status: 'completed',
           score: result.score,
@@ -197,13 +197,21 @@ export function useContentQualityControl(props) {
           fixed_count: result.fixed_count,
           issues: result.issues,
           fixes_applied: result.fixes_applied,
-          report: result.report
+          report: result.report,
+          // 传递修正后的内容，确保前端显示更新后的正文
+          original_content: result.original_content,
+          fixed_content: result.fixed_content,
+          // v3.0: 六维度分数与版本内容
+          dimension_scores: result.dimension_scores,
+          change_list: result.change_list,
+          content_after_generation: result.content_after_generation,
+          content_after_qc_fix: result.content_after_qc_fix
         })
 
         ElMessage.success(`单元 ${unitIndex} 质控完成，得分: ${result.score}`)
         return result
       } else {
-        throw new Error(response.data?.message || '质控失败')
+        throw new Error(response.message || '质控失败')
       }
     } catch (error) {
       console.error('[正文质控] 单单元质控失败:', error)
@@ -304,12 +312,12 @@ export function useContentQualityControl(props) {
         { timeout: 60000 }
       )
 
-      if (response.data?.success) {
-        fixPreviewData.value = response.data.data
+      if (response.success) {
+        fixPreviewData.value = response.data
         showFixDialog.value = true
-        return response.data.data
+        return response.data
       } else {
-        throw new Error(response.data?.message || '获取预览失败')
+        throw new Error(response.message || '获取预览失败')
       }
     } catch (error) {
       console.error('[正文质控] 预览修正失败:', error)
@@ -332,21 +340,25 @@ export function useContentQualityControl(props) {
         { timeout: 300000 }
       )
 
-      if (response.data?.success) {
-        const result = response.data.data
+      if (response.success) {
+        const result = response.data
         
         // 更新单元状态
         updateUnitQCState(unitIndex, {
-          fixed_count: result.applied_count,
-          fixes_applied: result.applied_fixes,
+          fixed_count: result.applied_count || 0,
+          fixes_applied: result.applied_fixes || [],
           original_content: result.original_content,
           fixed_content: result.fixed_content
         })
 
-        ElMessage.success(`已应用 ${result.applied_count} 个修正`)
+        if (result.already_applied) {
+          ElMessage.success('选中的修正已在生成时自动应用，无需重复操作')
+        } else {
+          ElMessage.success(`已应用 ${result.applied_count} 个修正`)
+        }
         return result
       } else {
-        throw new Error(response.data?.message || '应用修正失败')
+        throw new Error(response.message || '应用修正失败')
       }
     } catch (error) {
       console.error('[正文质控] 应用修正失败:', error)
@@ -379,8 +391,8 @@ export function useContentQualityControl(props) {
         { timeout: 60000 }
       )
 
-      if (response.data?.success) {
-        const result = response.data.data
+      if (response.success) {
+        const result = response.data
         
         // 更新单元状态
         updateUnitQCState(unitIndex, {
@@ -392,7 +404,7 @@ export function useContentQualityControl(props) {
         ElMessage.success('修正已撤销')
         return result
       } else {
-        throw new Error(response.data?.message || '撤销失败')
+        throw new Error(response.message || '撤销失败')
       }
     } catch (error) {
       if (error !== 'cancel') {
@@ -440,11 +452,20 @@ export function useContentQualityControl(props) {
       updated_at: Date.now()
     }
 
-    // 使用splice确保响应式更新
-    units.value.splice(unitIdx, 1, {
+    // 构建更新后的单元对象
+    const updatedUnit = {
       ...oldUnit,
       quality_control: newQC
-    })
+    }
+
+    // 如果质控数据中包含修正后的内容，同步更新 final_content
+    if (qcData.fixed_content) {
+      updatedUnit.final_content = qcData.fixed_content
+      updatedUnit.word_count = qcData.fixed_content.length
+    }
+
+    // 使用splice确保响应式更新
+    units.value.splice(unitIdx, 1, updatedUnit)
 
     // 更新缓存
     unitQCReports.value[unitIndex] = newQC
@@ -456,7 +477,7 @@ export function useContentQualityControl(props) {
   function handleQCMessage(msgType, msgData) {
     switch (msgType) {
       case 'unit_quality_control':
-        // 单单元质控完成
+        // 单单元质控完成（v3.0: 新增六维度分数与版本字段）
         if (msgData) {
           updateUnitQCState(msgData.unit_index, {
             status: msgData.status,
@@ -465,7 +486,15 @@ export function useContentQualityControl(props) {
             fixed_count: msgData.fixed_count,
             issues: msgData.issues,
             fixes_applied: msgData.fixes_applied,
-            report: msgData.report
+            report: msgData.report,
+            // 传递修正后的内容，确保前端显示更新后的正文
+            original_content: msgData.original_content,
+            fixed_content: msgData.fixed_content,
+            // v3.0: 六维度分数与版本内容
+            dimension_scores: msgData.dimension_scores,
+            change_list: msgData.change_list,
+            content_after_generation: msgData.content_after_generation,
+            content_after_qc_fix: msgData.content_after_qc_fix
           })
         }
         break
@@ -504,6 +533,50 @@ export function useContentQualityControl(props) {
     }
   }
 
+  /**
+   * 下载单元内容（v3.0: 初稿/修正稿双版本下载）
+   * @param {number} unitIndex - 单元序号
+   * @param {string} version - 'draft'（初稿）或 'revised'（修正稿）
+   */
+  function downloadContent(unitIndex, version = 'revised') {
+    const unit = units.value.find(u => u.unit_index === unitIndex)
+    if (!unit) {
+      ElMessage.warning(`未找到单元 ${unitIndex}`)
+      return
+    }
+
+    const qc = unit.quality_control || {}
+    let content = ''
+    let filename = ''
+    const unitTitle = (unit.unit_title || `第${unitIndex}章`).replace(/[\\/:*?"<>|]/g, '_')
+
+    if (version === 'draft') {
+      content = qc.content_after_generation || unit.final_content || ''
+      filename = `${unitTitle}_初稿.txt`
+    } else {
+      content = qc.content_after_qc_fix || unit.final_content || ''
+      filename = `${unitTitle}_修正稿.txt`
+    }
+
+    if (!content) {
+      ElMessage.warning('暂无内容可下载')
+      return
+    }
+
+    // 通过 Blob 触发下载
+    const blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    ElMessage.success(`${unitTitle} ${version === 'draft' ? '初稿' : '修正稿'}下载完成`)
+  }
+
   // ==================== 返回 ====================
   
   return {
@@ -535,6 +608,7 @@ export function useContentQualityControl(props) {
     updateUnitQCState,
     handleQCMessage,
     setActiveUnit,
+    downloadContent,
 
     // 工具方法
     getScoreColor,

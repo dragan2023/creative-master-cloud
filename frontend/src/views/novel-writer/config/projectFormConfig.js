@@ -15,10 +15,8 @@ export const DEFAULT_NOVEL_CONFIG = {
   target_platform: '',
   total_words: null,
   words_per_chapter: 3000,
-  style_reference: '',
   temperature: 0.8,
-  narrative_perspective: '第三人称',
-  tone: '正剧'
+  narrative_perspective: '第三人称'
 }
 
 // ==================== 剧集剧本配置默认值 ====================
@@ -31,7 +29,6 @@ export const DEFAULT_SERIES_SCRIPT_CONFIG = {
   dialogue_narration_ratio: '均衡',
   target_broadcast: '',
   episode_count: 24,
-  style_reference: '',
   dialogue_style: '自然对话',
   narrative_rhythm: '紧凑',
   script_mode: 'real',
@@ -46,7 +43,6 @@ export const DEFAULT_MOVIE_SCRIPT_CONFIG = {
   format_standard: '标准格式',
   dialogue_narration_ratio: '均衡',
   target_platform: '',
-  style_reference: '',
   dialogue_style: '自然对话',
   narrative_rhythm: '紧凑',
   script_mode: 'real'

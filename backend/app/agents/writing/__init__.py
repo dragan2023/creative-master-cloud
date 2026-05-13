@@ -7,7 +7,7 @@
 
 依赖关系:
     - 依赖: base_agent.py, agent_config.py, stats_interceptor.py
-    - 被依赖: 具体的写作Agent实现（结构师、写手、编辑等）
+    - 被依赖: 具体的写作Agent实现（写手、编辑等）
 
 使用说明:
     from app.agents.writing import (
@@ -19,18 +19,16 @@
         AgentModelConfig,
         StatsInterceptor,
         OrchestratorAgent,
-        StructuralAgent,
         WriterAgent,
         KnowledgeAgent,
         AssemblerAgent,
     )
 
 创建时间: 2026-03-27
-最后修改: 2026-03-27
-版本: 1.0.0
+最后修改: 2026-05-09
 
 @date: 2026-04-02
-@version: v3.0.0
+@version: v3.1.0 (移除废弃的 StructuralAgent)
 @author: 周金磊
 @contact: QQ：7527149（添加时请说明来意）
 """
@@ -49,7 +47,6 @@ from app.agents.writing.stats_interceptor import StatsInterceptor
 
 # 核心Agent
 from app.agents.writing.orchestrator_agent import OrchestratorAgent
-from app.agents.writing.structural_agent import StructuralAgent
 from app.agents.writing.writer_agent import WriterAgent
 from app.agents.writing.knowledge_agent import KnowledgeAgent
 from app.agents.writing.assembler_agent import AssemblerAgent
@@ -72,7 +69,6 @@ __all__ = [
     "StatsInterceptor",
     # 核心Agent
     "OrchestratorAgent",
-    "StructuralAgent",
     "WriterAgent",
     "KnowledgeAgent",
     "AssemblerAgent",

@@ -135,22 +135,6 @@
           <el-input v-model="projectForm.genre" placeholder="如：言情、悬疑、科幻" />
         </el-form-item>
 
-        <!-- v4.2：知识图谱继承 -->
-        <el-form-item label="继承知识图谱">
-          <el-input-number
-            v-model="projectForm.inheritKbId"
-            :min="1"
-            placeholder="粘贴四阶段生成的图谱ID"
-            controls-position="right"
-            style="width: 100%"
-          />
-          <div class="form-tip kb-inherit-tip">
-            <el-icon><InfoFilled /></el-icon>
-            在创意生成页面构建知识图谱后，复制图谱ID粘贴到此处即可继承
-            <br />留空则创建不带知识图谱的项目
-          </div>
-        </el-form-item>
-
         <el-form-item label="生成配置">
           <el-collapse>
             <el-collapse-item title="高级设置" name="advanced">
@@ -179,24 +163,6 @@
                     <el-option label="第一人称" value="第一人称" />
                     <el-option label="第三人称" value="第三人称" />
                   </el-select>
-                </el-form-item>
-                <el-form-item label="基调风格">
-                  <el-select v-model="projectForm.novel_config.tone" placeholder="选择风格">
-                    <el-option label="正剧" value="正剧" />
-                    <el-option label="轻松" value="轻松" />
-                    <el-option label="幽默" value="幽默" />
-                    <el-option label="严肃" value="严肃" />
-                    <el-option label="温馨" value="温馨" />
-                    <el-option label="热血" value="热血" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="风格模仿">
-                  <el-input 
-                    v-model="projectForm.novel_config.style_reference" 
-                    type="textarea" 
-                    :rows="2"
-                    placeholder="可粘贴喜欢的作品片段，AI将模仿其风格（可选）" 
-                  />
                 </el-form-item>
                 <el-form-item label="温度参数">
                   <el-slider v-model="projectForm.novel_config.temperature" :min="0" :max="1" :step="0.1" show-input />
@@ -286,14 +252,6 @@
                     />
                   </el-select>
                 </el-form-item>
-                <el-form-item label="风格模仿">
-                  <el-input 
-                    v-model="projectForm.series_script_config.style_reference" 
-                    type="textarea" 
-                    :rows="2"
-                    placeholder="可粘贴喜欢的剧本片段，AI将模仿其风格（可选）" 
-                  />
-                </el-form-item>
               </template>
               
               <!-- 电影剧本配置 -->
@@ -358,14 +316,6 @@
                     <el-option label="电影节" value="电影节" />
                   </el-select>
                 </el-form-item>
-                <el-form-item label="风格模仿">
-                  <el-input 
-                    v-model="projectForm.movie_script_config.style_reference" 
-                    type="textarea" 
-                    :rows="2"
-                    placeholder="可粘贴喜欢的剧本片段，AI将模仿其风格（可选）" 
-                  />
-                </el-form-item>
               </template>
             </el-collapse-item>
             
@@ -407,7 +357,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onActivated } from 'vue'
-import { Plus, MoreFilled, Notebook, Film, VideoCamera, Setting, InfoFilled } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Notebook, Film, VideoCamera, Setting } from '@element-plus/icons-vue'
 
 // 组合式函数
 import { useProjectList } from './composables/useProjectList'

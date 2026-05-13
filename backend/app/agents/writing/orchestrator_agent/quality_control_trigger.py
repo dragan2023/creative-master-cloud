@@ -93,19 +93,20 @@ async def _execute_quality_control(
         from sqlalchemy import select
         from app.models import User as UserModel
 
-        # 构建请求
+        # 构建请求 (v3.0: 正文质控使用六维度深度检测)
         request = UnitQualityControlRequest(
             project_id=project_id,
             unit_index=unit_index,
             content=content,
             dimensions=[
-                "unit_structure",
-                "unit_character",
-                "unit_consistency",
-                "unit_timeline_space",
-                "unit_ooc"
+                "structure",       # 宏观结构层
+                "character",       # 人物塑造层
+                "scene",           # 场景与感官层
+                "prose",           # 文笔与修辞层
+                "experience",      # 阅读体验层
+                "technical"        # 技术性排雷层
             ],
-            depth="standard",
+            depth="deep",
             auto_fix=True,
             auto_fix_threshold=0.8
         )
@@ -138,7 +139,7 @@ async def _execute_quality_control(
                 f"fixed={qc_data.get('fixed_count')}"
             )
 
-            # 发送质控完成消息
+            # 发送质控完成消息 (v3.0: 新增六维度分数、变更列表、版本内容字段)
             if ws_send_func:
                 try:
                     await ws_send_func("unit_quality_control", {
@@ -152,7 +153,12 @@ async def _execute_quality_control(
                         "issues": qc_data.get('issues'),
                         "fixes_applied": qc_data.get('fixes_applied'),
                         "original_content": qc_data.get('original_content'),
-                        "fixed_content": qc_data.get('fixed_content')
+                        "fixed_content": qc_data.get('fixed_content'),
+                        "dimension_scores": qc_data.get('dimension_scores', {}),
+                        "change_list": qc_data.get('change_list', []),
+                        "context_summary": qc_data.get('context_summary', ''),
+                        "content_after_generation": qc_data.get('content_after_generation'),
+                        "content_after_qc_fix": qc_data.get('content_after_qc_fix')
                     })
                     logger.info(f"[质控触发] 质控完成消息已发送: unit={unit_index}")
                 except Exception as ws_err:

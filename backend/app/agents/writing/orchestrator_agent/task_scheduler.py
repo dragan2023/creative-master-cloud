@@ -50,7 +50,6 @@ class TaskSchedulerMixin:
     _build_success_result: callable
     
     # 从 ContentPipelineMixin 继承的方法
-    _process_unit: callable
     _process_unit_direct: callable
     
     async def resume(self, context: AgentContext) -> AgentResult:
@@ -126,6 +125,31 @@ class TaskSchedulerMixin:
             persist_dir=context.config.get("persist_dir")
         )
 
+        # [修复] 继续生成时：从 DB 加载上一单元的结尾内容
+        # 确保后续单元的 previous_content 不为空
+        if start_from > 1 and not context.previous_content:
+            try:
+                from app.models.writing_unit import WritingUnit as _WritingUnit
+                prev_unit_query = select(_WritingUnit).where(
+                    _WritingUnit.task_id == task.id,
+                    _WritingUnit.unit_index == start_from - 1
+                )
+                prev_result = await self.db.execute(prev_unit_query)
+                prev_unit = prev_result.scalar_one_or_none()
+                if prev_unit and prev_unit.final_content:
+                    prev_content = prev_unit.final_content
+                    if len(prev_content) > 3000:
+                        prev_content = prev_content[-3000:]
+                    context.previous_content = prev_content
+                    self.logger.info(
+                        f"[上下文初始化] 从单元 {start_from - 1} 加载前文结尾，"
+                        f"长度: {len(context.previous_content)} 字符"
+                    )
+            except Exception as init_error:
+                self.logger.warning(
+                    f"[上下文初始化] 加载前文内容失败: {init_error}"
+                )
+
         # 计算结束单元
         end_unit = start_from + unit_count - 1
 
@@ -162,14 +186,40 @@ class TaskSchedulerMixin:
                     total_units=task.total_units
                 )
 
-            # 处理单个单元
-            self.logger.info(f"继续生成: 处理单元 {unit_index}")
-            unit_result = await self._process_unit(context, unit_index)
+            # 处理单个单元 - 使用与初始生成一致的 direct 模式
+            self.logger.info(f"[继续生成] 处理单元 {unit_index} (direct 模式)")
+            unit_result = await self._process_unit_direct(context, unit_index)
 
             if unit_result.success:
                 task.completed_units += 1
                 completed_in_this_run += 1
                 await self.db.commit()
+
+                # [修复] 累积前文结尾内容到 context.previous_content
+                try:
+                    from app.models.writing_unit import WritingUnit as _WritingUnit
+                    unit_query = select(_WritingUnit).where(
+                        _WritingUnit.task_id == task.id,
+                        _WritingUnit.unit_index == unit_index
+                    )
+                    db_unit_result = await self.db.execute(unit_query)
+                    db_unit = db_unit_result.scalar_one_or_none()
+                    if db_unit and db_unit.final_content:
+                        unit_content = db_unit.final_content
+                        if context.previous_content:
+                            context.previous_content += "\n\n" + unit_content
+                        else:
+                            context.previous_content = unit_content
+                        if len(context.previous_content) > 5000:
+                            context.previous_content = context.previous_content[-5000:]
+                        self.logger.info(
+                            f"[上下文累积] 单元 {unit_index} 完成，"
+                            f"previous_content 长度: {len(context.previous_content)} 字符"
+                        )
+                except Exception as accumulate_error:
+                    self.logger.warning(
+                        f"[上下文累积] 更新 previous_content 失败: {accumulate_error}"
+                    )
             else:
                 self.logger.error(f"单元 {unit_index} 处理失败: {unit_result.errors}")
                 if context.config.get("stop_on_error", True):

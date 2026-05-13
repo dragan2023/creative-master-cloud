@@ -31,6 +31,25 @@ class GetStateForPromptMixin:
 
             lines.append(f"## {char_name}")
 
+            # 基础信息（年龄、性别）— 从全局大纲人物设定中提取
+            attrs = state.attributes
+            if attrs:
+                basic_info_parts = []
+                char_gender = attrs.get("gender", attrs.get("性别", ""))
+                if char_gender:
+                    basic_info_parts.append(char_gender)
+                char_age = attrs.get("age", attrs.get("年龄", ""))
+                if char_age:
+                    age_str = str(char_age)
+                    basic_info_parts.append(
+                        f"{age_str}岁"
+                        if age_str.isdigit()
+                           or (age_str.replace('.', '', 1).replace('-', '', 1).isdigit())
+                        else age_str
+                    )
+                if basic_info_parts:
+                    lines.append(f"- 基本信息: {'，'.join(basic_info_parts)}")
+
             if state.identity:
                 lines.append(f"- 身份/官职: {state.identity}")
             if state.location:
@@ -42,11 +61,13 @@ class GetStateForPromptMixin:
                 for related, relation in state.relationships.items():
                     lines.append(f"  - 与{related}: {relation}")
 
-            attrs = state.attributes
             if attrs:
                 personality = attrs.get("personality", attrs.get("性格", ""))
                 if personality:
                     lines.append(f"- 性格特点: {personality}")
+                background = attrs.get("background", attrs.get("背景", ""))
+                if background:
+                    lines.append(f"- 背景/小传: {background}")
 
             lines.append("")
 
@@ -57,5 +78,3 @@ class GetStateForPromptMixin:
             lines.append("")
 
         return "\n".join(lines)
-
-

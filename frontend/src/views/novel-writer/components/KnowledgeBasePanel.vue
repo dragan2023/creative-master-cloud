@@ -7,8 +7,8 @@
       </div>
     </template>
 
-    <!-- 未构建状态 -->
-    <div v-if="!kbStatus || kbStatus.status === 'not_built'" class="kb-status not-built">
+    <!-- 未构建/待加载状态 -->
+    <div v-if="!kbStatus || kbStatus.status === 'not_built' || kbStatus.status === 'pending'" class="kb-status not-built">
       <el-empty description="知识库未构建" :image-size="60" />
       <div class="kb-actions">
         <el-button

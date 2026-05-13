@@ -94,7 +94,38 @@ class ContextBuilderMixin(PipelineConfigMixin):
             if not character_profiles and outline:
                 character_profiles = self._extract_characters_from_outline(outline)
                 if character_profiles:
-                    logger.info(f"[上下文构建] 从大纲内容提取人物设定: {len(character_profiles)} 个角色")
+                    logger.info(f"[上下文构建] 从大纲JSON提取人物设定: {len(character_profiles)} 个角色")
+
+            # 🔴 Markdown人物小传解析：当JSON提取失败时，尝试从Markdown格式大纲解析
+            if not character_profiles and outline.get("raw_content"):
+                md_characters = self._extract_characters_from_markdown_outline(
+                    outline["raw_content"]
+                )
+                if md_characters:
+                    character_profiles = md_characters
+                    logger.info(
+                        f"[上下文构建] 从Markdown大纲解析人物小传: {len(character_profiles)} 个角色"
+                    )
+                    # 持久化到项目记录，使QC质控模块也能读取
+                    if project and hasattr(project, 'character_profiles'):
+                        project.character_profiles = character_profiles
+                        try:
+                            await db_session.commit()
+                            logger.info(
+                                f"[上下文构建] 人物设定已持久化到 project.character_profiles"
+                            )
+                        except Exception as e:
+                            logger.warning(f"[上下文构建] 持久化人物设定失败: {e}")
+
+            # 🔴 正则切片增强：从大纲原始文本中提取每个人物的详细描述段落
+            if character_profiles and outline:
+                enriched = self._enrich_characters_from_outline_text(
+                    character_profiles=character_profiles,
+                    outline=outline
+                )
+                if enriched:
+                    character_profiles = enriched
+                    logger.info(f"[上下文构建] 正则切片增强人物设定完成: {len(character_profiles)} 个角色")
 
         words_per_unit = task_config.get("words_per_chapter", 3000)
 
@@ -320,7 +351,9 @@ class ContextBuilderMixin(PipelineConfigMixin):
                         "role": char.get("role", char.get("身份", "")),
                         "personality": char.get("personality", char.get("性格", "")),
                         "background": char.get("background", char.get("背景", "")),
-                        "description": char.get("description", "")
+                        "description": char.get("description", ""),
+                        "age": char.get("age", char.get("年龄", "")),
+                        "gender": char.get("gender", char.get("性别", ""))
                     })
                 elif isinstance(char, str):
                     characters.append({"name": char})
@@ -333,7 +366,9 @@ class ContextBuilderMixin(PipelineConfigMixin):
                         "role": char.get("role", char.get("身份", "")),
                         "personality": char.get("personality", char.get("性格", "")),
                         "background": char.get("background", char.get("背景", "")),
-                        "description": char.get("description", "")
+                        "description": char.get("description", ""),
+                        "age": char.get("age", char.get("年龄", "")),
+                        "gender": char.get("gender", char.get("性别", ""))
                     })
 
         if not characters and outline.get("main_characters"):
@@ -344,11 +379,332 @@ class ContextBuilderMixin(PipelineConfigMixin):
                         "role": char.get("role", "主角"),
                         "personality": char.get("personality", ""),
                         "background": char.get("background", ""),
-                        "description": char.get("description", "")
+                        "description": char.get("description", ""),
+                        "age": char.get("age", char.get("年龄", "")),
+                        "gender": char.get("gender", char.get("性别", ""))
                     })
                 elif isinstance(char, str):
                     characters.append({"name": char, "role": "角色"})
 
+        return characters
+
+    @staticmethod
+    def _enrich_characters_from_outline_text(
+        character_profiles: list,
+        outline: dict
+    ) -> list:
+        """从大纲原始文本中正则切片提取每个人物的详细描述段落
+
+        当大纲为 JSON 结构化数据时，character_profiles 已包含字段化的人物信息。
+        此方法进一步扫描大纲的原始文本内容（如 raw_content 或 JSON 序列化文本），
+        查找每个人物名称周围的上下文描述，将其作为「大纲原文参考」补充到 profile 中。
+
+        正则策略：
+        - 获取大纲的文本表示（优先 raw_content，其次 JSON 序列化）
+        - 对每个人物名称，搜索其在文本中的所有出现位置
+        - 提取名称前后各 N 个字符的上下文窗口
+        - 合并多个出现位置的上下文，取前 800 字作为原文参考
+
+        Args:
+            character_profiles: 已提取的人物设定列表
+            outline: 全局大纲字典（可能包含 raw_content 或章节结构）
+
+        Returns:
+            增强后的人物设定列表（新增 outline_context 字段）
+        """
+        import re as _re
+
+        # 获取大纲的文本表示
+        outline_text = ""
+        if outline.get("raw_content"):
+            outline_text = outline.get("raw_content", "")
+        else:
+            # 尝试 JSON 序列化（确保 ascii 不转义中文）
+            try:
+                outline_text = json.dumps(outline, ensure_ascii=False, indent=2)
+            except (TypeError, ValueError):
+                return character_profiles
+
+        if not outline_text or len(outline_text) < 50:
+            return character_profiles
+
+        enriched_profiles = []
+        context_window = 400  # 名称前后各取 400 字符
+
+        for char in character_profiles:
+            if not isinstance(char, dict):
+                enriched_profiles.append(char)
+                continue
+
+            name = char.get("name", "")
+            if not name or len(name) < 2:
+                enriched_profiles.append(char)
+                continue
+
+            # 搜索名称在文本中的所有出现位置
+            contexts = []
+            escaped_name = _re.escape(name)
+            pattern = _re.compile(r'(?<!\w)' + escaped_name + r'(?!\w)')
+
+            for match in pattern.finditer(outline_text):
+                start = max(0, match.start() - context_window)
+                end = min(len(outline_text), match.end() + context_window)
+                snippet = outline_text[start:end].strip()
+                if len(snippet) > 20:  # 过滤太短的片段
+                    contexts.append(snippet)
+
+            if contexts:
+                # 合并上下文，取前 800 字符
+                merged = " …… ".join(contexts)
+                if len(merged) > 800:
+                    merged = merged[:800] + "…"
+
+                # 创建增强后的 profile（不修改原对象）
+                enriched_char = dict(char)
+                existing_desc = enriched_char.get("description", "")
+                # 将原文参考追加到 description 或独立字段
+                if existing_desc:
+                    enriched_char["description"] = (
+                        f"{existing_desc}\n\n【大纲原文参考】{merged}"
+                    )
+                else:
+                    enriched_char["description"] = f"【大纲原文参考】{merged}"
+                enriched_char["outline_context"] = merged
+                enriched_profiles.append(enriched_char)
+            else:
+                enriched_profiles.append(char)
+
+        return enriched_profiles
+
+    @staticmethod
+    def _extract_characters_from_markdown_outline(raw_text: str) -> list:
+        """从 Markdown 格式的全局大纲中解析人物小传
+
+        解析策略：
+        1. 定位「## 四、人物谱系」章节
+        2. 解析 ### 4.1 主角档案：XXX → **字段名**：值
+        3. 解析 ### 4.2 反派档案：XXX → **字段名**：值
+        4. 解析 ### 4.5 人物小传 → **角色名**\\n\\n+ **字段名**：值
+        5. 从「基本信息」中提取性别、年龄；从「性格核心/性格维度」提取性格；
+           从「背景故事」提取背景；从「外貌特征」提取外貌；从「核心动机/在故事中的作用」提取动机/身份
+
+        Args:
+            raw_text: Markdown 格式的大纲全文
+
+        Returns:
+            结构化人物设定列表，每项含 name/age/gender/personality/background/appearance/goals/role/description
+        """
+        import re as _re
+
+        if not raw_text or len(raw_text) < 100:
+            return []
+
+        characters = []
+        seen_names = set()
+
+        # ---- 辅助函数：从文本中提取 **字段名**：值 ----
+        def _extract_field(text: str, field_names: list) -> str:
+            """从 Markdown 文本中提取指定字段的值，多个候选字段名按优先级匹配"""
+            for fn in field_names:
+                # 匹配 **字段名**：值（值到下一个 ** 或 +++ 或换行+空行为止）
+                pattern = _re.compile(
+                    r'\*\*' + _re.escape(fn) + r'\*\*[：:]\s*(.+?)(?=\n\n|\n\*\*|\n\+\s+\*\*|\n#{1,6}\s|\Z)',
+                    _re.DOTALL
+                )
+                m = pattern.search(text)
+                if m:
+                    value = m.group(1).strip()
+                    # 去除内部的换行和多余空格
+                    value = _re.sub(r'\n+', '；', value)
+                    value = _re.sub(r'\s+', ' ', value).strip()
+                    # 清理 markdown 列表标记
+                    value = _re.sub(r'[+\-]\s+', '', value)
+                    value = _re.sub(r'；[+\-]\s+', '；', value)
+                    # 截断过长内容
+                    if len(value) > 600:
+                        value = value[:600] + '…'
+                    return value
+            return ''
+
+        def _parse_basic_info(text: str, full_text: str = '') -> dict:
+            """从「基本信息」字段中提取性别、年龄
+
+            Args:
+                text: 角色所在文本块
+                full_text: 完整的人物谱系文本（兜底用）
+            """
+            info = _extract_field(text, ['基本信息'])
+            result = {'gender': '', 'age': ''}
+            if not info:
+                return result
+            # 提取性别: 在基本信息前50个字符中搜索「男」或「女」
+            search_text = info[:50]
+            if '男' in search_text:
+                result['gender'] = '男'
+            elif '女' in search_text:
+                result['gender'] = '女'
+            # 兜底：从完整文本块中搜索性别（主角档案可能基本信息不含性别）
+            if not result['gender'] and full_text:
+                # 搜索外貌特征或前200字符
+                search_full = full_text[:200]
+                if '男' in search_full:
+                    result['gender'] = '男'
+                elif '女' in search_full:
+                    result['gender'] = '女'
+            # 提取年龄: 匹配「出场约X岁」「约X岁」「X岁」等模式
+            age_patterns = [
+                r'出场约(\d+)岁',
+                r'出场约(\d+)\s*岁',
+                r'约(\d+)岁',
+                r'(\d+)岁',
+                r'穿越时约(\d+)岁',
+            ]
+            for ap in age_patterns:
+                am = _re.search(ap, info)
+                if am:
+                    result['age'] = am.group(1)
+                    break
+            return result
+
+        # ---- 步骤0：定位人物谱系章节 ----
+        # 找到「## 四、人物谱系」或「## 四、」之后到下一个「## 五、」或文末
+        char_section_match = _re.search(
+            r'##\s*四[、,，]\s*人物谱系.*?(?=\n##\s*五[、,，]|\Z)',
+            raw_text, _re.DOTALL
+        )
+        if not char_section_match:
+            # 尝试更宽松的匹配
+            char_section_match = _re.search(
+                r'##\s*四[、,，].*?(?=\n##\s*五[、,，]|\Z)',
+                raw_text, _re.DOTALL
+            )
+        char_section = char_section_match.group(0) if char_section_match else raw_text
+
+        # ---- 步骤1：解析 4.1 主角档案 ----
+        protag_match = _re.search(
+            r'###\s*4\.1\s*主角档案[：:]\s*(.+?)(?=\n###\s*4\.2|\n##|\Z)',
+            char_section, _re.DOTALL
+        )
+        if protag_match:
+            protag_name = protag_match.group(1).strip()
+            protag_text = protag_match.group(0)
+            basic = _parse_basic_info(protag_text, full_text=protag_text)
+            char = {
+                'name': protag_name,
+                'age': basic['age'],
+                'gender': basic['gender'],
+                'personality': _extract_field(protag_text, ['性格维度', '性格核心', '性格特点']),
+                'background': _extract_field(protag_text, ['背景故事']),
+                'appearance': _extract_field(protag_text, ['外貌特征']),
+                'goals': _extract_field(protag_text, ['人物弧光']),
+                'role': '主角',
+                'description': protag_text[:600],
+            }
+            if protag_name and protag_name not in seen_names:
+                seen_names.add(protag_name)
+                characters.append(char)
+                logger.debug(f"[Markdown人物解析] 主角: {protag_name}, age={basic['age']}, gender={basic['gender']}")
+
+        # ---- 步骤2：解析 4.2 反派档案 ----
+        antag_match = _re.search(
+            r'###\s*4\.2\s*反派档案[：:]\s*(.+?)(?=\n###\s*4\.3|\n##|\Z)',
+            char_section, _re.DOTALL
+        )
+        if antag_match:
+            antag_name = antag_match.group(1).strip()
+            antag_text = antag_match.group(0)
+            basic = _parse_basic_info(antag_text, full_text=antag_text)
+            char = {
+                'name': antag_name,
+                'age': basic['age'],
+                'gender': basic['gender'],
+                'personality': _extract_field(antag_text, ['性格核心', '性格维度']),
+                'background': '',
+                'appearance': _extract_field(antag_text, ['外貌特征']),
+                'goals': _extract_field(antag_text, ['核心动机']),
+                'role': _extract_field(antag_text, ['身份定位']),
+                'description': antag_text[:600],
+            }
+            if antag_name and antag_name not in seen_names:
+                seen_names.add(antag_name)
+                characters.append(char)
+                logger.debug(f"[Markdown人物解析] 反派: {antag_name}, age={basic['age']}, gender={basic['gender']}")
+
+        # ---- 步骤3：解析 4.5 人物小传 ----
+        # 找到 ### 4.5 人物小传 之后的所有内容（直到下一个 ## 或文末）
+        bio_section_match = _re.search(
+            r'###\s*4\.5\s*人物小传.*?(?=\n##\s|\Z)',
+            char_section, _re.DOTALL
+        )
+        if bio_section_match:
+            bio_section = bio_section_match.group(0)
+            # 匹配每个角色块: **角色名** 后跟 + **字段名**：值 的行
+            # 角色块以 **名字** 开头（名字后可能紧跟换行），随后是连续的 + **字段** 行
+            char_blocks = _re.split(
+                r'\n(?=\*\*[^*\n]{2,20}\*\*\s*\n)',
+                bio_section
+            )
+            for block in char_blocks:
+                # 提取角色名: 开头的 **Name**
+                name_match = _re.match(r'\*\*([^*\n]+)\*\*', block)
+                if not name_match:
+                    continue
+                char_name = name_match.group(1).strip()
+                # 过滤掉非人名的标题（如「关系性质」）
+                if not char_name or len(char_name) < 2 or char_name in ('关系性质', '播州核心人物小传', '外部势力人物小传'):
+                    continue
+                if char_name in seen_names:
+                    continue
+
+                basic = _parse_basic_info(block, full_text=char_section)
+                personality = _extract_field(block, ['性格核心', '性格维度', '性格特点'])
+                background = _extract_field(block, ['背景故事'])
+                appearance = _extract_field(block, ['外貌特征'])
+                goals = _extract_field(block, ['核心动机', '在故事中的作用'])
+                role = _extract_field(block, ['身份定位', '在故事中的作用'])
+                relationship = _extract_field(block, ['与主角的关系'])
+
+                # 构建 description: 合并关系、作用、台词等次要字段
+                desc_parts = []
+                if relationship:
+                    desc_parts.append(f"【与主角关系】{relationship}")
+                key_lines = _extract_field(block, ['关键台词'])
+                if key_lines:
+                    desc_parts.append(f"【关键台词】{key_lines}")
+
+                char = {
+                    'name': char_name,
+                    'age': basic['age'],
+                    'gender': basic['gender'],
+                    'personality': personality,
+                    'background': background,
+                    'appearance': appearance,
+                    'goals': goals,
+                    'role': role,
+                    'description': '\n'.join(desc_parts) if desc_parts else block[:500],
+                }
+                seen_names.add(char_name)
+                characters.append(char)
+                logger.debug(
+                    f"[Markdown人物解析] 配角: {char_name}, "
+                    f"age={basic['age']}, gender={basic['gender']}, "
+                    f"personality={personality[:40] if personality else 'N/A'}"
+                )
+
+        # ---- 步骤4：兜底——从 4.3 表格中提取人名 ----
+        if not characters:
+            # 解析 Markdown 表格中的人名
+            table_rows = _re.findall(
+                r'\|\s*\*\*(.+?)\*\*\s*\|',
+                char_section
+            )
+            for row_name in table_rows:
+                name = row_name.strip()
+                if name and len(name) >= 2 and name not in seen_names:
+                    seen_names.add(name)
+                    characters.append({'name': name, 'role': '', 'personality': '', 'background': '', 'description': ''})
+
+        logger.info(f"[Markdown人物解析] 共解析出 {len(characters)} 个角色")
         return characters
 
     @staticmethod
