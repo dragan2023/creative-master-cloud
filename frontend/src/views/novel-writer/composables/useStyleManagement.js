@@ -34,8 +34,12 @@ export function useStyleManagement(projectId, projectData) {
   })
 
   // 当前内容类型
+  // [修复] 使用独立的 _contentType ref 而非依赖外部传入的 ref(null) projectData
+  // 在 restoreStyleConfigFromProject 中动态更新，确保 saveStyleConfig 分支正确
+  const _contentType = ref('novel')
+
   const currentContentType = computed(() => {
-    return projectData?.value?.content_type || projectData?.content_type || 'novel'
+    return _contentType.value || projectData?.value?.content_type || projectData?.content_type || 'novel'
   })
 
   // 是否为剧本类型
@@ -77,7 +81,7 @@ export function useStyleManagement(projectId, projectData) {
         }
         await novelWriterApi.updateProject(projectId.value, {
           [configKey]: {
-            style_config: styleConfig
+            style_selector_config: styleConfig
           }
         })
         console.log('[StyleMgmt] 剧本风格配置已保存:', styleConfig)
@@ -151,6 +155,24 @@ export function useStyleManagement(projectId, projectData) {
     saveStyleConfig()
   }
 
+  // 移除已选剧本风格维度
+  function removeScriptStyle(dimName) {
+    const dims = scriptStyleData.value.dimensions || {}
+    if (dims[dimName]) {
+      delete dims[dimName]
+      scriptStyleData.value.dimensions = { ...dims }
+    }
+    // 更新 selectedNames
+    scriptStyleData.value.selectedNames = scriptStyleData.value.selectedNames.filter(
+      name => !name.startsWith(dimName + ':')
+    )
+    if (Object.keys(dims).length === 0) {
+      ElMessage.info('已清空剧本风格选择')
+    }
+    // 保存更改
+    saveStyleConfig()
+  }
+
   // 从项目数据恢复文风配置
   function restoreStyleConfigFromProject(data) {
     // 优先使用传入的 data 参数，其次使用 projectData.value
@@ -159,10 +181,15 @@ export function useStyleManagement(projectId, projectData) {
 
     const contentType = projectDataValue.content_type
 
+    // [修复] 同步更新 _contentType，确保 saveStyleConfig 等依赖 currentContentType 的逻辑正确
+    if (contentType) {
+      _contentType.value = contentType
+    }
+
     if (contentType === 'movie_script' || contentType === 'series_script') {
       // 恢复剧本风格配置
       const configKey = contentType === 'movie_script' ? 'movie_script_config' : 'series_script_config'
-      const config = projectDataValue[configKey]?.style_config
+      const config = projectDataValue[configKey]?.style_selector_config
       if (config) {
         scriptStyleData.value = {
           styleType: config.script_style_type || '',
@@ -305,6 +332,7 @@ export function useStyleManagement(projectId, projectData) {
     handleStyleSelectionConfirm,
     handleScriptStyleConfirm,
     removeSelectedStyle,
+    removeScriptStyle,
     loadStyleDocumentInfo,
     handleRefreshStyleDocument,
     handleStyleUploadSuccess,

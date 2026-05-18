@@ -65,17 +65,24 @@ class UnitDirectMixin:
             AgentResult: 单元处理结果
         """
         unit_start_time = time.time()
-        self.logger.info(f"[整章生成] 开始处理单元 {unit_index}")
+
+        # 根据内容类型确定单元标签（novel→章, series_script→集, movie_script→场）
+        content_type = context.config.get("content_type", "novel")
+        _unit_label_map = {"novel": "章", "series_script": "集", "movie_script": "场", "script": "场"}
+        unit_label = _unit_label_map.get(content_type, "章")
+
+        self.logger.info(f"[整{unit_label}生成] 开始处理单元 {unit_index}")
         unit = None
 
         try:
             # 1. 获取或创建Unit记录
             unit = await self._get_or_create_unit(context, unit_index)
+            self.logger.info(f"[整{unit_label}生成] unit_index={unit_index}, unit_title={unit.unit_title}, unit_id={unit.id}")
             unit.status = UnitStatus.PROCESSING
             await self.db.commit()
 
             if self._check_interrupted():
-                self.logger.warning(f"[整章生成] 任务被中断: 单元 {unit_index}")
+                self.logger.warning(f"[整{unit_label}生成] 任务被中断: 单元 {unit_index}")
                 unit.status = UnitStatus.PENDING
                 await self.db.commit()
                 return self._build_error_result(f"任务被中断", completed_units=0, total_units=0)
@@ -90,7 +97,7 @@ class UnitDirectMixin:
             await self._send_ws_message("workflow_step", {
                 "step": "direct_writing",
                 "status": "running",
-                "message": f"单元 {unit_index}: 正在生成整章内容...",
+                "message": f"单元 {unit_index}: 正在生成整{unit_label}内容...",
                 "agent_name": "写手Agent",
                 "unit_index": unit_index,
                 "icon": "EditPen"
@@ -118,7 +125,7 @@ class UnitDirectMixin:
                     chapter_num=unit_index,
                     max_entities=20  # 仅用于扩展实体,人物状态不受此限制
                 )
-                self.logger.info(f"[整章生成] 已获取前文知识图谱参考: 单元 {unit_index}")
+                self.logger.info(f"[整{unit_label}生成] 已获取前文知识图谱参考: 单元 {unit_index}")
 
             # 🆕 [知识图谱优化 v3.1] 获取单元图谱的完整一致性报告
             if self._project_knowledge_base and context.project_id:
@@ -130,7 +137,7 @@ class UnitDirectMixin:
                         knowledge_graph = NovelKnowledgeGraph(persist_path=graph_path)
                         if knowledge_graph.load():
                             extended_consistency_context = knowledge_graph.format_consistency_report_for_prompt(unit_index)
-                            self.logger.info(f"[整章生成] 已获取扩展实体一致性上下文: 单元 {unit_index}")
+                            self.logger.info(f"[整{unit_label}生成] 已获取扩展实体一致性上下文: 单元 {unit_index}")
                 except Exception as e:
                     self.logger.warning(f"获取扩展实体上下文失败: {e}")
             
@@ -150,11 +157,11 @@ class UnitDirectMixin:
             
             full_kg_context = "\n\n---\n\n".join(full_kg_context_parts) if full_kg_context_parts else ""
 
-            self.logger.info(f"[整章生成] 使用全局大纲+单元概述模式: 单元 {unit_index}")
+            self.logger.info(f"[整{unit_label}生成] 使用全局大纲+单元概述模式: 单元 {unit_index}")
 
             style_document_features = context.config.get("style_document_features", "")
             if style_document_features:
-                self.logger.info(f"[整章生成] 风格文档特征已加载，长度: {len(style_document_features)}")
+                self.logger.info(f"[整{unit_label}生成] 风格文档特征已加载，长度: {len(style_document_features)}")
 
             writer_context = AgentContext(
                 task_id=context.task_id,
@@ -182,6 +189,7 @@ class UnitDirectMixin:
                     "words_per_scene": words_per_unit,
                     "content_type": context.config.get("content_type", "novel"),
                     "style_document_features": style_document_features,
+                    "total_units": task.total_units if task else 1,
                     **context.config
                 }
             )
@@ -189,13 +197,13 @@ class UnitDirectMixin:
             result = await writer_agent.execute(writer_context)
 
             if self._check_interrupted():
-                self.logger.warning(f"[整章生成] 任务在写作后被中断: 单元 {unit_index}")
+                self.logger.warning(f"[整{unit_label}生成] 任务在写作后被中断: 单元 {unit_index}")
                 unit.status = UnitStatus.INTERRUPTED
                 await self.db.commit()
                 return self._build_error_result(f"任务被中断", completed_units=0, total_units=0)
 
             if not result.success:
-                self.logger.error(f"[整章生成] 写作失败: {result.errors}")
+                self.logger.error(f"[整{unit_label}生成] 写作失败: {result.errors}")
                 unit.status = UnitStatus.PENDING
                 await self.db.commit()
                 return self._build_error_result(f"写作失败: {result.errors}")
@@ -211,16 +219,21 @@ class UnitDirectMixin:
             unit.content_after_generation = final_content
 
             # 创建单个场景记录（用于兼容）
-            scene = WritingScene(
+            # [修复] 使用 _get_or_create_scene 避免重复键错误，并更新已有场景内容
+            scene = await self._get_or_create_scene(
                 unit_id=unit.id,
                 scene_index=1,
-                scene_title=unit.unit_title or f"场景1",
-                scene_outline={"direct_mode": True},
-                status=SceneStatus.COMPLETED,
-                final_content=final_content,
-                word_count=len(final_content)
+                scene_data={
+                    "scene_title": unit.unit_title or f"场景1",
+                    "direct_mode": True
+                }
             )
-            self.db.add(scene)
+            # 更新场景内容（无论新建还是已存在）
+            scene.scene_title = unit.unit_title or f"场景1"
+            scene.scene_outline = {"direct_mode": True}
+            scene.status = SceneStatus.COMPLETED
+            scene.final_content = final_content
+            scene.word_count = len(final_content)
             await self.db.commit()
             
             # 同步更新 NovelChapter 表（正文表单显示依赖此表）
@@ -232,12 +245,13 @@ class UnitDirectMixin:
                     project_id=context.project_id,
                     unit_index=unit_index,
                     final_content=final_content,
-                    unit_title=getattr(unit, 'unit_title', '') or f"第{unit_index}章",
-                    logger=self.logger
+                    unit_title=getattr(unit, 'unit_title', '') or "",
+                    logger=self.logger,
+                    content_type=context.config.get("content_type", "novel")
                 )
             except Exception as sync_error:
                 self.logger.error(
-                    f"[整章生成-单元{unit_index}] NovelChapter 同步失败（内容已保存到WritingUnit，但正文表单可能无法显示）: {sync_error}",
+                    f"[整{unit_label}生成-单元{unit_index}] NovelChapter 同步失败（内容已保存到WritingUnit，但正文表单可能无法显示）: {sync_error}",
                     exc_info=True
                 )
 
@@ -258,18 +272,19 @@ class UnitDirectMixin:
                         self._qc_semaphore = _asyncio.Semaphore(2)
 
                     async with self._qc_semaphore:
-                        self.logger.info(f"[整章生成-质控] 开始质控: unit={unit_index}, 等待完成后再提取知识图谱")
+                        self.logger.info(f"[整{unit_label}生成-质控] 开始质控: unit={unit_index}, 等待完成后再提取知识图谱")
                         await trigger_unit_quality_control(
                             project_id=project_id,
                             unit_index=unit_index,
                             content=final_content,
                             user_id=user_id,
-                            ws_send_func=self._send_ws_message
+                            ws_send_func=self._send_ws_message,
+                            content_type=context.config.get("content_type", "novel")
                         )
                         qc_completed = True
-                        self.logger.info(f"[整章生成-质控] 质控完成: unit={unit_index}")
+                        self.logger.info(f"[整{unit_label}生成-质控] 质控完成: unit={unit_index}")
                 except Exception as qc_error:
-                    self.logger.warning(f"[整章生成-质控] 质控失败: unit={unit_index}, error={qc_error}，继续执行知识图谱提取")
+                    self.logger.warning(f"[整{unit_label}生成-质控] 质控失败: unit={unit_index}, error={qc_error}，继续执行知识图谱提取")
                     qc_completed = False
 
             await self._send_ws_message("unit_progress", {
@@ -283,7 +298,7 @@ class UnitDirectMixin:
             await self._send_ws_message("workflow_step", {
                 "step": "direct_writing",
                 "status": "done",
-                "message": f"单元 {unit_index}: 整章内容生成完成，共 {len(final_content)} 字",
+                "message": f"单元 {unit_index}: 整{unit_label}内容生成完成，共 {len(final_content)} 字",
                 "agent_name": "写手Agent",
                 "unit_index": unit_index,
                 "icon": "EditPen"
@@ -325,12 +340,12 @@ class UnitDirectMixin:
 
                             if refreshed_unit and refreshed_unit.quality_control_status == 'completed' and refreshed_unit.final_content:
                                 content_for_kg = refreshed_unit.final_content
-                                self.logger.info(f"[整章生成-知识图谱] 使用质控修正后的内容: unit={unit_index}, 原文{len(final_content)}字符 -> 修正后{len(content_for_kg)}字符")
+                                self.logger.info(f"[整{unit_label}生成-知识图谱] 使用质控修正后的内容: unit={unit_index}, 原文{len(final_content)}字符 -> 修正后{len(content_for_kg)}字符")
                             else:
-                                self.logger.info(f"[整章生成-知识图谱] 质控状态: {refreshed_unit.quality_control_status if refreshed_unit else 'None'}")
-                                self.logger.info(f"[整章生成-知识图谱] 质控未完成或无修正，使用原始内容: unit={unit_index}")
+                                self.logger.info(f"[整{unit_label}生成-知识图谱] 质控状态: {refreshed_unit.quality_control_status if refreshed_unit else 'None'}")
+                                self.logger.info(f"[整{unit_label}生成-知识图谱] 质控未完成或无修正，使用原始内容: unit={unit_index}")
                         except Exception as db_error:
-                            self.logger.warning(f"[整章生成-知识图谱] 读取修正后内容失败: {db_error}，使用原始内容")
+                            self.logger.warning(f"[整{unit_label}生成-知识图谱] 读取修正后内容失败: {db_error}，使用原始内容")
 
                     llm_provider = None
                     if hasattr(context, 'extra') and context.extra:
@@ -347,7 +362,7 @@ class UnitDirectMixin:
                     self.logger.warning(f"更新人物状态失败: {e}")
 
             duration_ms = int((time.time() - unit_start_time) * 1000)
-            self.logger.info(f"[整章生成] 单元 {unit_index} 处理完成，耗时 {duration_ms}ms")
+            self.logger.info(f"[整{unit_label}生成] 单元 {unit_index} 处理完成，耗时 {duration_ms}ms")
 
             return self._build_success_result(
                 content=final_content,
@@ -357,7 +372,7 @@ class UnitDirectMixin:
             )
 
         except Exception as e:
-            self.logger.exception(f"[整章生成] 处理单元 {unit_index} 时发生异常: {str(e)}")
+            self.logger.exception(f"[整{unit_label}生成] 处理单元 {unit_index} 时发生异常: {str(e)}")
             if unit:
                 unit.status = UnitStatus.INTERRUPTED
                 await self.db.commit()

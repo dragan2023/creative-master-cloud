@@ -7,9 +7,10 @@
 3. 确保修正内容与上下文逻辑自洽
 4. 提供修正说明和置信度评估
 5. v2.2新增：批量修正机制，一次性处理多个问题，显著提升效率
+6. v2.3新增：AI视觉资源缺失检测与Seedance 2.0提示词规范检查
 
 @date: 2026-04-14
-@version: v2.2.0
+@version: v2.3.0
 """
 import json
 from typing import Dict, List, Optional, Any
@@ -54,6 +55,7 @@ QUALITY_FIX_PROMPT = """你是专业的创意写作编辑,擅长修正小说/剧
 3. **问题解决**: 彻底解决指出的问题
 4. **保持风格**: 维持原有的文风和叙事风格
 5. **尊重原文**: 只做必要的修改,不要重写整个内容
+6. **AI视觉资源检查**（仅剧集/电影内容）：如内容为剧本类型，请检查是否包含人物参考图提示词、场景参考图提示词和Seedance 2.0视频生成提示词
 
 ## 重要原则
 
@@ -112,6 +114,7 @@ BATCH_QUALITY_FIX_PROMPT = """你是专业的创意写作编辑,擅长综合修�
 5. **彻底解决**: 确保所有列出的问题都得到解决
 6. **保持风格**: 维持原有的文风和叙事风格
 7. **尊重原文**: 只做必要的修改,不要重写整个内容
+8. **AI视觉资源检查**（仅剧集/电影内容）：如内容为剧本类型，请检查是否包含人物/场景/物品参考图提示词和Seedance 2.0视频生成提示词
 
 ## 重要原则
 
@@ -573,7 +576,10 @@ class QualityFixGenerator:
         }
 
     def _fallback_fix(self, issue: Dict, chapter_content: str, error: str) -> Dict:
-        """降级修正方案(LLM失败时使用)"""
+        """降级修正方案(LLM失败时使用)
+
+        v2.3: 新增 AI视觉资源缺失 和 Seedance提示词格式 两种降级修正类型
+        """
         category = issue.get("category", "")
 
         # 根据问题类型提供简单的修正建议
@@ -592,7 +598,17 @@ class QualityFixGenerator:
                 "fixed": chapter_content + "\n\n这个决定带来了深远的影响,故事的走向从此改变。",
                 "description": "补充了情节发展以丰富单元内容",
                 "confidence": 0.5
-            }
+            },
+            "AI视觉资源缺失": {
+                "fixed": chapter_content,
+                "description": "检测到剧集/电影内容可能缺少AI视觉资源（参考图提示词、Seedance 2.0视频提示词），建议在后续版本中补充图像参考资源和Seedance 2.0全能参考模式的视频生成提示词",
+                "confidence": 0.3
+            },
+            "Seedance提示词格式": {
+                "fixed": chapter_content,
+                "description": "检测到Seedance 2.0视频生成提示词格式可能不符合全能参考模式规范，建议检查是否包含[参考模式]、[人物参考图]、[场景参考图]、[物品参考图]等必要字段",
+                "confidence": 0.3
+            },
         }
 
         fallback = fallback_suggestions.get(category, {

@@ -125,11 +125,13 @@ def parse_unit_summaries_from_content(content: str, content_type: str) -> Dict[s
                 title = re.sub(r'[\*\s]+$', '', title)
 
                 summary = ""
+                # [修复] 边界增加 \n\*\*第\d+{unit_char} 匹配 _build_revised_content 生成的 **第N集：标题** 格式
+                boundary = rf'(?=###|##|\n第\d+{unit_char}|\n\*\*第\d+{unit_char}|$)'
                 summary_patterns = [
-                    rf'第{unit_num}{unit_char}.*?\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
-                    rf'第{unit_num}{unit_char}.*?{summary_keyword}梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
-                    rf'第{unit_num}{unit_char}.*?梗概[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
-                    rf'\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?)(?=###|##|\n第\d+{unit_char}|$)',
+                    rf'第{unit_num}{unit_char}.*?\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?){boundary}',
+                    rf'第{unit_num}{unit_char}.*?{summary_keyword}梗概[：:]\s*(.+?){boundary}',
+                    rf'第{unit_num}{unit_char}.*?梗概[：:]\s*(.+?){boundary}',
+                    rf'\*\*{summary_keyword}梗概\*\*[：:]\s*(.+?){boundary}',
                 ]
                 for sp in summary_patterns:
                     sm = re.search(sp, content, re.DOTALL)

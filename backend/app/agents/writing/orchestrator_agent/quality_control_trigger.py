@@ -24,7 +24,8 @@ async def trigger_unit_quality_control(
     content: str,
     user_id: Optional[int] = None,
     ws_send_func: Optional[Callable] = None,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    content_type: str = "novel"
 ):
     """
     异步触发单元质控检测
@@ -39,18 +40,21 @@ async def trigger_unit_quality_control(
         user_id: 用户ID
         ws_send_func: WebSocket消息发送函数
         db: 可选的数据库会话，不提供则创建新的会话
+        content_type: 内容类型 (novel/series_script/movie_script)，用于差异化质控维度
     """
     if db is None:
         from app.core.database import async_session_maker
         async with async_session_maker() as new_db:
             await _execute_quality_control(
                 db=new_db, project_id=project_id, unit_index=unit_index,
-                content=content, user_id=user_id, ws_send_func=ws_send_func
+                content=content, user_id=user_id, ws_send_func=ws_send_func,
+                content_type=content_type
             )
     else:
         await _execute_quality_control(
             db=db, project_id=project_id, unit_index=unit_index,
-            content=content, user_id=user_id, ws_send_func=ws_send_func
+            content=content, user_id=user_id, ws_send_func=ws_send_func,
+            content_type=content_type
         )
 
 
@@ -60,13 +64,20 @@ async def _execute_quality_control(
     unit_index: int,
     content: str,
     user_id: Optional[int] = None,
-    ws_send_func: Optional[Callable] = None
+    ws_send_func: Optional[Callable] = None,
+    content_type: str = "novel"
 ):
-    """执行质控检测的实际逻辑"""
+    """执行质控检测的实际逻辑
+
+    Args:
+        content_type: 内容类型 (novel/series_script/movie_script)，
+                      用于差异化质控维度选择
+    """
     try:
         logger.info(
             f"[质控触发] 开始质控: project_id={project_id}, "
-            f"unit_index={unit_index}, content_length={len(content)}"
+            f"unit_index={unit_index}, content_type={content_type}, "
+            f"content_length={len(content)}"
         )
 
         # 发送质控开始消息
@@ -93,19 +104,29 @@ async def _execute_quality_control(
         from sqlalchemy import select
         from app.models import User as UserModel
 
-        # 构建请求 (v3.0: 正文质控使用六维度深度检测)
+        # 构建请求 (v3.1: 根据 content_type 差异化质控维度)
+        # 小说：六维度深度检测
+        # 剧集/电影：在六维度基础上增加剧本专项维度
+        base_dimensions = [
+            "structure",       # 宏观结构层
+            "character",       # 人物塑造层
+            "scene",           # 场景与感官层
+            "prose",           # 文笔与修辞层
+            "experience",      # 阅读体验层
+            "technical"        # 技术性排雷层
+        ]
+        # 剧集/电影增加专项维度
+        if content_type in ("series_script", "movie_script"):
+            base_dimensions.extend([
+                "script_format",    # 剧本格式规范性
+                "visual_quality",   # 视觉呈现质量（含AI视觉资源提示词质量）
+            ])
+
         request = UnitQualityControlRequest(
             project_id=project_id,
             unit_index=unit_index,
             content=content,
-            dimensions=[
-                "structure",       # 宏观结构层
-                "character",       # 人物塑造层
-                "scene",           # 场景与感官层
-                "prose",           # 文笔与修辞层
-                "experience",      # 阅读体验层
-                "technical"        # 技术性排雷层
-            ],
+            dimensions=base_dimensions,
             depth="deep",
             auto_fix=True,
             auto_fix_threshold=0.8

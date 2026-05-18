@@ -180,13 +180,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { knowledgeApi } from '@/api'
+import { useConfigPersistence } from '@/composables/useConfigPersistence'
 
 const props = defineProps({
   modelValue: {
     type: Object,
     default: () => ({})
+  },
+  /** 持久化存储键名，传入后自动启用 localStorage 持久化 */
+  storageKey: {
+    type: String,
+    default: null
   }
 })
 
@@ -297,7 +303,51 @@ function updateModelValue() {
 
 onMounted(() => {
   loadKnowledgeBases()
+  restoreKbConfig()
 })
+
+// ==================== 配置持久化（localStorage） ====================
+const { saveConfig, restoreConfig } = useConfigPersistence()
+
+function persistKbConfig() {
+  if (!props.storageKey) return
+  saveConfig(props.storageKey, {
+    enableKnowledge: enableKnowledge.value,
+    enableCreativeSearch: enableCreativeSearch.value,
+    enableTrending: enableTrending.value,
+    searchKeywords: searchKeywords.value,
+    kbCategories: {
+      vertical: { enabled: kbCategories.value.vertical.enabled, ids: kbCategories.value.vertical.ids },
+      userSpecific: { enabled: kbCategories.value.userSpecific.enabled, ids: kbCategories.value.userSpecific.ids },
+      manual: { enabled: kbCategories.value.manual.enabled, ids: kbCategories.value.manual.ids }
+    }
+  })
+}
+
+function restoreKbConfig() {
+  if (!props.storageKey) return
+  const saved = restoreConfig(props.storageKey)
+  if (!saved) return
+  enableKnowledge.value = saved.enableKnowledge ?? false
+  enableCreativeSearch.value = saved.enableCreativeSearch ?? false
+  enableTrending.value = saved.enableTrending ?? false
+  searchKeywords.value = saved.searchKeywords ?? ''
+  if (saved.kbCategories) {
+    for (const cat of ['vertical', 'userSpecific', 'manual']) {
+      if (saved.kbCategories[cat] && kbCategories.value[cat]) {
+        kbCategories.value[cat].enabled = saved.kbCategories[cat].enabled ?? false
+        kbCategories.value[cat].ids = saved.kbCategories[cat].ids ?? []
+      }
+    }
+  }
+  console.log('[KnowledgeBaseSection] 已恢复知识库配置')
+}
+
+// 自动持久化
+watch([enableKnowledge, enableCreativeSearch, enableTrending, searchKeywords, kbCategories],
+  () => persistKbConfig(),
+  { deep: true }
+)
 
 // 暴露方法给父组件
 defineExpose({

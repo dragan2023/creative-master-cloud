@@ -3,11 +3,12 @@
  *
  * 处理 WritingWorkbench 中的任务创建、中断、续传、删除、导出等操作
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { novelWriterApi } from '@/api/novel-writer'
 import { writingTaskApi } from '@/api/writing-task'
 import { agentConfigs } from '../config/agentConfig'
+import { useConfigPersistence } from '@/composables/useConfigPersistence'
 
 /**
  * @param {Object} options - 配置选项
@@ -125,6 +126,37 @@ export function useWorkbenchTask(options) {
     script_mode: 'real',
   })
 
+  // ==================== 任务表单持久化（localStorage） ====================
+  const { saveConfig, restoreConfig } = useConfigPersistence()
+
+  function getTaskFormStorageKey() {
+    return projectId.value ? `user_config_workbench_${projectId.value}_task` : null
+  }
+
+  function persistTaskFormConfig() {
+    const key = getTaskFormStorageKey()
+    if (!key) return
+    // 排除 API Key 等敏感字段，仅持久化模型和参数偏好
+    saveConfig(key, taskForm.value, { excludeKeys: ['agent_api_keys'] })
+  }
+
+  function restoreTaskFormConfig() {
+    const key = getTaskFormStorageKey()
+    if (!key) return
+    const saved = restoreConfig(key)
+    if (!saved) return
+    // 合并已保存配置到当前表单（保留默认的 agent_api_keys）
+    for (const field of Object.keys(saved)) {
+      if (field in taskForm.value) {
+        taskForm.value[field] = saved[field]
+      }
+    }
+    console.log('[WorkbenchTask] 已恢复任务表单配置')
+  }
+
+  // 用户修改表单时自动持久化
+  watch(taskForm, () => persistTaskFormConfig(), { deep: true })
+
   // ==================== 响应式状态 ====================
   const showOutlineUploadDialog = ref(false)
   const uploadingOutline = ref(false)
@@ -187,10 +219,10 @@ export function useWorkbenchTask(options) {
           taskForm.value.episode_duration_max || 45
         ],
         scenes_per_episode_range: taskForm.value.scenes_per_episode_range || null,
-        series_style_dimensions: styleMgmt?.seriesStyleData?.value?.dimensions || {},
-        series_style_names: styleMgmt?.seriesStyleData?.value?.selectedNames || [],
-        series_style_intensity: styleMgmt?.seriesStyleData?.value?.intensity || 0.7,
-        series_style_type: styleMgmt?.seriesStyleData?.value?.seriesSubType || 'long',
+        series_style_dimensions: styleMgmt?.scriptStyleData?.value?.dimensions || {},
+        series_style_names: styleMgmt?.scriptStyleData?.value?.selectedNames || [],
+        series_style_intensity: styleMgmt?.scriptStyleData?.value?.intensity || 0.7,
+        series_style_type: styleMgmt?.scriptStyleData?.value?.seriesSubType || 'long',
         script_mode: taskForm.value.script_mode || 'real',
       }
     }
@@ -204,9 +236,9 @@ export function useWorkbenchTask(options) {
           taskForm.value.scene_duration_max || 15
         ],
         total_scenes: taskForm.value.total_scenes || 0,
-        movie_style_dimensions: styleMgmt?.movieStyleData?.value?.dimensions || {},
-        movie_style_names: styleMgmt?.movieStyleData?.value?.selectedNames || [],
-        movie_style_intensity: styleMgmt?.movieStyleData?.value?.intensity || 0.7,
+        movie_style_dimensions: styleMgmt?.scriptStyleData?.value?.dimensions || {},
+        movie_style_names: styleMgmt?.scriptStyleData?.value?.selectedNames || [],
+        movie_style_intensity: styleMgmt?.scriptStyleData?.value?.intensity || 0.7,
         script_mode: taskForm.value.script_mode || 'real',
       }
     }
@@ -685,5 +717,8 @@ export function useWorkbenchTask(options) {
     
     // 知识库状态加载（延迟加载）
     loadKbStatus,
+    
+    // 配置持久化
+    restoreTaskFormConfig,
   }
 }

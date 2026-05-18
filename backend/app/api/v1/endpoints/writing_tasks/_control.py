@@ -235,7 +235,9 @@ def register_control_routes(router: APIRouter):
                 )
 
             # 计算新的起始位置
-            start_from = task.completed_units + 1
+            # [修复] 需结合 task.start_from，而非假设从1开始
+            # 原逻辑 completed_units+1 仅在 start_from=1 时正确
+            start_from = (task.start_from or 1) + task.completed_units
             unit_count = request.unit_count
 
             # 计算项目的实际单元数

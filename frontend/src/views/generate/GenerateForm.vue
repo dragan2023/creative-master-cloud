@@ -77,7 +77,7 @@
             />
             
             <!-- 知识库增强区域 -->
-            <KnowledgeBaseSection ref="knowledgeBaseSectionRef" />
+            <KnowledgeBaseSection ref="knowledgeBaseSectionRef" :storage-key="`user_config_generate_${type}_kb`" />
             
             <!-- 提交按钮 -->
             <div class="form-actions">
@@ -295,6 +295,7 @@ import { applyDiffInstructions, validateDiffInstructions } from '@/utils/diffApp
 import { computeDiffHtml } from '@/utils/diffUtils'
 import { parseChapterCountFromOutline, parseUnitSummariesFromContent } from './utils/outlineParser'
 import { buildOutlineInputParams as buildOutlineParams } from './utils/buildRequestParams'
+import { useConfigPersistence } from '@/composables/useConfigPersistence'
 
 // 导入子组件
 import FormFieldsSection from './components/FormFieldsSection.vue'
@@ -587,6 +588,33 @@ const creatingWritingProject = ref(false)
 // 知识库组件引用
 const knowledgeBaseSectionRef = ref(null)
 
+// ==================== 用户配置持久化（风格选择器） ====================
+const { saveConfig, restoreConfig } = useConfigPersistence()
+
+function persistGenerateStyleConfig() {
+  saveConfig(`user_config_generate_${type.value}_style`, styleData.value)
+}
+function persistGenerateTitleStyleConfig() {
+  saveConfig(`user_config_generate_${type.value}_title_style`, titleStyleData.value)
+}
+function restoreGenerateStyleConfig() {
+  const saved = restoreConfig(`user_config_generate_${type.value}_style`)
+  if (saved) {
+    styleData.value = saved
+    console.log('[GenerateForm] 已恢复文风配置:', saved)
+  }
+}
+function restoreGenerateTitleStyleConfig() {
+  const saved = restoreConfig(`user_config_generate_${type.value}_title_style`)
+  if (saved) {
+    titleStyleData.value = saved
+    console.log('[GenerateForm] 已恢复标题风格配置:', saved)
+  }
+}
+
+watch(styleData, () => persistGenerateStyleConfig(), { deep: true })
+watch(titleStyleData, () => persistGenerateTitleStyleConfig(), { deep: true })
+
 // ==================== 初始化 Composables ====================
 
 // 单元概述生成
@@ -761,6 +789,10 @@ onMounted(async () => {
   await apiKeyStore.fetchApiKeys()
   restoreFormData()
   
+  // 恢复用户持久化配置：风格选择器
+  restoreGenerateStyleConfig()
+  restoreGenerateTitleStyleConfig()
+  
   // 尝试恢复上次的生成状态
   try {
     const restoreState = {
@@ -832,9 +864,11 @@ watch(form, () => {
   saveFormData()
 }, { deep: true })
 
-// 监听模块类型变化时恢复对应模块的表单数据
+// 监听模块类型变化时恢复对应模块的表单数据和风格配置
 watch(type, () => {
   restoreFormData()
+  restoreGenerateStyleConfig()
+  restoreGenerateTitleStyleConfig()
 })
 
 // 处理生成

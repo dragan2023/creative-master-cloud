@@ -117,6 +117,9 @@ class QualityControlService:
                 "prose": "app.services.quality_control.analyzers.prose_analyzer:ProseAnalyzer",
                 "experience": "app.services.quality_control.analyzers.experience_analyzer:ExperienceAnalyzer",
                 "technical": "app.services.quality_control.analyzers.technical_analyzer:TechnicalAnalyzer",
+                # 剧集/电影专项维度（映射到现有分析器）
+                "script_format": "app.services.quality_control.analyzers.technical_analyzer:TechnicalAnalyzer",
+                "visual_quality": "app.services.quality_control.analyzers.scene_analyzer:SceneAnalyzer",
                 "unit_structure": "app.services.quality_control.analyzers.unit_quality_analyzer:UnitStructureAnalyzer",
                 "unit_character": "app.services.quality_control.analyzers.unit_quality_analyzer:UnitCharacterAnalyzer",
                 "unit_consistency": "app.services.quality_control.analyzers.unit_quality_analyzer:UnitConsistencyAnalyzer",
@@ -313,8 +316,9 @@ class QualityControlService:
             return self._build_report_from_rules(rule_results, chapters_data)
 
         # 构建维度→LLM任务映射，仅对需要LLM的维度创建任务
-        # v3.0：扩展为全六维度，正文质控需要六个维度全部进行LLM深度分析
-        llm_dimensions = ["structure", "character", "scene", "prose", "experience", "technical"]
+        # v3.1：扩展为全八维度，增加剧集/电影专项维度
+        llm_dimensions = ["structure", "character", "scene", "prose", "experience", "technical",
+                          "script_format", "visual_quality"]
         llm_task_map: Dict[str, Any] = {}
         for dimension in dimensions:
             if dimension in llm_dimensions:

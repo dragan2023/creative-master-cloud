@@ -86,14 +86,18 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
             AgentResult: 执行结果
         """
         # 提取单元信息
-        unit_title = context.extra.get("unit_title", "未命名章节")
-        unit_summary = context.extra.get("unit_summary", "")
+        content_type = context.config.get("content_type", "novel") if isinstance(context.config, dict) else "novel"
+        _unit_label_map = {"novel": "章", "series_script": "集", "movie_script": "场", "script": "场"}
+        unit_label = _unit_label_map.get(content_type, "章")
+        default_title = f"未命名{unit_label}节"
+        unit_title = context.extra.get("unit_title", default_title) if isinstance(context.extra, dict) else default_title
+        unit_summary = context.extra.get("unit_summary", "") if isinstance(context.extra, dict) else ""
 
         # 字数配置
-        target_words = context.config.get("words_per_scene", 3000)
+        target_words = context.config.get("words_per_scene", 3000) if isinstance(context.config, dict) else 3000
 
         self.logger.info(
-            f"[整章生成] 开始生成章节内容 - 标题: {unit_title}, "
+            f"[整{unit_label}生成] 开始生成{unit_label}节内容 - 标题: {unit_title}, "
             f"目标字数: {target_words}, 模式: 全局大纲+单元概述"
         )
 
@@ -118,6 +122,11 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
             scene_id=f"{context.unit_index}_direct"
         )
 
+        # [防御] 确保 response 是 dict 类型
+        if not isinstance(response, dict):
+            self.logger.error(f"[整{unit_label}生成] LLM响应类型异常: {type(response).__name__}, value={str(response)[:200]}")
+            return self._build_error_result(f"LLM响应类型异常: {type(response).__name__}")
+
         # 提取结果
         content = response.get("content", "")
 
@@ -134,7 +143,7 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
         duration_ms = int((time.time() - start_time) * 1000)
 
         self.logger.info(
-            f"[整章生成] 章节内容生成完成 - 字数: {word_count}, "
+            f"[整{unit_label}生成] {unit_label}节内容生成完成 - 字数: {word_count}, "
             f"目标: {target_words}, 偏差: {word_count - target_words}"
         )
 

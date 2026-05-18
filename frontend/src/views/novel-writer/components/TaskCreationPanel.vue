@@ -10,22 +10,19 @@
   <div class="task-creation">
       <!-- 右侧主区域 -->
       <div class="right-main-area">
-        <!-- 单元概述缺失提示（仅小说类型显示） -->
+        <!-- 单元概述缺失提示（所有类型通用） -->
         <el-alert
-          v-if="!hasUnitSummaries && actualContentType === 'novel'"
+          v-if="!hasUnitSummaries"
           type="warning"
           :closable="false"
           show-icon
           class="unit-summaries-alert"
         >
           <template #title>
-            <span>缺少单元概述数据</span>
+            <span>缺少{{ unitLabel }}概述数据</span>
           </template>
           <div class="alert-content">
-            <p>创意生成阶段应已完成全局大纲+单元概述，此处仅需上传已生成的结果。</p>
-            <p style="color: #909399; font-size: 12px; margin-top: 4px">
-              请从"创意生成"板块导出单元概述后上传，或直接在下方输入。
-            </p>
+            <p>请先上传全局大纲，再上传{{ unitLabel }}概述（支持 .txt/.md/.docx 文件或直接粘贴内容）。</p>
             <el-button
               type="primary"
               size="small"
@@ -33,7 +30,7 @@
               @click="$emit('upload-unit-summaries')"
             >
               <el-icon><Upload /></el-icon>
-              上传单元概述
+              上传{{ unitLabel }}概述
             </el-button>
           </div>
         </el-alert>

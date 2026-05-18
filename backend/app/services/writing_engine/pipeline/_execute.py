@@ -147,7 +147,8 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                             actual_unit_count = project.total_chapters or 0
 
                     # 根据 start_from 和 unit_count 计算实际要生成的单元数
-                    start_from = self.task.start_from or 1
+                    # 防御性检查：确保 start_from 永远是正整数且不超过实际单元数
+                    start_from = max(1, self.task.start_from or 1)
                     unit_count = self.task.unit_count
                     available_units = max(
                         0, actual_unit_count - start_from + 1)

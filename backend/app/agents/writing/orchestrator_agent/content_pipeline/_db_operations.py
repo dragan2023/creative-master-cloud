@@ -56,8 +56,9 @@ class DBOperationsMixin:
         self.logger.info(
             f"[_get_or_create_unit] 单元 {unit_index}: 尝试从 unit_summaries 获取，可用单元数: {len(unit_summaries)}")
         if unit_summaries and isinstance(unit_summaries, dict):
-            unit_data = unit_summaries.get(
-                str(unit_index)) or unit_summaries.get(unit_index)
+            unit_data = (unit_summaries.get(str(unit_index))
+                         or unit_summaries.get(unit_index)
+                         or unit_summaries.get(f"{unit_index:04d}"))
             if unit_data:
                 unit_title = unit_data.get("title", "")
                 unit_summary = unit_data.get("summary", "")
@@ -79,10 +80,19 @@ class DBOperationsMixin:
                 self.logger.info(
                     f"[_get_or_create_unit] 从 outline.chapters 获取单元 {unit_index}: title={unit_title}")
 
+        # 根据 content_type 确定默认单元标题
+        content_type = context.config.get("content_type", "novel")
+        if content_type == "series_script":
+            default_title = f"第{unit_index}集"
+        elif content_type == "movie_script":
+            default_title = f"第{unit_index}场"
+        else:
+            default_title = f"第{unit_index}章"
+
         unit = WritingUnit(
             task_id=self._current_task.id,
             unit_index=unit_index,
-            unit_title=unit_title or f"第{unit_index}章",
+            unit_title=unit_title or default_title,
             unit_summary=unit_summary,
             status=UnitStatus.PENDING
         )

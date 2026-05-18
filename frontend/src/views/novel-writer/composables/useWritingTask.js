@@ -363,7 +363,7 @@ export function useWritingTask(props, emit, projectState) {
       return
     }
 
-    const startFrom = taskForm.value.start_from || 1
+    const startFrom = Math.max(1, Math.min(taskForm.value.start_from || 1, actualTotalUnits))
     if (startFrom > actualTotalUnits) {
       ElMessage.warning(
         `起始单元 ${startFrom} 超出范围（总单元数: ${actualTotalUnits}）`

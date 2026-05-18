@@ -286,11 +286,15 @@ class AtomicChapterStreamMixin:
                         f"[原子化流式] ❌ 保存单元概述到项目失败: {save_err}"
                     )
 
+            # [修复] 在complete事件中携带locked_chapters结构化数据，
+            # 使API端点可直接保存到 Generation.stage_data，无需前端重新上传
             yield self._format_sse("workflow", {
                 "type": "complete",
                 "chapters_generated": len(locked_chapters) -
                 (start_from_unit - 1),
-                "boundary_violations": boundary_violations})
+                "boundary_violations": boundary_violations,
+                "locked_chapters_parsed": dict(locked_chapters),
+            })
 
         except Exception as e:
             self.logger.error(f"[原子化流式] 失败: {e!r}", exc_info=True)

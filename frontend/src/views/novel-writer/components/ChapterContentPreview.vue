@@ -2,7 +2,7 @@
   <el-card class="chapter-content-preview" v-if="selectedChapter">
     <template #header>
       <div class="preview-header">
-        <span>{{ selectedChapter.title || unitLabel + '内容' }}</span>
+        <span>{{ selectedChapter.chapter_title || unitLabel + '内容' }}</span>
         <div class="preview-actions">
           <el-button size="small" @click="$emit('generate')" :loading="loading">
             {{ content ? '重新生成' : '生成内容' }}

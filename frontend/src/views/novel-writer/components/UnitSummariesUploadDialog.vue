@@ -116,7 +116,8 @@ const props = defineProps({
   uploadMode: { type: String, default: 'file' },
   unitSummariesInput: { type: String, default: '' },
   globalOutlineInput: { type: String, default: '' },
-  uploading: { type: Boolean, default: false }
+  uploading: { type: Boolean, default: false },
+  contentType: { type: String, default: 'novel' }  // 新增：内容类型，用于精确解析
 })
 
 const emit = defineEmits(['update:visible', 'update:uploadMode', 'update:unitSummariesInput', 'update:globalOutlineInput', 'upload-file', 'upload-content', 'cancel'])
@@ -150,7 +151,7 @@ function handleContentInput(value) {
   }
   
   // 尝试Markdown解析
-  const parsedMarkdown = parseUnitSummariesFromContent(value)
+  const parsedMarkdown = parseUnitSummariesFromContent(value, props.contentType)
   if (Object.keys(parsedMarkdown).length > 0) {
     detectedFormat.value = 'markdown'
     parsedUnitCount.value = Object.keys(parsedMarkdown).length
@@ -181,7 +182,7 @@ function handleUploadContent() {
     }
   } else if (detectedFormat.value === 'markdown') {
     // Markdown格式需要解析
-    parsedData = parseUnitSummariesFromContent(rawContent)
+    parsedData = parseUnitSummariesFromContent(rawContent, props.contentType)
   }
   
   // 发送解析后的数据

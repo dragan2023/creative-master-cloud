@@ -71,27 +71,8 @@ export function useContentGeneration(options) {
         )
       }
       
-      generating.value = true
-      selectedEpisode.value = episodeNum
-      ElMessage.info(`开始生成第${episodeNum}集正文...`)
-      abortController.value = new AbortController()
-      
-      const res = await novelWriterApi.generateEpisodeContent(
-        projectId.value, episodeNum, abortController.value.signal
-      )
-      
-      if (res.success) {
-        ElMessage.success(`第${episodeNum}集正文生成成功，共${res.data.word_count}字`)
-        await loadProject()
-        await loadChapters()
-        if (res.data.chapter) {
-          const newChapter = { ...res.data.chapter, chapter_number: res.data.chapter.chapter_number, status: 'completed', word_count: res.data.chapter.word_count }
-          selectChapter(newChapter)
-          chapterContent.value = res.data.content
-        }
-      } else {
-        ElMessage.error(res.data?.error_message || '生成失败')
-      }
+      ElMessage.warning('正文生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成')
+      return
     } catch (error) {
       if (error?.name === 'CanceledError' || error?.cancelled) {
         console.log('生成已被用户取消')
@@ -133,23 +114,8 @@ export function useContentGeneration(options) {
       ElMessage.info(`开始生成第${chapterNum}章正文...`)
       abortController.value = new AbortController()
       
-      const res = await novelWriterApi.generateChapterContent(
-        projectId.value, chapterNum, abortController.value.signal
-      )
-      
-      if (res.success) {
-        ElMessage.success(`第${chapterNum}章正文生成成功，共${res.data.word_count}字`)
-        await loadProject()
-        await loadChapters()
-        await loadChapterOutlines()
-        if (res.data.chapter) {
-          const newChapter = { ...res.data.chapter, chapter_number: res.data.chapter.chapter_number, status: 'completed', word_count: res.data.chapter.word_count }
-          selectChapter(newChapter)
-          chapterContent.value = res.data.content
-        }
-      } else {
-        ElMessage.error(res.data?.error_message || '生成失败')
-      }
+      ElMessage.warning('正文生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成')
+      return
     } catch (error) {
       if (error?.name === 'CanceledError' || error?.cancelled) {
         console.log('生成已被用户取消')
@@ -191,29 +157,8 @@ export function useContentGeneration(options) {
       ElMessage.info(`开始生成第${sceneNum}场正文...`)
       abortController.value = new AbortController()
       
-      const res = await novelWriterApi.generateSceneContent(
-        projectId.value, sceneNum, abortController.value.signal
-      )
-      
-      if (res.success) {
-        ElMessage.success(`第${sceneNum}场正文生成成功，共${res.data.word_count}字`)
-        await loadProject()
-        await loadChapters()
-        await loadSceneOutlines()
-        if (res.data.chapter || res.data.content) {
-          const newChapter = {
-            id: res.data.chapter?.id,
-            chapter_number: sceneNum,
-            chapter_title: res.data.scene_title || `第${sceneNum}场`,
-            status: 'completed',
-            word_count: res.data.word_count
-          }
-          selectChapter(newChapter)
-          chapterContent.value = res.data.content
-        }
-      } else {
-        ElMessage.error(res.data?.error_message || '生成失败')
-      }
+      ElMessage.warning('正文生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成')
+      return
     } catch (error) {
       if (error?.name === 'CanceledError' || error?.cancelled) {
         console.log('生成已被用户取消')
@@ -242,165 +187,20 @@ export function useContentGeneration(options) {
 
   // ==================== 批量正文生成（分集） ====================
   async function handleGenerateAllEpisodeContent(episodeNumbers = null) {
-    const totalEp = episodeOutlines.value.length
-    if (totalEp === 0) { ElMessage.warning('请先设置集数'); return }
-    
-    const episodesWithOutline = episodeOutlines.value.filter(ep => ep.has_detailed)
-    if (episodesWithOutline.length === 0) {
-      ElMessage.warning('请先生成分集详细大纲')
-      return
-    }
-    
-    let pendingEpisodes
-    if (episodeNumbers && Array.isArray(episodeNumbers)) {
-      pendingEpisodes = episodeNumbers.filter(n => episodesWithOutline.some(ep => ep.episode_number === n))
-      if (pendingEpisodes.length === 0) { ElMessage.warning('指定的集数没有详细大纲'); return }
-    } else {
-      const existingContent = episodesWithOutline
-        .filter(ep => ep.content_status === 'generated').map(ep => ep.episode_number)
-      const allEpisodeNumbers = episodesWithOutline.map(ep => ep.episode_number)
-      pendingEpisodes = allEpisodeNumbers.filter(ep => !existingContent.includes(ep))
-    }
-    
-    if (pendingEpisodes.length === 0) { ElMessage.success('全部分集正文已生成'); return }
-    
-    try {
-      await ElMessageBox.confirm(
-        `将生成第 ${Math.min(...pendingEpisodes)} 至第 ${Math.max(...pendingEpisodes)} 集，共 ${pendingEpisodes.length} 集正文。确定继续吗？`,
-        '确认批量生成', { type: 'info' }
-      )
-      
-      taskStore.setTask({
-        project_id: projectId.value, task_type: 'episode_content', status: 'running',
-        total_count: pendingEpisodes.length, completed_count: 0
-      })
-      
-      generatingAllContent.value = true
-      batchContentType.value = 'episode'
-      abortController.value = new AbortController()
-      
-      const res = await novelWriterApi.generateAllEpisodeContent(projectId.value, {
-        unit_numbers: pendingEpisodes, stop_on_error: true
-      }, abortController.value.signal)
-      
-      if (res.success) {
-        ElMessage.success('批量生成完成！成功' + res.data.completed_count + '集')
-        await loadProject(); await loadChapters(); await loadEpisodeOutlines()
-      }
-    } catch (error) {
-      if (error?.name === 'CanceledError' || error?.cancelled) { ElMessage.warning('批量生成已终止') }
-      else if (error !== 'cancel') { ElMessage.error(error.response?.data?.detail || '批量生成失败') }
-    } finally {
-      generatingAllContent.value = false; batchContentType.value = null;
-      abortController.value = null; taskStore.clearTask()
-    }
+    ElMessage.warning('批量正文生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成')
+    return
   }
 
   // ==================== 批量正文生成（章节） ====================
   async function handleGenerateAllChapterContent(chapterNumbers = null) {
-    const totalCh = chapterOutlines.value.length
-    if (totalCh === 0) { ElMessage.warning('请先设置章节数'); return }
-    
-    const chaptersWithOutline = chapterOutlines.value.filter(ch => ch.has_detailed)
-    if (chaptersWithOutline.length === 0) {
-      ElMessage.warning('请先生成章节详细大纲'); return
-    }
-    
-    let pendingChapters
-    if (chapterNumbers && Array.isArray(chapterNumbers)) {
-      pendingChapters = chapterNumbers.filter(n => chaptersWithOutline.some(ch => ch.chapter_number === n))
-      if (pendingChapters.length === 0) { ElMessage.warning('指定的章节没有详细大纲'); return }
-    } else {
-      const existingContent = chaptersWithOutline
-        .filter(ch => ch.content_status === 'generated').map(ch => ch.chapter_number)
-      const allChapterNumbers = chaptersWithOutline.map(ch => ch.chapter_number)
-      pendingChapters = allChapterNumbers.filter(ch => !existingContent.includes(ch))
-    }
-    
-    if (pendingChapters.length === 0) { ElMessage.success('全部章节正文已生成'); return }
-    
-    try {
-      await ElMessageBox.confirm(
-        `将生成第 ${Math.min(...pendingChapters)} 至第 ${Math.max(...pendingChapters)} 章，共 ${pendingChapters.length} 章正文。确定继续吗？`,
-        '确认批量生成', { type: 'info' }
-      )
-      
-      taskStore.setTask({
-        project_id: projectId.value, task_type: 'chapter_content', status: 'running',
-        total_count: pendingChapters.length, completed_count: 0
-      })
-      
-      generatingAllContent.value = true
-      batchContentType.value = 'chapter'
-      abortController.value = new AbortController()
-      
-      const res = await novelWriterApi.generateAllChapterContent(projectId.value, {
-        unit_numbers: pendingChapters, stop_on_error: true
-      }, abortController.value.signal)
-      
-      if (res.success) {
-        ElMessage.success('批量生成完成！成功' + res.data.completed_count + '章')
-        await loadProject(); await loadChapters(); await loadChapterOutlines()
-      }
-    } catch (error) {
-      if (error?.name === 'CanceledError' || error?.cancelled) { ElMessage.warning('批量生成已终止') }
-      else if (error !== 'cancel') { ElMessage.error(error.response?.data?.detail || '批量生成失败') }
-    } finally {
-      generatingAllContent.value = false; batchContentType.value = null;
-      abortController.value = null; taskStore.clearTask()
-    }
+    ElMessage.warning('批量正文生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成')
+    return
   }
 
   // ==================== 批量正文生成（场景） ====================
   async function handleGenerateAllSceneContent(sceneNumbers = null) {
-    const scenesWithOutline = sceneOutlines.value.filter(sc => sc.has_detailed)
-    if (scenesWithOutline.length === 0) {
-      ElMessage.warning('请先生成场景详细大纲'); return
-    }
-    
-    let pendingScenes
-    if (sceneNumbers && Array.isArray(sceneNumbers)) {
-      pendingScenes = sceneNumbers.filter(n => scenesWithOutline.some(sc => sc.scene_number === n))
-      if (pendingScenes.length === 0) { ElMessage.warning('指定的场景没有详细大纲'); return }
-    } else {
-      const existingContent = scenesWithOutline
-        .filter(sc => sc.content_status === 'generated').map(sc => sc.scene_number)
-      const allSceneNumbers = scenesWithOutline.map(sc => sc.scene_number)
-      pendingScenes = allSceneNumbers.filter(sc => !existingContent.includes(sc))
-    }
-    
-    if (pendingScenes.length === 0) { ElMessage.success('全部场景正文已生成'); return }
-    
-    try {
-      await ElMessageBox.confirm(
-        `将生成第 ${Math.min(...pendingScenes)} 至第 ${Math.max(...pendingScenes)} 场，共 ${pendingScenes.length} 场正文。确定继续吗？`,
-        '确认批量生成', { type: 'info' }
-      )
-      
-      taskStore.setTask({
-        project_id: projectId.value, task_type: 'scene_content', status: 'running',
-        total_count: pendingScenes.length, completed_count: 0
-      })
-      
-      generatingAllContent.value = true
-      batchContentType.value = 'scene'
-      abortController.value = new AbortController()
-      
-      const res = await novelWriterApi.generateAllSceneContent(projectId.value, {
-        unit_numbers: pendingScenes, stop_on_error: true
-      }, abortController.value.signal)
-      
-      if (res.success) {
-        ElMessage.success('批量生成完成！成功' + res.data.completed_count + '场')
-        await loadProject(); await loadChapters(); await loadSceneOutlines()
-      }
-    } catch (error) {
-      if (error?.name === 'CanceledError' || error?.cancelled) { ElMessage.warning('批量生成已终止') }
-      else if (error !== 'cancel') { ElMessage.error(error.response?.data?.detail || '批量生成失败') }
-    } finally {
-      generatingAllContent.value = false; batchContentType.value = null;
-      abortController.value = null; taskStore.clearTask()
-    }
+    ElMessage.warning('批量正文生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成')
+    return
   }
 
   // 终止批量生成

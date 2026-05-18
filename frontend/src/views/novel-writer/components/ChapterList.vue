@@ -17,7 +17,7 @@
         @click="$emit('select', ch)"
       >
         <div class="chapter-info">
-          <span class="chapter-index">{{ idx + 1 }}.</span>
+          <span class="chapter-index">{{ ch.chapter_number || idx + 1 }}.</span>
           <template v-if="editingChapter === idx">
             <el-input
               v-model="localEditTitleValue"
@@ -28,7 +28,7 @@
             />
           </template>
           <span v-else class="chapter-title" @dblclick="$emit('edit-title', idx)">
-            {{ ch.title || `第${idx + 1}${unitLabel}` }}
+            {{ ch.chapter_title || `第${ch.chapter_number || idx + 1}${unitLabel}` }}
           </span>
           <el-tag v-if="ch.has_content" type="success" size="small">已生成</el-tag>
           <el-tag v-if="ch.compliance_status === 'flagged'" type="danger" size="small">合规标记</el-tag>

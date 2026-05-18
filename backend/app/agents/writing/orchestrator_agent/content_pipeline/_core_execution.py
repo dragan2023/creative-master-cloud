@@ -124,14 +124,22 @@ class CoreExecutionMixin:
             self.logger.info(f"生成模式: {generation_mode} (架构优化版)")
 
             # 4. 遍历处理每个Unit
-            total_units = task.total_units
+            # [修复] total_units 是生成数量（COUNT），需换算为结束索引
+            # 原逻辑 range(start_unit, total_units+1) 当 start_unit>1 时会出错
+            total_units_count = task.total_units
+            end_unit = start_unit + total_units_count - 1
             completed_units = task.completed_units or 0
 
-            for unit_index in range(start_unit, total_units + 1):
+            self.logger.info(
+                f"[单元循环] start_unit={start_unit}, total_units_count={total_units_count}, "
+                f"end_unit={end_unit}"
+            )
+
+            for unit_index in range(start_unit, end_unit + 1):
                 # 发送任务进度推送
                 await self._send_ws_message("task_progress", {
                     "completed_units": completed_units,
-                    "total_units": total_units,
+                    "total_units": total_units_count,
                     "current_unit": unit_index,
                     "current_scene": None
                 })
@@ -145,7 +153,7 @@ class CoreExecutionMixin:
                     return self._build_error_result(
                         f"任务被中断于单元 {unit_index}",
                         completed_units=completed_units,
-                        total_units=total_units
+                        total_units=total_units_count
                     )
 
                 # 架构优化：固定使用 direct 模式
@@ -160,7 +168,7 @@ class CoreExecutionMixin:
                 })
 
                 # 处理单个单元 - 直接生成模式
-                self.logger.info(f"处理单元 {unit_index}/{total_units} (direct模式)")
+                self.logger.info(f"处理单元 {unit_index}/{end_unit} (direct模式)")
                 unit_result = await self._process_unit_direct(
                     context, unit_index, chapter_detailed_outline
                 )
@@ -204,7 +212,7 @@ class CoreExecutionMixin:
 
                     await self._send_ws_message("task_progress", {
                         "completed_units": completed_units,
-                        "total_units": total_units,
+                        "total_units": total_units_count,
                         "current_unit": unit_index,
                         "current_scene": None
                     })
@@ -218,7 +226,7 @@ class CoreExecutionMixin:
                         return self._build_error_result(
                             task.error_message,
                             completed_units=completed_units,
-                            total_units=total_units
+                            total_units=total_units_count
                         )
 
             # 5. 任务完成
@@ -240,22 +248,23 @@ class CoreExecutionMixin:
                 if project:
                     project.status = ProjectStatus.COMPLETED
                     project.completed_chapters = completed_units
-                    project.current_chapter = total_units
+                    # [修复] current_chapter 应为最后完成的单元索引（end_unit），而非计数
+                    project.current_chapter = end_unit
                     await self.db.commit()
                     self.logger.info(
-                        f"项目状态已更新: project_id={context.project_id}, status=completed, completed_chapters={completed_units}")
+                        f"项目状态已更新: project_id={context.project_id}, status=completed, completed_chapters={completed_units}, current_chapter={end_unit}")
             except Exception as e:
                 self.logger.warning(f"更新项目状态失败: {e}")
 
             duration_ms = int((time.time() - start_time) * 1000)
             self.logger.info(
-                f"写作任务完成: {completed_units}/{total_units} 单元, 耗时 {duration_ms}ms")
+                f"写作任务完成: {completed_units}/{total_units_count} 单元, 耗时 {duration_ms}ms")
 
             return self._build_success_result(
                 content=f"任务完成，共生成 {completed_units} 个单元",
                 duration_ms=duration_ms,
                 completed_units=completed_units,
-                total_units=total_units,
+                total_units=total_units_count,
                 task_id=context.task_id
             )
 

@@ -83,7 +83,7 @@ def register_crud_routes(router: APIRouter):
                 actual_unit_count = project.total_chapters or 0
 
             # 根据 start_from 和 unit_count 计算实际要生成的单元数
-            start_from = request.start_from or 1
+            start_from = max(1, min(request.start_from or 1, actual_unit_count))
             unit_count = request.unit_count
 
             # 计算从 start_from 开始可用的单元数
@@ -141,6 +141,29 @@ def register_crud_routes(router: APIRouter):
             # 注入项目类型和生成模式
             task_config["project_type"] = project.project_type.value if project.project_type else "novel"
             task_config["content_type"] = project.content_type or "novel"
+
+            # [重构] 注入剧集/电影类型专属配置（对齐小说类型的直接生成方式）
+            content_type = project.content_type or "novel"
+            if content_type == "series_script":
+                if project.series_script_config and isinstance(project.series_script_config, dict):
+                    sc = project.series_script_config
+                    task_config["series_type"] = task_config.get("series_type") or sc.get("series_type", "电视剧")
+                    task_config["episode_duration_range"] = task_config.get("episode_duration_range") or sc.get("episode_duration_range", [30, 45])
+                    task_config["script_mode"] = task_config.get("script_mode") or sc.get("script_mode", "real")
+                    task_config["scenes_per_episode_range"] = task_config.get("scenes_per_episode_range") or sc.get("scenes_per_episode_range")
+                    logger.info(f"[任务配置注入] 剧集类型专属配置: series_type={task_config['series_type']}, "
+                                f"episode_duration_range={task_config['episode_duration_range']}, "
+                                f"script_mode={task_config['script_mode']}")
+            elif content_type == "movie_script":
+                if project.movie_script_config and isinstance(project.movie_script_config, dict):
+                    mc = project.movie_script_config
+                    task_config["movie_type"] = task_config.get("movie_type") or mc.get("movie_type", "电影")
+                    task_config["duration_range"] = task_config.get("duration_range") or mc.get("duration_range", [10, 15])
+                    task_config["script_mode"] = task_config.get("script_mode") or mc.get("script_mode", "real")
+                    task_config["total_scenes"] = task_config.get("total_scenes") or mc.get("total_scenes", 0)
+                    logger.info(f"[任务配置注入] 电影类型专属配置: movie_type={task_config['movie_type']}, "
+                                f"duration_range={task_config['duration_range']}, "
+                                f"script_mode={task_config['script_mode']}")
 
             # 注入文风知识库配置（style_guide → style_library_guide）
             # 前端传入的 config.style_guide 会被合并到 task_config 中

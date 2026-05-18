@@ -36,18 +36,30 @@ class WriterPromptsMixin:
         base_prompt = get_writer_system_prompt(content_type)
 
         # 优先使用文风知识库风格指南（新增）
+        # 🔴 防御：style_library_guide 必须是 dict，非 dict 时忽略（防止字符串覆盖导致的崩溃）
+        has_style_section = False
         style_library_guide = context.style_guide.get(
             "style_library_guide", {}) if context.style_guide else {}
-        if style_library_guide:
+        if style_library_guide and isinstance(style_library_guide, dict):
             from app.tools.style_library import format_style_for_prompt
             style_section = format_style_for_prompt(style_library_guide)
             if style_section:
                 base_prompt += "\n\n## 文风要求（**必须严格遵循**）\n\n"
                 base_prompt += style_section
                 base_prompt += "\n\n请在整个创作过程中始终保持上述文风特征，让读者能清晰感受到风格的独特性。\n"
+                has_style_section = True
+
+        # 🆕 风格选择器配置文本（剧集/电影专属，_context_builder 注入）
+        style_config_section = context.style_guide.get(
+            "style_config_section", "") if context.style_guide else ""
+        if style_config_section:
+            base_prompt += "\n\n## 创作风格配置\n\n"
+            base_prompt += style_config_section
+            base_prompt += "\n"
+            has_style_section = True
 
         # 兼容旧版风格指南（简单文字描述）
-        elif context.style_guide:
+        if not has_style_section and context.style_guide:
             style_guide = context.style_guide
             writing_style = style_guide.get("writing_style", "")
             tone = style_guide.get("tone", "")
@@ -67,6 +79,23 @@ class WriterPromptsMixin:
             base_prompt += "创作时请注意以下世界观设定，确保内容符合设定：\n"
             base_prompt += "时间背景、地点特征、社会环境、特殊规则等要保持一致。\n\n"
 
+        # Seedance 2.0 全能参考模式：剧集/电影始终输出AI视觉资源生成提示词
+        if content_type in ("series_script", "movie_script"):
+            base_prompt += "\n## AI视觉资源生成要求（Seedance 2.0 全能参考模式）\n\n"
+            base_prompt += "你需要在输出剧本正文内容的同时，生成以下AI视觉资源提示词：\n\n"
+            base_prompt += "1. **人物参考图生成提示词**：为当前单元出场的每位主要角色生成角色概念图提示词。"
+            base_prompt += "假设用户已拥有角色定妆照/概念图作为参考，你需要提供用于生成这些参考图的提示词。"
+            base_prompt += "提示词必须包含：角色外貌特征、服装风格、姿态动作、光影氛围、画幅比例。\n\n"
+            base_prompt += "2. **场景参考图生成提示词**：为每个关键场景生成场景概念图提示词。"
+            base_prompt += "提示词必须包含：地点描述、时间/天气、氛围基调、电影级构图、画幅比例。\n\n"
+            base_prompt += "3. **物品参考图生成提示词**：为重要道具/物品生成道具概念图提示词。"
+            base_prompt += "提示词必须包含：物品外观描述、材质质感、光影、白底产品图风格。\n\n"
+            base_prompt += "4. **视频生成提示词（Seedance 2.0）**：基于上述已生成的参考图，为每个关键镜头提供视频生成提示词。"
+            base_prompt += "必须包含12个字段：【参考模式】、【人物参考图】、【场景参考图】、【物品参考图】、"
+            base_prompt += "【镜头类型】、【主体动作】、【环境描述】、【运镜方式】、【风格要求】、【首帧描述】、【尾帧描述】、【负面提示词】。\n\n"
+            base_prompt += "5. **知识补充**：如需确定特定历史时期、地点、道具的准确视觉描述，请根据你已有的知识进行推理和补充。\n"
+            base_prompt += "确保视觉风格与已选风格维度保持一致，每个提示词都应具体、可操作、可直接用于AI图像/视频生成工具。\n"
+
         return base_prompt
 
     def _build_direct_writer_user_prompt(
@@ -78,10 +107,11 @@ class WriterPromptsMixin:
         target_words: int,
         context: AgentContext = None
     ) -> str:
-        """构建整章生成模式的用户提示词
+        """构建直接生成模式的用户提示词
 
         架构优化版：基于全局大纲+单元概述直接生成，增强前文参考机制。
         新增：集成风格文档特征，确保写作风格一致性。
+        支持三种内容类型：小说(novel)→章、剧集(series_script)→集、电影(movie_script)→场
 
         Args:
             unit_title: 单元标题
@@ -95,6 +125,12 @@ class WriterPromptsMixin:
             用户提示词
         """
         prompt_parts = []
+
+        # 0. 根据内容类型确定单元标签（novel→章, series_script→集, movie_script→场）
+        content_type = context.config.get(
+            "content_type", "novel") if context else "novel"
+        _unit_label_map = {"novel": "章", "series_script": "集", "movie_script": "场", "script": "场"}
+        unit_label = _unit_label_map.get(content_type, "章")
 
         # 1. 故事背景（全局大纲）- 权重最高
         if global_context:
@@ -121,12 +157,12 @@ class WriterPromptsMixin:
                 style_document_features[:2000])  # 限制长度避免超出token
             prompt_parts.append("")
 
-        # 3. 本章信息（单元概述）- 核心指导
-        prompt_parts.append("【本章创作指南（单元概述）】")
+        # 3. 本单元信息（单元概述）- 核心指导
+        prompt_parts.append(f"【本{unit_label}创作指南（单元概述）】")
         prompt_parts.append(f"标题：{unit_title}")
         if unit_summary:
             prompt_parts.append(f"\n内容概要：\n{unit_summary}")
-            prompt_parts.append("\n请以上述单元概述为核心指导进行创作，确保情节发展与全局主线一致。")
+            prompt_parts.append(f"\n请以上述单元概述为核心指导进行创作，确保情节发展与全局主线一致。")
         prompt_parts.append("")
 
         # 3.5 🔴 本单元出场人物识别 — 从单元概述中精准提取
@@ -228,47 +264,48 @@ class WriterPromptsMixin:
                         prompt_parts.append(f"  {char_name}: {char_identity}")
                 prompt_parts.append("")
 
-            # 🆕 [知识图谱优化 v3.1] 移除重复的 extended_consistency_context
-            # 已合并到 knowledge_graph_context 中,避免提示词冗余
-            # extended_consistency_context = context.extra.get("extended_consistency_context", "")
-            # if extended_consistency_context:
-            #     prompt_parts.append("【扩展实体一致性参考（重要）】")
-            #     prompt_parts.append("以下是从知识图谱中提取的扩展实体状态，请确保内容与之保持一致：")
-            #     prompt_parts.append(extended_consistency_context)
-            #     prompt_parts.append("")
-
         # 6. 前文内容参考（增强滑动窗口 + 精确接续点）
         if previous_content:
             # 扩展前文参考长度到3000字，增强连贯性
             prev_excerpt = previous_content[-3000:] if len(
                 previous_content) > 3000 else previous_content
-            # 提取最后 ~500 字符作为精确接续点，帮助 LLM 定位上一章结尾位置
+            # 提取最后 ~500 字符作为精确接续点，帮助 LLM 定位上一单元结尾位置
             prev_tail = previous_content[-500:] if len(
                 previous_content) > 500 else previous_content
             prompt_parts.append("【前文内容（最后部分，了解故事进展）】")
             prompt_parts.append("..." + prev_excerpt)
             prompt_parts.append("")
-            prompt_parts.append("【上一章结尾处（请由此直接继续，不要回溯）】")
+            prompt_parts.append(f"【上一{unit_label}结尾处（请由此直接继续，不要回溯）】")
             prompt_parts.append(prev_tail)
             prompt_parts.append("")
             prompt_parts.append("【衔接要求 — 请严格遵循】")
-            prompt_parts.append("1. 本章开头应直接接续「上一章结尾处」的场景，从结尾之后开始叙述")
-            prompt_parts.append("2. **禁止重复**：不要重新描述上一章结尾处已经发生过的事件（如入村、进门、相遇等过渡情节）")
-            prompt_parts.append("3. 保持人物性格、位置、身份与上一章结尾处一致")
+            prompt_parts.append(f"1. 本{unit_label}开头应直接接续「上一{unit_label}结尾处」的场景，从结尾之后开始叙述")
+            prompt_parts.append(f"2. **禁止重复**：不要重新描述上一{unit_label}结尾处已经发生过的事件")
+            prompt_parts.append(f"3. 保持人物性格、位置、身份与上一{unit_label}结尾处一致")
             prompt_parts.append("4. 延续前文的情感基调和叙事节奏")
-            prompt_parts.append("5. 如果上一章结尾处人物已在某个地点或状态，本章直接从该地点/状态推进剧情")
+            prompt_parts.append(f"5. 如果上一{unit_label}结尾处人物已在某个地点或状态，本{unit_label}直接从该地点/状态推进剧情")
             prompt_parts.append("")
 
         # 7. 字数/时长要求（根据内容类型区分）
-        content_type = context.config.get(
-            "content_type", "novel") if context else "novel"
         if content_type in ("script", "series_script", "movie_script"):
             # 剧本类型使用时长约束
-            duration_minutes = context.config.get(
-                "duration_minutes", 5) if context else 5
+            if context:
+                duration_minutes = context.config.get("duration_minutes")
+                if not duration_minutes:
+                    # 兜底：从 duration_range / episode_duration_range 计算
+                    if content_type == "series_script":
+                        er = context.config.get("episode_duration_range", [30, 45])
+                        duration_minutes = int((er[0] + er[1]) / 2) if isinstance(er, (list, tuple)) and len(er) == 2 else 40
+                    elif content_type == "movie_script":
+                        dr = context.config.get("duration_range", [10, 15])
+                        duration_minutes = int((dr[0] + dr[1]) / 2) if isinstance(dr, (list, tuple)) and len(dr) == 2 else 12
+                    else:
+                        duration_minutes = 5
+            else:
+                duration_minutes = 5
             prompt_parts.append(f"【时长要求】")
             prompt_parts.append(
-                f"预计时长：约{duration_minutes}分钟（短剧剧本按1分钟≈150-200字估算）")
+                f"预计时长：约{duration_minutes}分钟（剧本按1分钟≈150-200字估算）")
             prompt_parts.append("")
         else:
             prompt_parts.append(f"【字数要求】")
@@ -284,19 +321,19 @@ class WriterPromptsMixin:
             # 兼容旧的统一script类型
             prompt_parts.append(self._build_legacy_script_output_format(context))
         else:
-            prompt_parts.append("""【创作要求】
-1. 直接输出正文内容，不要包含章节标题等标记
+            prompt_parts.append(f"""【创作要求】
+1. 直接输出正文内容，不要包含{unit_label}节标题等标记
 2. 内容要充实，有完整的故事情节，符合全局主线发展
 3. 场景描写要生动，对话要自然
 4. 注意节奏把控，有张有弛
-5. 章节末尾设置适当的悬念或收束
+5. 本{unit_label}末尾设置适当的悬念或收束
 6. 严格控制字数，不要超出或不足太多
 7. **核心要求**：
    - 确保人物位置、身份、关系与状态追踪信息一致
    - 剧情发展不脱离全局故事背景设定的主线
    - 与前文内容紧密衔接，避免剧情跳脱
 
-现在请开始创作整章内容：""")
+现在请开始创作整{unit_label}内容：""")
 
         return "\n".join(prompt_parts)
 
@@ -329,9 +366,15 @@ class WriterPromptsMixin:
         style_intensity = context.config.get("series_style_intensity", 0.7)
         script_mode = context.config.get("script_mode", "real")
         scenes_per_episode = context.config.get("scenes_per_episode_range", None)
+        # [修复] 明确传递当前集数，防止LLM在巨型上下文中混淆
+        episode_number = context.unit_index if context.unit_index else 1
+        total_units = context.config.get("total_units", "?")
 
         style_guidance = self._format_series_style_for_prompt(
             style_dims, style_names, style_intensity)
+
+        # 构建 Seedance 2.0 全能参考模式段落（剧集/电影始终包含）
+        comprehensive_ref_section = self._build_comprehensive_ref_section("series", context)
 
         parts = []
         parts.append(f"""# 剧集剧本输出格式要求
@@ -341,6 +384,7 @@ class WriterPromptsMixin:
 请在叙事风格、对话特点、场景描述中充分体现上述风格特征。
 
 ## 本集信息
+- 当前集数：第{episode_number}集（共{total_units}集）
 - 剧集类型：{series_type}
 - 时长控制：{duration[0]}-{duration[1]}分钟""")
 
@@ -349,7 +393,7 @@ class WriterPromptsMixin:
 
         parts.append(f"""
 ## 输出结构
-### 第X集：[标题]
+### 第{episode_number}集：[标题]
 **场景列表**：（标注场景号、日/夜景、室内/室外、地点）
 **剧本正文**：（标准剧本格式，含动作描述与对白）
 
@@ -364,6 +408,9 @@ class WriterPromptsMixin:
 转场方式（切/淡入淡出/叠化/闪回）、本集节奏控制、蒙太奇建议
 #### 连续性衔接
 本集与上一集的衔接设计、本集结尾为下一集铺设的悬念/过渡
+
+### AI视觉资源生成（Seedance 2.0 全能参考模式）
+{comprehensive_ref_section}
 
 ## 创作要求
 1. **集间连续性**：本集开头自然承接上一集结尾状态；本集结尾铺设明确的悬念或过渡
@@ -395,6 +442,13 @@ class WriterPromptsMixin:
         style_guidance = self._format_movie_style_for_prompt(
             style_dims, style_names, style_intensity)
 
+        # 构建 Seedance 2.0 全能参考模式段落（剧集/电影始终包含）
+        comprehensive_ref_section = self._build_comprehensive_ref_section("movie", context)
+
+        # [修复] 明确传递当前场次编号
+        scene_number = context.unit_index if context.unit_index else 1
+        total_units = context.config.get("total_units", "?")
+
         parts = []
         parts.append(f"""# 电影剧本输出格式要求
 
@@ -403,6 +457,7 @@ class WriterPromptsMixin:
 请在叙事风格、台词设计、场景描述中充分体现上述风格特征。
 
 ## 本场信息
+- 当前场次：第{scene_number}场（共{total_units}场）
 - 电影类型：{movie_type}
 - 时长控制：每场约{duration[0]}-{duration[1]}分钟""")
 
@@ -414,7 +469,7 @@ class WriterPromptsMixin:
 每场须包含完整的：开场（建立氛围/引入冲突）→ 发展（矛盾升级/角色关系变化）→ 高潮（冲突爆发/关键转折）→ 结局（场景收尾/为下一场铺垫）
 
 ## 输出结构
-### 第X场：[标题]
+### 第{scene_number}场：[标题]
 **场次结构**：（开场→发展→高潮→结局简述）
 **剧本正文**：（标准剧本格式）
 
@@ -429,6 +484,9 @@ class WriterPromptsMixin:
 转场方式、本场节奏曲线、蒙太奇风格（基于已选剪辑/蒙太奇流派）
 #### 台词风格
 基于已选台词风格维度，标注对白的语言特征（简练/诗意/生活化/戏剧化等）
+
+### AI视觉资源生成（Seedance 2.0 全能参考模式）
+{comprehensive_ref_section}
 
 ## 创作要求
 1. **场次起承转合**：每场完整包含 开场→发展→高潮→结局 四个阶段
@@ -479,6 +537,130 @@ class WriterPromptsMixin:
 
 请为每一场关键场景分别生成上述格式的生成提示词，确保视觉风格与已选风格维度保持一致。
 """
+
+    def _build_comprehensive_ref_section(self, content_type: str, context):
+        """构建 Seedance 2.0 全能参考模式段落（剧集/电影始终包含）
+
+        强化版：引导LLM主动提取剧本中的视觉元素并生成可操作的提示词，
+        而非使用填空模板。每个提示词都是完整的、可直接用于AI图像/视频生成工具。
+        """
+        from app.agents.writing.prompts.virtual_mode_prompts import (
+            SEEDANCE_COMPREHENSIVE_REFERENCE_INTRO,
+        )
+        unit_label = "集" if content_type == "series" else "场"
+        if content_type == "series":
+            style_names = context.config.get("series_style_names", [])
+        else:
+            style_names = context.config.get("movie_style_names", [])
+        style_tags = "、".join(style_names) if style_names else "通用"
+        aspect_ratio = context.config.get("aspect_ratio", "16:9")
+        character_names = []
+        if context.character_profiles:
+            for char in context.character_profiles:
+                if isinstance(char, dict) and char.get("name"):
+                    character_names.append(char["name"])
+
+        parts = [SEEDANCE_COMPREHENSIVE_REFERENCE_INTRO, ""]
+        parts.append("### 一、人物参考图生成提示词")
+        if character_names:
+            parts.append(f"请为当前{unit_label}出场的以下主要角色，根据剧本中的人物设定和外貌描述，生成角色概念图提示词：")
+            parts.append("")
+            for char_name in character_names[:8]:
+                parts.append(f"- **{char_name}**：请LLM根据人物设定（外貌、服装、气质）生成完整的角色概念图提示词")
+            parts.append("")
+            parts.append("**每位角色的提示词必须包含以下要素**：")
+            parts.append("- 角色外貌特征（年龄、体型、面部特征、发型发色等）")
+            parts.append("- 服装风格（时代、款式、颜色、材质、配饰）")
+            parts.append("- 姿态动作（站姿/动态、表情、眼神方向）")
+            parts.append("- 光影氛围（光源方向、色温、明暗对比）")
+            parts.append(f"- 视觉风格标签：{style_tags}")
+            parts.append(f"- 画面规格：角色概念图，高质量，人物定妆照，{aspect_ratio}")
+            parts.append("")
+            parts.append("**输出格式示例**：")
+            parts.append("```")
+            parts.append(f"[角色名]的角色概念图，[具体外貌特征描述]，[具体服装描述]，")
+            parts.append(f"[姿态动作描述]，[光影氛围描述]，{style_tags}风格，角色概念图，高质量，人物定妆照，{aspect_ratio}")
+            parts.append("```")
+        else:
+            parts.append(f"请LLM根据当前{unit_label}剧本内容，主动识别出场人物，为每位主要角色生成角色概念图提示词。")
+            parts.append("提示词需包含：外貌特征、服装风格、姿态动作、光影氛围、画幅比例。")
+        parts.append("")
+
+        parts.append("### 二、场景参考图生成提示词")
+        parts.append(f"请为当前{unit_label}的每个关键场景生成场景概念图提示词：")
+        parts.append("")
+        parts.append("**每个场景提示词必须包含以下要素**：")
+        parts.append("- 地点描述（具体场景名、空间特征、建筑风格）")
+        parts.append("- 时间/天气（日/夜/晨/昏、晴天/阴天/雨天等）")
+        parts.append("- 氛围基调（紧张/宁静/浪漫/恐怖/史诗等）")
+        parts.append("- 电影级构图（广角全景/中景/特写、低角度/高角度/平视）")
+        parts.append(f"- 视觉风格标签：{style_tags}")
+        parts.append(f"- 画面规格：场景概念图，电影级质感，高质量，{aspect_ratio}")
+        parts.append("")
+        parts.append("**输出格式示例**：")
+        parts.append("```")
+        parts.append(f"[场景名]的场景概念图，[地点空间描述]，[时间天气描述]，")
+        parts.append(f"[氛围基调描述]，[构图方式描述]，{style_tags}风格，场景概念图，电影级质感，高质量，{aspect_ratio}")
+        parts.append("```")
+        parts.append("")
+
+        parts.append("### 三、物品参考图生成提示词")
+        parts.append(f"请为当前{unit_label}中出现的重要道具/物品生成道具概念图提示词：")
+        parts.append("")
+        parts.append("**每个物品提示词必须包含以下要素**：")
+        parts.append("- 物品外观描述（形状、大小、颜色、纹理）")
+        parts.append("- 材质质感（金属/木质/布料/玉石/玻璃等）")
+        parts.append("- 光影（专业产品布光、高光/阴影处理）")
+        parts.append(f"- 视觉风格标签：{style_tags}")
+        parts.append(f"- 画面规格：道具概念图，高质量，白底产品图，{aspect_ratio}")
+        parts.append("")
+        parts.append("**输出格式示例**：")
+        parts.append("```")
+        parts.append(f"[道具名]的道具概念图，[外观材质描述]，[光影描述]，")
+        parts.append(f"{style_tags}风格，道具概念图，高质量，白底产品图，{aspect_ratio}")
+        parts.append("```")
+        parts.append("")
+
+        parts.append("### 四、基于参考图的视频生成提示词（Seedance 2.0 全能参考模式）")
+        parts.append(f"基于上述已生成的人物/场景/物品参考图，为当前{unit_label}的每个关键镜头生成Seedance 2.0视频提示词。")
+        parts.append("假设用户已将参考图上传至Seedance 2.0，你需要为每个镜头提供完整的视频生成参数。")
+        parts.append("")
+        parts.append("**每个视频提示词必须包含以下12个字段**：")
+        parts.append("")
+        parts.append("| 序号 | 字段名 | 说明 |")
+        parts.append("|------|--------|------|")
+        parts.append("| 1 | 参考模式 | 固定填写：全能参考 |")
+        parts.append("| 2 | 人物参考图 | 引用上方生成的人物参考图名称 |")
+        parts.append("| 3 | 场景参考图 | 引用上方生成的场景参考图名称 |")
+        parts.append("| 4 | 物品参考图 | 引用上方生成的物品参考图名称（如无则为空） |")
+        parts.append("| 5 | 镜头类型 | 景别（特写/近景/中景/全景/远景）+ 运动方式（推/拉/摇/移/跟/升降/固定） |")
+        parts.append("| 6 | 主体动作 | 精确描述画面中主体的动作和运动轨迹 |")
+        parts.append("| 7 | 环境描述 | 场景环境、天气、时间、氛围 |")
+        parts.append("| 8 | 运镜方式 | 摄像机运动的具体描述（如：缓慢推近、横摇跟随等） |")
+        parts.append(f"| 9 | 风格要求 | 视觉风格标签：{style_tags} |")
+        parts.append("| 10 | 首帧描述 | 视频起始画面的具体描述 |")
+        parts.append("| 11 | 尾帧描述 | 视频结束画面的具体描述 |")
+        parts.append("| 12 | 负面提示词 | 不希望出现的元素（如：模糊、抖动、变形、水印等） |")
+        parts.append("")
+        parts.append("**输出格式示例**：")
+        parts.append("```")
+        parts.append("[参考模式]：全能参考")
+        parts.append("[人物参考图]：[人物名]的角色概念图")
+        parts.append("[场景参考图]：[场景名]的场景概念图")
+        parts.append("[物品参考图]：[道具名]的道具概念图（如适用）")
+        parts.append("[镜头类型]：中景，缓慢推近")
+        parts.append("[主体动作]：[人物名]从画面左侧走向右侧，转身面对镜头，表情由凝重转为坚定")
+        parts.append("[环境描述]：黄昏时分，古城街道，夕阳余晖洒在石板路上，远处有炊烟袅袅")
+        parts.append("[运镜方式]：从中景开始，缓慢推近至近景，跟随主体横向移动后定格")
+        parts.append(f"[风格要求]：{style_tags}，电影级质感，暖色调，戏剧性光影")
+        parts.append("[首帧描述]：黄昏街道全景，[人物名]独自站立在街道中央，背对镜头")
+        parts.append("[尾帧描述]：近景特写[人物名]的面部，坚定的眼神望向远方")
+        parts.append("[负面提示词]：模糊，抖动，画面变形，低质量，水印，文字")
+        parts.append("```")
+        parts.append("")
+        parts.append(f"> 视觉风格：{style_tags} | 画幅：{aspect_ratio}")
+        parts.append("> 以上提示词可直接用于Gemini/DALL-E/豆包生成参考图，以及Seedance 2.0进行视频生成")
+        return "\n".join(parts)
 
     def _format_series_style_for_prompt(
         self, style_dims: dict, style_names: list, intensity: float

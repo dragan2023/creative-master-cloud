@@ -11,13 +11,13 @@
       </div>
       <div v-for="(ep, idx) in episodeOutlines" :key="idx" class="outline-item">
         <div class="outline-item-header">
-          <span>第{{ ep.unit_index || idx + 1 }}集</span>
+          <span>第{{ ep.episode_number || idx + 1 }}集</span>
           <div class="outline-item-actions">
             <el-button size="small" text @click="$emit('show-episode-outline-detail', ep)">查看</el-button>
             <el-button size="small" text @click="$emit('generate-episode-content', ep)">生成内容</el-button>
           </div>
         </div>
-        <div class="outline-item-title">{{ ep.title || `第${ep.unit_index || idx + 1}集` }}</div>
+        <div class="outline-item-title">{{ ep.episode_title || `第${ep.episode_number || idx + 1}集` }}</div>
       </div>
     </div>
 
@@ -30,13 +30,13 @@
       </div>
       <div v-for="(ch, idx) in chapterOutlines" :key="idx" class="outline-item">
         <div class="outline-item-header">
-          <span>第{{ ch.unit_index || idx + 1 }}章</span>
+          <span>第{{ ch.chapter_number || idx + 1 }}章</span>
           <div class="outline-item-actions">
             <el-button size="small" text @click="$emit('show-chapter-outline-detail', ch)">查看</el-button>
             <el-button size="small" text @click="$emit('generate-chapter-content', ch)">生成内容</el-button>
           </div>
         </div>
-        <div class="outline-item-title">{{ ch.title || `第${ch.unit_index || idx + 1}章` }}</div>
+        <div class="outline-item-title">{{ ch.chapter_title || `第${ch.chapter_number || idx + 1}章` }}</div>
       </div>
     </div>
 
@@ -49,13 +49,13 @@
       </div>
       <div v-for="(sc, idx) in sceneOutlines" :key="idx" class="outline-item">
         <div class="outline-item-header">
-          <span>场景{{ sc.unit_index || idx + 1 }}</span>
+          <span>场景{{ sc.scene_number || idx + 1 }}</span>
           <div class="outline-item-actions">
             <el-button size="small" text @click="$emit('show-scene-outline-detail', sc)">查看</el-button>
             <el-button size="small" text @click="$emit('generate-scene-content', sc)">生成内容</el-button>
           </div>
         </div>
-        <div class="outline-item-title">{{ sc.title || `场景${sc.unit_index || idx + 1}` }}</div>
+        <div class="outline-item-title">{{ sc.scene_title || `场景${sc.scene_number || idx + 1}` }}</div>
       </div>
     </div>
   </div>

@@ -242,12 +242,33 @@ class ContextBuilderMixin(PipelineConfigMixin):
             style_selector_config = task_config.get("series_style_dimensions")
             if not style_selector_config and project and project.series_script_config:
                 ssc = project.series_script_config if isinstance(project.series_script_config, dict) else {}
-                style_selector_config = ssc.get("style_selector_config")
+                raw_config = ssc.get("style_selector_config", {})
+                if raw_config:
+                    # 将前端保存的格式转换为 _build_style_config_section 期望的格式
+                    style_selector_config = {
+                        "dimensions": raw_config.get("script_style_dimensions", {}),
+                        "intensity": raw_config.get("script_style_intensity", 0.7),
+                        "names": raw_config.get("script_style_names", []),
+                    }
         elif content_type == "movie_script":
             style_selector_config = task_config.get("movie_style_dimensions")
             if not style_selector_config and project and project.movie_script_config:
                 msc = project.movie_script_config if isinstance(project.movie_script_config, dict) else {}
-                style_selector_config = msc.get("style_selector_config")
+                raw_config = msc.get("style_selector_config", {})
+                if raw_config:
+                    style_selector_config = {
+                        "dimensions": raw_config.get("script_style_dimensions", {}),
+                        "intensity": raw_config.get("script_style_intensity", 0.7),
+                        "names": raw_config.get("script_style_names", []),
+                    }
+
+        # 统一格式化：task_config 传入的 style_dimensions 可能是裸 dimensions dict，需包装
+        if style_selector_config and "dimensions" not in style_selector_config and isinstance(style_selector_config, dict):
+            intensity = task_config.get("series_style_intensity") or task_config.get("movie_style_intensity") or 0.7
+            style_selector_config = {
+                "dimensions": style_selector_config,
+                "intensity": intensity,
+            }
 
         style_guide = task_config.get("style_guide", {})
         if not isinstance(style_guide, dict):
@@ -276,12 +297,13 @@ class ContextBuilderMixin(PipelineConfigMixin):
                     logger.warning(f"[上下文构建] 兜底重建 style_library_guide 失败: {e}")
 
         # Task 1.2: 将风格选择器配置注入 style_guide
+        # 🔴 修复：style_library_guide 是 dict，不应被字符串覆盖
+        # 将风格选择器配置文本单独存储在 style_config_section 键中
         if style_selector_config:
             style_config_section = self._build_style_config_section(style_selector_config)
             if style_config_section:
-                existing_guide = style_guide.get("style_library_guide", "")
-                style_guide["style_library_guide"] = f"{style_config_section}\n\n{existing_guide}" if existing_guide else style_config_section
-                logger.info(f"[上下文构建] 注入风格选择器配置到 style_guide，长度: {len(style_config_section)}")
+                style_guide["style_config_section"] = style_config_section
+                logger.info(f"[上下文构建] 注入风格选择器配置到 style_guide.style_config_section，长度: {len(style_config_section)}")
 
         if temp_session:
             await db_session.close()
@@ -289,9 +311,15 @@ class ContextBuilderMixin(PipelineConfigMixin):
         # Task 1.2: 按内容类型构建专属配置
         type_specific_config = {}
         if content_type == "series_script":
+            episode_duration_range = task_config.get("episode_duration_range", [30, 45])
+            if isinstance(episode_duration_range, (list, tuple)) and len(episode_duration_range) == 2:
+                duration_minutes = int((episode_duration_range[0] + episode_duration_range[1]) / 2)
+            else:
+                duration_minutes = 40  # 默认每集约40分钟
             type_specific_config = {
                 "series_type": task_config.get("series_type", "电视剧"),
-                "episode_duration_range": task_config.get("episode_duration_range", [30, 45]),
+                "episode_duration_range": episode_duration_range,
+                "duration_minutes": duration_minutes,
                 "scenes_per_episode_range": task_config.get("scenes_per_episode_range", None),
                 "script_mode": task_config.get("script_mode", "real"),
                 "series_style_dimensions": task_config.get("series_style_dimensions", {}),
@@ -300,9 +328,15 @@ class ContextBuilderMixin(PipelineConfigMixin):
                 "series_style_type": task_config.get("series_style_type", "long"),
             }
         elif content_type == "movie_script":
+            duration_range = task_config.get("duration_range", [10, 15])
+            if isinstance(duration_range, (list, tuple)) and len(duration_range) == 2:
+                duration_minutes = int((duration_range[0] + duration_range[1]) / 2)
+            else:
+                duration_minutes = 12  # 默认每场约12分钟
             type_specific_config = {
                 "movie_type": task_config.get("movie_type", "电影"),
-                "duration_range": task_config.get("duration_range", [10, 15]),
+                "duration_range": duration_range,
+                "duration_minutes": duration_minutes,
                 "total_scenes": task_config.get("total_scenes", 0),
                 "script_mode": task_config.get("script_mode", "real"),
                 "movie_style_dimensions": task_config.get("movie_style_dimensions", {}),
@@ -722,7 +756,11 @@ class ContextBuilderMixin(PipelineConfigMixin):
         for dim_name, styles in config["dimensions"].items():
             if styles:
                 s = styles[0] if isinstance(styles, list) else styles
-                lines.append(
-                    f"- **{dim_name}**: {s.get('name', '')} — {s.get('description', '')}"
-                )
+                # 🔴 防御：s 可能是字符串（非标准格式），安全跳过
+                if isinstance(s, dict):
+                    lines.append(
+                        f"- **{dim_name}**: {s.get('name', '')} — {s.get('description', '')}"
+                    )
+                elif isinstance(s, str):
+                    lines.append(f"- **{dim_name}**: {s}")
         return "\n".join(lines)

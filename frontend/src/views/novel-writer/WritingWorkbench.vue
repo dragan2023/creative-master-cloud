@@ -244,11 +244,17 @@
       :style-intensity="styleIntensity"
       :upload-action="styleUploadAction"
       :upload-headers="uploadHeaders"
+      :is-script-type="isScriptType"
+      :script-style-names="scriptStyleData.selectedNames"
+      :script-style-dimensions="scriptStyleData.dimensions"
+      :script-style-intensity="scriptStyleData.intensity"
       @show-style-detail="showStyleDocumentDetail = true"
       @delete-style-document="handleDeleteStyleDocument"
       @show-model-config="showModelConfigDialog = true"
       @show-style-selector="showStyleSelector = true"
+      @show-script-style-selector="showScriptStyleSelector = true"
       @remove-style="removeSelectedStyle"
+      @remove-script-style="styleMgmt.removeScriptStyle"
       @elimination-change="handleAiEliminationChange"
       @threshold-change="handleThresholdChange"
       @upload-success="handleStyleUploadSuccess"
@@ -261,6 +267,30 @@
       :initial-style-ids="selectedStyleIds"
       :initial-intensity="styleIntensity"
       @confirm="handleStyleSelectionConfirm"
+    />
+
+    <!-- 剧集风格选择器（复用创意生成模块） -->
+    <SeriesStyleSelectorDialog
+      v-if="actualContentType === 'series_script'"
+      v-model:visible="showScriptStyleSelector"
+      :initial-selected="{
+        dimensions: scriptStyleData.dimensions,
+        seriesSubType: scriptStyleData.seriesSubType || 'long'
+      }"
+      :initial-intensity="scriptStyleData.intensity"
+      :initial-type="scriptStyleData.seriesSubType || 'long'"
+      @confirm="handleScriptStyleConfirm"
+    />
+
+    <!-- 电影风格选择器（复用创意生成模块） -->
+    <MovieStyleSelectorDialog
+      v-if="actualContentType === 'movie_script'"
+      v-model:visible="showScriptStyleSelector"
+      :initial-selected="{
+        dimensions: scriptStyleData.dimensions
+      }"
+      :initial-intensity="scriptStyleData.intensity"
+      @confirm="handleScriptStyleConfirm"
     />
 
     <!-- 风格文档详情弹窗 -->
@@ -294,6 +324,8 @@ import KnowledgeGraphDialog from "./components/KnowledgeGraphDialog.vue";
 import ConsistencyReportDialog from "./components/ConsistencyReportDialog.vue";
 import ContentQualityControl from "./components/ContentQualityControl.vue";
 import StyleSelectorDialog from "./components/StyleSelectorDialog.vue";
+import SeriesStyleSelectorDialog from "../generate/components/SeriesStyleSelectorDialog.vue";
+import MovieStyleSelectorDialog from "../generate/components/MovieStyleSelectorDialog.vue";
 import AgentConfigDialog from "./components/AgentConfigDialog.vue";
 import ModelConfigDialog from "./components/ModelConfigDialog.vue";
 import UnitSummariesUploadDialog from "./components/UnitSummariesUploadDialog.vue";
@@ -377,7 +409,10 @@ const {
   aiEliminationEnabled, aiEliminationThreshold,
   showStyleSelector, selectedStyleIds, selectedStyleNames,
   styleIntensity, styleGuide,
-  styleUploadAction, uploadHeaders
+  styleUploadAction, uploadHeaders,
+  showScriptStyleSelector, handleScriptStyleConfirm,
+  // 剧本风格状态（需顶层解构以保证模板中 ref 自动解包）
+  scriptStyleData
 } = styleMgmt
 
 /**
@@ -423,6 +458,11 @@ const {
   getUnitStatusType,
   getUnitStatusLabel
 } = wbUnits
+
+// [修复] 基于实际项目数据计算 isScriptType，而非 useStyleManagement 内部永远为 null 的 projectData
+const isScriptType = computed(() => {
+  return actualContentType.value === 'series_script' || actualContentType.value === 'movie_script'
+})
 
 // 监听项目数据加载完成，恢复文风配置
 watch(localProjectData, (newData) => {
@@ -473,6 +513,7 @@ const {
   handleUploadUnitSummariesContent, // 修复：与useWorkbenchTask返回的函数名一致
   handleDelete,
   handleExport,
+  restoreTaskFormConfig,
 } = wbTask
 
 // ==================== 4. Agent流水线和工作流（组合式函数）====================
@@ -564,6 +605,9 @@ onMounted(async () => {
     loadProviders()
   ])
   
+  // 恢复用户上次的 Agent 配置（排除 API Key）
+  restoreTaskFormConfig()
+  
   // 加载风格文档信息（包含AI文风消除设置）
   await styleMgmt.loadStyleDocumentInfo()
 })
@@ -583,6 +627,8 @@ watch(
         loadProjectData(),
         writingStore.fetchCurrentTask(projectId.value)
       ])
+      // 恢复用户上次的 Agent 配置（排除 API Key）
+      restoreTaskFormConfig()
       // 重新加载风格文档信息
       await styleMgmt.loadStyleDocumentInfo()
     }

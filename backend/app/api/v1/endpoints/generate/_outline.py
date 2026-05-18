@@ -707,8 +707,11 @@ def register_outline_routes(router: APIRouter):
             cancel_tokens[session_id] = cancel_event
 
         content_buffer = []
+        # [修复] 从complete事件中提取locked_chapters结构化数据
+        locked_chapters_parsed = None
 
         async def generate():
+            nonlocal locked_chapters_parsed
             try:
                 generator = get_outline_generator(db)
 
@@ -769,16 +772,39 @@ def register_outline_routes(router: APIRouter):
                     except Exception as parse_err:
                         logger.debug(f"解析chunk失败: {parse_err}")
 
+                    # [fix] Extract locked_chapters from complete workflow event
+                    try:
+                        if chunk.startswith('event: workflow\ndata: '):
+                            json_str = chunk.split('data: ', 2)[1].strip()
+                            if json_str:
+                                wf_data = json.loads(json_str)
+                                if wf_data.get('type') == 'complete':
+                                    lcp = wf_data.get('locked_chapters_parsed')
+                                    if lcp and isinstance(lcp, dict):
+                                        locked_chapters_parsed = lcp
+                                        logger.info(
+                                            f"[单元概述] 从complete事件提取到"
+                                            f" {len(lcp)} 个单元的locked_chapters")
+                    except Exception as parse_err:
+                        logger.debug(f"解析workflow事件失败: {parse_err}")
+
                 # 生成完成,保存状态
                 if content_buffer:
                     try:
+                        stage_data = {
+                            'global_outline': data.global_outline,
+                            'unit_summaries': ''.join(content_buffer),
+                            'progress': 1.0
+                        }
+                        # [fix] Save structured locked_chapters alongside raw text
+                        if locked_chapters_parsed and isinstance(locked_chapters_parsed, dict):
+                            stage_data['unit_summaries_parsed'] = locked_chapters_parsed
+                            logger.info(
+                                f"[单元概述] 保存结构化locked_chapters到stage_data:"
+                                f" {len(locked_chapters_parsed)} 个单元")
                         await state_manager.save_stage(
                             stage='units_completed',
-                            stage_data={
-                                'global_outline': data.global_outline,
-                                'unit_summaries': ''.join(content_buffer),
-                                'progress': 1.0
-                            },
+                            stage_data=stage_data,
                             status=GenerationStatus.COMPLETED
                         )
                     except Exception as save_err:

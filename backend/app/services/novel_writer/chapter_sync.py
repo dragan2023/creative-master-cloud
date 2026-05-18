@@ -26,6 +26,7 @@ async def sync_writing_unit_to_novel_chapter(
     final_content: str,
     unit_title: str = "",
     logger: Optional[logging.Logger] = None,
+    content_type: str = "novel",
 ) -> bool:
     """
     将 WritingUnit 的修正结果同步到 NovelChapter 表（正文表单显示层）
@@ -42,6 +43,8 @@ async def sync_writing_unit_to_novel_chapter(
         final_content: 内容
         unit_title: 单元标题（用于新建 NovelChapter 的默认标题）
         logger: 可选的日志记录器（默认使用模块级 logger）
+        content_type: 内容类型（novel/series_script/movie_script），
+                      用于设置 episode_number 或 scene_number
 
     Returns:
         True 表示同步成功
@@ -70,10 +73,26 @@ async def sync_writing_unit_to_novel_chapter(
             f"chapter={unit_index}, word_count={len(final_content)}"
         )
     else:
+        # 根据 content_type 确定单元标签和专用序号字段
+        if content_type == "series_script":
+            default_title = f"第{unit_index}集"
+            episode_num = unit_index
+            scene_num = None
+        elif content_type == "movie_script":
+            default_title = f"第{unit_index}场"
+            episode_num = None
+            scene_num = unit_index
+        else:
+            default_title = f"第{unit_index}章"
+            episode_num = None
+            scene_num = None
+
         chapter = NovelChapter(
             project_id=project_id,
             chapter_number=unit_index,
-            chapter_title=unit_title or f"第{unit_index}章",
+            episode_number=episode_num,
+            scene_number=scene_num,
+            chapter_title=unit_title or default_title,
             final_content=final_content,
             word_count=len(final_content),
             status=ChapterStatus.COMPLETED  # 内容已生成，直接设为已完成
