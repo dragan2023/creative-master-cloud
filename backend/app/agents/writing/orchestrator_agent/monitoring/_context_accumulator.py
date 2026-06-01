@@ -23,6 +23,8 @@ class ExtendedContextAccumulator:
         self.known_facilities: Set[str] = set()
         self.known_groups: Set[str] = set()
         self.known_items: Set[str] = set()
+        self.known_rules: Set[str] = set()
+        self.known_time_nodes: Set[str] = set()
         self.unfinished_events: Set[str] = set()
         self.pending_foreshadows: Set[str] = set()
         # 🆕 [统一状态存储 v5.0] 全维度状态追踪
@@ -30,6 +32,7 @@ class ExtendedContextAccumulator:
         self.facility_status: Dict[str, str] = {}   # 设施名 → 状态
         self.group_status: Dict[str, str] = {}      # 群体名 → 状态
         self.foreshadow_status: Dict[str, str] = {} # 伏笔名 → 状态
+        self.rule_status: Dict[str, str] = {}       # 规则名 → 状态
         self._processed_chapters: Set[int] = set()
         self._logger = get_logger("context_accumulator")
 
@@ -125,18 +128,43 @@ class ExtendedContextAccumulator:
                 if fname:
                     self.foreshadow_status[fname] = "已回收"
 
+            # 🆕 世界规则追踪
+            for rule in extended_entities.get("world_rules", []):
+                name = rule.get("text", "")
+                if name:
+                    self.known_rules.add(name)
+                    status = rule.get("attributes", {}).get("状态", rule.get("attributes", {}).get("当前状态", "生效"))
+                    self.rule_status[name] = status
+            for rule_ref in extended_entities.get("rule_references", []):
+                rname = rule_ref.get("attributes", {}).get("规则名称", "")
+                if rname and rname not in self.rule_status:
+                    self.rule_status[rname] = "被引用"
+
+            # 🆕 时间线追踪
+            for time_node in extended_entities.get("time_nodes", []):
+                name = time_node.get("text", "")
+                if name:
+                    self.known_time_nodes.add(name)
+            for time_flow in extended_entities.get("time_flows", []):
+                name = time_flow.get("text", "")
+                if name:
+                    self.known_time_nodes.add(name)
+
             self._processed_chapters.add(chapter_num)
             # 统计各维度离场/异常数量
             item_removed = sum(1 for s in self.item_status.values() if s in ["已使用", "已销毁", "已遗失", "已回收", "已损坏"])
             facility_abnormal = sum(1 for s in self.facility_status.values() if s in ["关闭", "损坏", "暂停营业", "已拆除"])
             group_inactive = sum(1 for s in self.group_status.values() if s in ["解散", "合并", "消亡"])
             foreshadow_resolved = sum(1 for s in self.foreshadow_status.values() if s == "已回收")
+            rule_count = len(self.known_rules)
+            time_node_count = len(self.known_time_nodes)
             self._logger.debug(
                 f"累积器更新完成: 章节{chapter_num}, "
                 f"设施={len(self.known_facilities)}(异常{facility_abnormal}), "
                 f"群体={len(self.known_groups)}(解散{group_inactive}), "
                 f"道具={len(self.known_items)}(离场{item_removed}), "
-                f"伏笔={len(self.foreshadow_status)}(已回收{foreshadow_resolved})"
+                f"伏笔={len(self.foreshadow_status)}(已回收{foreshadow_resolved}), "
+                f"规则={rule_count}, 时间线={time_node_count}"
             )
         except Exception as e:
             self._logger.warning(f"累积器更新失败: 章节{chapter_num}, 错误={e}")
@@ -224,13 +252,38 @@ class ExtendedContextAccumulator:
                     self.foreshadow_status[fname] = "已回收"
                     self.pending_foreshadows.discard(fname)
 
+            # 🆕 世界规则同步
+            self.known_rules = set()
+            self.rule_status = {}
+            for rule in extended_entities.get("world_rules", []):
+                name = rule.get("text", "")
+                if name:
+                    self.known_rules.add(name)
+                    self.rule_status[name] = rule.get("attributes", {}).get("状态", rule.get("attributes", {}).get("当前状态", "生效"))
+            for rule_ref in extended_entities.get("rule_references", []):
+                rname = rule_ref.get("attributes", {}).get("规则名称", "")
+                if rname and rname not in self.rule_status:
+                    self.rule_status[rname] = "被引用"
+
+            # 🆕 时间线同步
+            self.known_time_nodes = set()
+            for time_node in extended_entities.get("time_nodes", []):
+                name = time_node.get("text", "")
+                if name:
+                    self.known_time_nodes.add(name)
+            for time_flow in extended_entities.get("time_flows", []):
+                name = time_flow.get("text", "")
+                if name:
+                    self.known_time_nodes.add(name)
+
             foreshadow_resolved = sum(1 for s in self.foreshadow_status.values() if s == "已回收")
             self._logger.info(
                 f"从全局图谱同步完成: 设施={len(self.known_facilities)}, "
                 f"群体={len(self.known_groups)}, "
                 f"道具={len(self.known_items)}, "
                 f"事件={len(self.unfinished_events)}, "
-                f"伏笔={len(self.pending_foreshadows)}(已回收{foreshadow_resolved})"
+                f"伏笔={len(self.pending_foreshadows)}(已回收{foreshadow_resolved}), "
+                f"规则={len(self.known_rules)}, 时间线={len(self.known_time_nodes)}"
             )
         except Exception as e:
             self._logger.warning(f"从全局图谱同步失败: {e}")
@@ -264,6 +317,10 @@ class ExtendedContextAccumulator:
             "facility_status": dict(self.facility_status),
             "group_status": dict(self.group_status),
             "foreshadow_status": dict(self.foreshadow_status),
+            # 🆕 世界规则和时间线
+            "known_rules": list(self.known_rules),
+            "rule_status": dict(self.rule_status),
+            "known_time_nodes": list(self.known_time_nodes),
         }
 
     def reset(self) -> None:
@@ -271,7 +328,14 @@ class ExtendedContextAccumulator:
         self.known_facilities.clear()
         self.known_groups.clear()
         self.known_items.clear()
+        self.known_rules.clear()
+        self.known_time_nodes.clear()
         self.unfinished_events.clear()
         self.pending_foreshadows.clear()
+        self.item_status.clear()
+        self.facility_status.clear()
+        self.group_status.clear()
+        self.foreshadow_status.clear()
+        self.rule_status.clear()
         self._processed_chapters.clear()
         self._logger.debug("累积器已重置")

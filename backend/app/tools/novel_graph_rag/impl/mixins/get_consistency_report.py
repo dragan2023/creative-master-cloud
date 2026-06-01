@@ -551,27 +551,52 @@ class GetConsistencyReportMixin:
 
 
     def _get_time_context(self, chapter_num: int = None) -> Dict[str, Any]:
-        """获取时间上下文"""
-        extended_entities = self.get_extended_state_entities(
-            chapter_num=chapter_num)
+        """获取时间上下文
 
+        🆕 [统一状态存储 v5.0] 优先从 consistency_state.json 读取跨章累积的时间线数据，
+        回退到单元图谱即时提取，确保时间节点和时间流逝不丢失。
+        """
         context = {
             "current_time": None,
             "time_nodes": [],
             "time_elapsed": []
         }
 
+        # 🆕 优先从统一状态中读取时间线（跨章累积，不丢失）
+        unified_state = self._load_consistency_state()
+        unified_time = unified_state.get("time_context", {})
+        if unified_time:
+            for tname, tinfo in unified_time.items():
+                if tinfo.get("type") == "时间流逝":
+                    context["time_elapsed"].append({
+                        "description": tinfo.get("description", tname),
+                        "chapter": tinfo.get("first_chapter")
+                    })
+                else:
+                    context["time_nodes"].append({
+                        "name": tname,
+                        "type": tinfo.get("type", "")
+                    })
+
+        # 回退：从单元图谱补充（即时提取可能包含 unified_state 中没有的最新数据）
+        extended_entities = self.get_extended_state_entities(
+            chapter_num=chapter_num)
+
         for node in extended_entities["time_nodes"]:
-            context["time_nodes"].append({
-                "name": node.get("text", ""),
-                "type": node.get("attributes", {}).get("时间类型", "")
-            })
+            node_name = node.get("text", "")
+            if node_name and not any(n.get("name") == node_name for n in context["time_nodes"]):
+                context["time_nodes"].append({
+                    "name": node_name,
+                    "type": node.get("attributes", {}).get("时间类型", "")
+                })
 
         for flow in extended_entities["time_flows"]:
-            context["time_elapsed"].append({
-                "description": flow.get("text", ""),
-                "chapter": flow.get("chapter")
-            })
+            flow_desc = flow.get("text", "")
+            if flow_desc and not any(e.get("description") == flow_desc for e in context["time_elapsed"]):
+                context["time_elapsed"].append({
+                    "description": flow_desc,
+                    "chapter": flow.get("chapter")
+                })
 
         return context
 

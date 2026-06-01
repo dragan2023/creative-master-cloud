@@ -39,14 +39,14 @@ class AgentLLMMixin:
             config_model = model_config.model_id if model_config else None
             config_provider = model_config.provider if model_config else None
             config_temperature = model_config.temperature if model_config else None
-            config_max_tokens = model_config.max_tokens if model_config else 8192
+            config_max_tokens = model_config.max_tokens if model_config else 32000
             config_api_base = model_config.api_base if model_config else None
             config_api_key = model_config.api_key if model_config else None
         else:
             config_model = None
             config_provider = None
             config_temperature = None
-            config_max_tokens = 8192
+            config_max_tokens = 32000
 
         final_model = model or config_model
         final_temperature = temperature if temperature is not None else config_temperature

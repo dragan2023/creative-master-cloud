@@ -11,5 +11,9 @@ export const userConfigApi = {
 
   // 文档预处理配置（用户级别）
   getPreprocessorConfig: () => api.get('/api/v1/auth/config/preprocessor'),
-  setPreprocessorConfig: (data) => api.post('/api/v1/auth/config/preprocessor', data)
+  setPreprocessorConfig: (data) => api.post('/api/v1/auth/config/preprocessor', data),
+
+  // DeepSeek思考模式配置（用户级别）
+  getThinkingModeConfig: () => api.get('/api/v1/auth/config/thinking-mode'),
+  setThinkingModeConfig: (data) => api.post('/api/v1/auth/config/thinking-mode', data)
 }

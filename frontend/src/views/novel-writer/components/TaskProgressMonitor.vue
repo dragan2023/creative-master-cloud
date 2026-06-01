@@ -51,7 +51,7 @@
                 </div>
               </div>
               <div class="pipeline-info">
-                <span class="pipeline-name">{{ agent.label }}</span>
+                <span class="pipeline-name">{{ agent.label.replace('Agent', '') }}</span>
                 <el-tag :type="agent.statusType" size="small">
                   {{ agent.statusLabel }}
                 </el-tag>
@@ -125,7 +125,7 @@
             <el-divider content-position="left">执行日志</el-divider>
             <div class="messages-list" ref="messagesListRef">
               <div
-                v-for="(msg, idx) in progressMessages"
+                v-for="(msg, idx) in filteredProgressMessages"
                 :key="idx"
                 class="progress-item"
                 :class="msg.type"
@@ -137,7 +137,7 @@
                 <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
               </div>
               <el-empty
-                v-if="progressMessages.length === 0"
+                v-if="filteredProgressMessages.length === 0"
                 description="暂无进度消息"
                 :image-size="60"
               />
@@ -435,6 +435,34 @@ const sceneDialogVisible = ref(false)
 const selectedScene = ref(null)
 const selectedUnit = ref(null)
 
+/** 过滤后的进度消息：仅保留有业务含义的中文日志，排除系统级技术消息 */
+const filteredProgressMessages = computed(() => {
+  return props.progressMessages.filter((msg) => {
+    // 排除纯技术性的 status_change（任务状态变更通知）
+    if (msg.type === 'status_change') return false
+    // 排除纯技术性的 mode_decision（模式决策日志）
+    if (msg.type === 'mode_decision') return false
+
+    // 对于 task_progress 消息，只保留带有 agent_name 的（有业务含义的Agent进度）
+    if (msg.type === 'task_progress') {
+      const hasAgentName = msg.agent_name || msg.data?.agent_name
+      if (!hasAgentName) return false
+    }
+
+    // 排除无 agent_name 且无 agent_role 的消息（显示为"系统"的纯技术消息）
+    const agentLabel = msg.data?.agent_name || msg.data?.agent_role
+    const hasMeaningfulMessage =
+      msg.data?.message &&
+      typeof msg.data.message === 'string' &&
+      msg.data.message.trim().length > 0
+
+    // 无 agent 标识且无有意义消息内容 → 过滤
+    if (!agentLabel && !hasMeaningfulMessage) return false
+
+    return true
+  })
+})
+
 // 计算属性
 const selectedSceneTitle = computed(() => {
   if (!selectedScene.value) return ''
@@ -444,9 +472,9 @@ const selectedSceneTitle = computed(() => {
   return `单元 ${unitIdx} - ${sceneTitle}`
 })
 
-// 监听进度消息，自动滚动
+// 监听过滤后的进度消息，自动滚动
 watch(
-  () => props.progressMessages.length,
+  () => filteredProgressMessages.value.length,
   () => {
     nextTick(() => {
       if (messagesListRef.value) {
@@ -599,18 +627,22 @@ function calculateEfficiency() {
     justify-content: center;
     align-items: center;
     padding: 20px 0;
-    gap: 16px;
+    gap: 12px;
     flex-wrap: wrap;
 
     .pipeline-item {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
-      padding: 12px 20px;
+      gap: 6px;
+      width: 90px;
+      min-width: 80px;
+      max-width: 110px;
+      padding: 10px 6px;
       border-radius: 8px;
       background: #f5f7fa;
       transition: all 0.3s;
+      box-sizing: border-box;
 
       &.running {
         background: #ecf5ff;
@@ -629,6 +661,7 @@ function calculateEfficiency() {
         position: relative;
         display: flex;
         align-items: center;
+        flex-shrink: 0;
 
         .el-icon {
           font-size: 24px;
@@ -637,7 +670,7 @@ function calculateEfficiency() {
 
         .pipeline-arrow {
           position: absolute;
-          right: -28px;
+          right: -16px;
           top: 50%;
           transform: translateY(-50%);
           color: #c0c4cc;
@@ -649,10 +682,22 @@ function calculateEfficiency() {
         flex-direction: column;
         align-items: center;
         gap: 4px;
+        width: 100%;
+        text-align: center;
 
         .pipeline-name {
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 500;
+          color: #303133;
+          line-height: 1.3;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          width: 100%;
+        }
+
+        .el-tag {
+          white-space: nowrap;
         }
       }
     }

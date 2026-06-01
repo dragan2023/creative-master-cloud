@@ -13,6 +13,7 @@ from typing import Any, Optional
 from app.agents.writing.base_agent import AgentContext
 from app.core.logger import get_logger
 from app.models.writing_task import TaskStatus
+from app.utils.type_adapter import safe_json_dict
 from ._config import PipelineConfigMixin
 
 logger = get_logger("writing_engine.pipeline")
@@ -35,7 +36,9 @@ class ContextBuilderMixin(PipelineConfigMixin):
 
     async def _build_context(self) -> AgentContext:
         """构建Orchestrator执行上下文"""
-        task_config = self.task.config or {}
+        # 🔴 防御：self.task.config 是 JSON 列，异常时可能返回字符串
+        # 使用 safe_json_dict 支持 JSON 字符串解析和降级包装，避免数据丢失
+        task_config = safe_json_dict(self.task.config, "task.config")
 
         project = None
         outline = task_config.get("outline", {})
@@ -158,7 +161,7 @@ class ContextBuilderMixin(PipelineConfigMixin):
             ai_elimination_threshold = project.ai_elimination_threshold if project.ai_elimination_threshold is not None else 50
 
             if project.style_config:
-                style_config = project.style_config if isinstance(project.style_config, dict) else {}
+                style_config = safe_json_dict(project.style_config, "project.style_config")
                 style_parts = []
 
                 style_guide_text = style_config.get("style_guide_for_writing", "")
@@ -250,6 +253,14 @@ class ContextBuilderMixin(PipelineConfigMixin):
                         "intensity": raw_config.get("script_style_intensity", 0.7),
                         "names": raw_config.get("script_style_names", []),
                     }
+                    # 🔴 兜底回写：将项目配置中的风格参数回填到 task_config
+                    # 防止续传/继续生成时 task_config 缺失风格维度导致 type_specific_config 为空
+                    task_config["series_style_dimensions"] = raw_config.get("script_style_dimensions", {})
+                    task_config["series_style_names"] = raw_config.get("script_style_names", [])
+                    task_config["series_style_intensity"] = raw_config.get("script_style_intensity", 0.7)
+                    logger.info("[上下文构建] 从项目配置兜底恢复剧集风格配置: "
+                                f"dimensions={len(task_config['series_style_dimensions'])}维, "
+                                f"intensity={task_config['series_style_intensity']}")
         elif content_type == "movie_script":
             style_selector_config = task_config.get("movie_style_dimensions")
             if not style_selector_config and project and project.movie_script_config:
@@ -261,6 +272,13 @@ class ContextBuilderMixin(PipelineConfigMixin):
                         "intensity": raw_config.get("script_style_intensity", 0.7),
                         "names": raw_config.get("script_style_names", []),
                     }
+                    # 🔴 兜底回写：将项目配置中的风格参数回填到 task_config
+                    task_config["movie_style_dimensions"] = raw_config.get("script_style_dimensions", {})
+                    task_config["movie_style_names"] = raw_config.get("script_style_names", [])
+                    task_config["movie_style_intensity"] = raw_config.get("script_style_intensity", 0.7)
+                    logger.info("[上下文构建] 从项目配置兜底恢复电影风格配置: "
+                                f"dimensions={len(task_config['movie_style_dimensions'])}维, "
+                                f"intensity={task_config['movie_style_intensity']}")
 
         # 统一格式化：task_config 传入的 style_dimensions 可能是裸 dimensions dict，需包装
         if style_selector_config and "dimensions" not in style_selector_config and isinstance(style_selector_config, dict):
@@ -283,8 +301,28 @@ class ContextBuilderMixin(PipelineConfigMixin):
                 intensity = project.generation_config.get("style_intensity", 0.7)
 
             if not style_ids and project.novel_config and isinstance(project.novel_config, dict):
-                style_ids = project.novel_config.get("writing_styles", [])
-                intensity = project.novel_config.get("style_intensity", 0.7)
+                novel_cfg = project.novel_config
+                style_ids = novel_cfg.get("writing_styles", [])
+                intensity = novel_cfg.get("style_intensity", 0.7)
+
+                # 🔴 兜底：如果 project.novel_config 中有预构建的 style_library_config
+                style_library_cfg = novel_cfg.get("style_library_config", {})
+                if isinstance(style_library_cfg, dict):
+                    prebuilt_guide = style_library_cfg.get("style_guide")
+                    prebuilt_intensity = style_library_cfg.get("style_intensity")
+                    if prebuilt_guide and isinstance(prebuilt_guide, dict) and prebuilt_guide.get("style_names"):
+                        style_guide["style_library_guide"] = prebuilt_guide
+                        if prebuilt_intensity is not None:
+                            style_guide["style_intensity"] = float(prebuilt_intensity)
+                            # 回填到 task_config，确保 _get_style_intensity() 能读到
+                            task_config["style_intensity"] = float(prebuilt_intensity)
+                        logger.info(f"[上下文构建] 从 novel_config.style_library_config 恢复文风指南: "
+                                    f"styles={prebuilt_guide.get('style_names', [])}, intensity={prebuilt_intensity}")
+                        style_ids = []  # 清空，避免重复重建
+
+            # 🔴 兜底：恢复 style_intensity 到 task_config（小说续传时可能丢失）
+            if not task_config.get("style_intensity") and intensity:
+                task_config["style_intensity"] = float(intensity)
 
             if style_ids:
                 try:
@@ -747,10 +785,9 @@ class ContextBuilderMixin(PipelineConfigMixin):
         if not config or not config.get("dimensions"):
             return ""
 
+        from app.utils.style_utils import intensity_to_description
         intensity = config.get("intensity", 0.7)
-        intensity_desc = "淡入-轻微体现" if intensity <= 0.4 else (
-            "适中-明显但不突兀" if intensity <= 0.7 else "强烈-非常突出"
-        )
+        intensity_desc = intensity_to_description(intensity)
 
         lines = [f"## 用户选择的创作风格（强度: {intensity_desc}）"]
         for dim_name, styles in config["dimensions"].items():

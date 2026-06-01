@@ -74,7 +74,8 @@ class LLMAnalysisEngine:
                 prompt=prompt,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                module_name="qc_llm_engine"
             )
 
             # 解析JSON输出
@@ -245,7 +246,7 @@ class LLMAnalysisEngine:
         return result
 
     def _parse_json_response(self, content: str) -> Dict:
-        """解析LLM的JSON响应"""
+        """解析LLM的JSON响应（含截断修复）"""
         try:
             # 尝试直接解析
             return json.loads(content)
@@ -265,6 +266,84 @@ class LLMAnalysisEngine:
                 except json.JSONDecodeError as brace_err:
                     logger.debug(f"大括号块JSON解析失败: {brace_err}")
 
+            # 尝试修复截断的JSON（LLM输出被token限制截断）
+            repaired = self._try_repair_truncated_json(content)
+            if repaired is not None:
+                logger.info("截断JSON修复成功")
+                return repaired
+
             # 解析失败,返回原始内容
             logger.warning(f"JSON解析失败,返回原始内容: {content[:200]}")
             return {"raw_content": content}
+
+    def _try_repair_truncated_json(self, content: str) -> Optional[Dict]:
+        """尝试修复被截断的JSON（当LLM输出因token限制被截断时）
+        
+        策略：
+        1. 从```json代码块或{}中提取JSON片段
+        2. 定位最后一个完整的数组元素或对象字段
+        3. 补全缺失的闭合括号
+        """
+        import re
+        
+        # 提取JSON内容（去除markdown标记）
+        json_str = content
+        json_match = re.search(r'```json\s*([\s\S]*?)(?:\s*```|$)', content)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            brace_start = content.find('{')
+            if brace_start >= 0:
+                json_str = content[brace_start:]
+        
+        json_str = json_str.strip()
+        if not json_str or json_str[0] != '{':
+            return None
+        
+        # 尝试补全截断的字符串值（查找最后一个未闭合的引号）
+        # 移除最后一个不完整的字段（如 "text": "他慢慢抬起右）
+        last_quote = json_str.rfind('"')
+        if last_quote > 0:
+            # 检查最后一个引号之前是否有未闭合的结构
+            before_last = json_str[:last_quote]
+            # 如果最后一个引号位于字符串值中间，截断到最后一个完整的字段
+            if before_last.count('{') > before_last.count('}'):
+                # 找到最后一个完整的逗号或开括号后的位置
+                last_comma = before_last.rfind(',')
+                if last_comma > 0:
+                    truncated = before_last[:last_comma]
+                else:
+                    truncated = before_last
+                
+                # 计算需要补全的闭合括号
+                open_braces = truncated.count('{') - truncated.count('}')
+                open_brackets = truncated.count('[') - truncated.count(']')
+                
+                # 补全闭合
+                repaired = truncated
+                repaired += ']' * open_brackets
+                repaired += '}' * open_braces
+                
+                try:
+                    return json.loads(repaired)
+                except json.JSONDecodeError:
+                    pass
+        
+        # 通用补全：计算并补全缺失的括号
+        open_braces = json_str.count('{') - json_str.count('}')
+        open_brackets = json_str.count('[') - json_str.count(']')
+        
+        if open_braces > 0 or open_brackets > 0:
+            repaired = json_str.rstrip()
+            # 如果最后是逗号，移除它
+            if repaired.endswith(','):
+                repaired = repaired[:-1]
+            repaired += ']' * open_brackets
+            repaired += '}' * open_braces
+            
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                pass
+        
+        return None

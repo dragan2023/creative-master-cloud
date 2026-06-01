@@ -157,7 +157,8 @@ async def call_llm_with_retry(llm_provider, prompt: str, temperature: float = 0.
             response = await llm_provider.generate(
                 prompt=prompt,
                 temperature=temperature,
-                timeout=timeout
+                timeout=timeout,
+                module_name="qc_global_analyzer"
             )
             return response  # 成功则返回
         except Exception as e:

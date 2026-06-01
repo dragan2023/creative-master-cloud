@@ -273,8 +273,154 @@ class QualityControlService:
             logger.error(f"质量分析失败: {e}", exc_info=True)
             raise
 
-    async def _load_project_data(self, project_id: int, chapter_ids: Optional[List[int]] = None):
-        """加载项目和章节数据"""
+    async def _ensure_adjacent_context(
+        self,
+        chapters_data: List[Dict],
+        project_id: int,
+        include_adjacent: int = 5
+    ) -> List[Dict]:
+        """确保 chapters_data 包含 ±N 章相邻上下文摘要。
+
+        当调用方只传了单章数据时（如实时单章质控），自动查询 NovelChapter
+        补全相邻章节摘要，使 LLM 的分节奏检测、低冲突区间识别等
+        需要多章上下文的维度能正常工作。
+
+        若 chapters_data 已包含多章（如全量分析），则直接返回原数据。
+
+        Args:
+            chapters_data: 当前章节数据列表
+            project_id: 项目ID
+            include_adjacent: 相邻章节数（默认5）
+
+        Returns:
+            补全后的 chapters_data（按 chapter_number 升序排列）
+        """
+        if not chapters_data or not project_id:
+            return chapters_data
+
+        # 若已有上下文章节（is_context=True），说明调用方已处理好，无需重复加载
+        if any(ch.get("is_context") for ch in chapters_data):
+            return chapters_data
+
+        # 仅当只有少量目标章节时才加载相邻上下文
+        chapter_numbers = [
+            ch.get("chapter_number") for ch in chapters_data
+            if ch.get("chapter_number") is not None
+        ]
+        if not chapter_numbers:
+            return chapters_data
+
+        try:
+            from app.models import NovelChapter
+            from sqlalchemy import select
+
+            min_target = min(chapter_numbers)
+            max_target = max(chapter_numbers)
+            adj_start = max(1, min_target - include_adjacent)
+            adj_end = max_target + include_adjacent
+
+            # 查询相邻章节（不限 status，排除已在 chapters_data 中的章节号）
+            adj_query = select(NovelChapter).where(
+                NovelChapter.project_id == project_id,
+                NovelChapter.chapter_number >= adj_start,
+                NovelChapter.chapter_number <= adj_end,
+                NovelChapter.chapter_number.notin_(chapter_numbers)
+            ).order_by(NovelChapter.chapter_number)
+
+            adj_result = await self.db.execute(adj_query)
+            adjacent_chapters = adj_result.scalars().all()
+
+            for ch in adjacent_chapters:
+                summary, context_source = self._extract_chapter_context(ch)
+                if summary.strip():
+                    chapters_data.append({
+                        "id": ch.id,
+                        "chapter_number": ch.chapter_number,
+                        "title": ch.chapter_title,
+                        "content": summary,
+                        "word_count": len(summary),
+                        "metadata": ch.chapter_metadata or {},
+                        "is_context": True,
+                        "context_source": context_source,
+                    })
+
+            # 按章节号重新排序
+            chapters_data.sort(key=lambda x: x.get("chapter_number", 0))
+
+            context_count = sum(1 for ch in chapters_data if ch.get("is_context"))
+            logger.info(
+                f"[正文质控-六维度] ±{include_adjacent}章相邻上下文已加载: "
+                f"目标章={chapter_numbers}, "
+                f"总章节数={len(chapters_data)}, "
+                f"上下文章数={context_count}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[正文质控-六维度] 加载相邻章节上下文失败（不影响主流程）: {e}"
+            )
+
+        return chapters_data
+
+    @staticmethod
+    def _extract_chapter_context(chapter) -> tuple:
+        """从 NovelChapter 提取上下文摘要及其来源描述。
+
+        优先级：auto_summary (LLM生成) > chapter_summary (大纲) > 正文截取
+
+        Args:
+            chapter: NovelChapter 实例
+
+        Returns:
+            (summary: str, context_source: str)
+        """
+        metadata = chapter.chapter_metadata or {}
+        if isinstance(metadata, str):
+            import json as _json
+            try:
+                metadata = _json.loads(metadata)
+            except Exception:
+                metadata = {}
+
+        content = chapter.final_content or chapter.draft_content or ""
+
+        if getattr(chapter, 'status', '') == "completed":
+            # 已完成章节：优先使用 LLM 生成的 auto_summary
+            summary = metadata.get("auto_summary", "")
+            if summary:
+                return summary, "自动摘要（LLM生成）"
+
+            summary = metadata.get("chapter_summary", "")
+            if summary:
+                return summary, "章节概述（大纲）"
+
+            summary = content[:200] if content.strip() else ""
+            if summary:
+                return summary, "正文截取（无摘要可用）"
+        else:
+            # 未生成的章节：从 chapter_metadata 提取大纲规划的简短描述
+            summary = metadata.get("chapter_summary", "")
+            if not summary:
+                summary = metadata.get("chapter_purpose", "")
+            if summary:
+                return summary, "单元概述（规划）"
+
+        return "", ""
+
+    async def _load_project_data(self, project_id: int, chapter_ids: Optional[List[int]] = None,
+                                  include_adjacent: int = 5):
+        """加载项目和章节数据，并自动包含±N章相邻摘要作为分析上下文。
+
+        原始设计：每个章节的质控分析需要前后各N章的上下文信息，
+        以确保节奏检测、低冲突区间识别、衔接判断等宏观维度的准确性。
+
+        - 前N章摘要：从已生成正文提取（取前300字摘要）
+        - 后N章摘要：从单元概述(chapter_metadata.chapter_summary)提取
+
+        Args:
+            project_id: 项目ID
+            chapter_ids: 目标章节ID列表
+            include_adjacent: 相邻章节数（默认5，设为0可禁用此机制）
+        """
         query = select(NovelProject).where(NovelProject.id == project_id)
         result = await self.db.execute(query)
         project = result.scalar_one_or_none()
@@ -282,6 +428,7 @@ class QualityControlService:
         if not project:
             raise ValueError(f"项目不存在: {project_id}")
 
+        # 1. 加载目标章节（仅已完成的、有内容的章节）
         query = select(NovelChapter).where(
             NovelChapter.project_id == project_id,
             NovelChapter.status == "completed"
@@ -293,6 +440,7 @@ class QualityControlService:
         chapters = result.scalars().all()
 
         chapters_data = []
+        target_chapter_numbers = set()
         for chapter in chapters:
             content = chapter.final_content or chapter.draft_content or ""
             if content.strip():
@@ -304,6 +452,77 @@ class QualityControlService:
                     "word_count": len(content),
                     "metadata": chapter.chapter_metadata or {}
                 })
+                target_chapter_numbers.add(chapter.chapter_number)
+
+        # 2. 扩展 ±N 章相邻上下文（±5章摘要机制）
+        if include_adjacent > 0 and target_chapter_numbers:
+            min_target = min(target_chapter_numbers)
+            max_target = max(target_chapter_numbers)
+            adj_start = max(1, min_target - include_adjacent)
+            adj_end = max_target + include_adjacent
+
+            # 查询相邻章节（不限status，排除已加载的目标章节号）
+            adj_query = select(NovelChapter).where(
+                NovelChapter.project_id == project_id,
+                NovelChapter.chapter_number >= adj_start,
+                NovelChapter.chapter_number <= adj_end,
+                NovelChapter.chapter_number.notin_(target_chapter_numbers)
+            ).order_by(NovelChapter.chapter_number)
+            adj_result = await self.db.execute(adj_query)
+            adjacent_chapters = adj_result.scalars().all()
+
+            for ch in adjacent_chapters:
+                metadata = ch.chapter_metadata or {}
+                if isinstance(metadata, str):
+                    import json as _json
+                    try:
+                        metadata = _json.loads(metadata)
+                    except Exception:
+                        metadata = {}
+
+                if ch.status == "completed":
+                    # 已完成章节：优先使用 LLM 生成的 auto_summary，
+                    # 其次使用大纲的 chapter_summary，最后才截取正文
+                    summary = metadata.get("auto_summary", "")
+                    if summary:
+                        context_source = "自动摘要（LLM生成）"
+                    else:
+                        summary = metadata.get("chapter_summary", "")
+                        if summary:
+                            context_source = "章节概述（大纲）"
+                        else:
+                            content = ch.final_content or ch.draft_content or ""
+                            summary = content[:200] if content.strip() else ""
+                            context_source = "正文截取（无摘要可用）" if summary else ""
+                else:
+                    # 未生成的章节：从 chapter_metadata 提取大纲规划的简短描述
+                    summary = metadata.get("chapter_summary", "")
+                    if not summary:
+                        summary = metadata.get("chapter_purpose", "")
+                    context_source = "单元概述（规划）" if summary else ""
+
+                if summary.strip():
+                    chapters_data.append({
+                        "id": ch.id,
+                        "chapter_number": ch.chapter_number,
+                        "title": ch.chapter_title,
+                        "content": summary,
+                        "word_count": len(summary),
+                        "metadata": ch.chapter_metadata or {},
+                        "is_context": True,
+                        "context_source": context_source,
+                    })
+
+            # 按章节号重新排序（确保相邻章节按正确顺序排列）
+            chapters_data.sort(key=lambda x: x["chapter_number"])
+
+            logger.info(
+                f"±{include_adjacent}章相邻上下文已加载: "
+                f"目标章={sorted(target_chapter_numbers)}, "
+                f"总章节数={len(chapters_data)}, "
+                f"上下文章数={sum(1 for ch in chapters_data if ch.get('is_context'))}"
+            )
+
         return project, chapters_data
 
     async def _execute_analysis(self, chapters_data: List[Dict], project: Any,
@@ -359,8 +578,9 @@ class QualityControlService:
 
         return {
             "project_id": project.id,
-            "analysis_scope": "multi_chapter" if len(chapters_data) > 1 else "single_chapter",
-            "chapters_analyzed": [ch["id"] for ch in chapters_data],
+            "analysis_scope": "multi_chapter" if len([ch for ch in chapters_data if not ch.get("is_context")]) > 1 else "single_chapter",
+            "chapters_analyzed": [ch["id"] for ch in chapters_data if not ch.get("is_context")],
+            "context_chapters": [ch["id"] for ch in chapters_data if ch.get("is_context")],
             "dimensions": dimensions,
             "overall_score": round(overall_score, 2),
             "dimension_scores": dimension_scores,
@@ -406,10 +626,14 @@ class QualityControlService:
             f"depth={depth}, 上下文提供={list(qc_context.keys()) if qc_context else '无'}"
         )
 
+        # [v3.1] 加载 ±5 章相邻上下文，避免"只有一章数据"导致 LLM 无法评估节奏/冲突区间
+        chapters_data = await self._ensure_adjacent_context(
+            chapters_data=chapters_data,
+            project_id=getattr(project, 'id', 0),
+            include_adjacent=5
+        )
+
         # 使用相同的核心分析引擎
-        # TODO(Phase2): 将 qc_context 各信息源注入 _execute_analysis 内各维度分析器的 prompt，
-        #   使 LLM 能在六维度检测时参考知识图谱、人物设定、前文摘要、一致性报告等综合上下文，
-        #   当前仅将 qc_context 附加到报告供前端展示，尚未影响分析过程。
         report = await self._execute_analysis(
             chapters_data=chapters_data,
             project=project,
@@ -464,8 +688,9 @@ class QualityControlService:
         overall_score = sum(dimension_scores.values()) / len(dimension_scores) if dimension_scores else 0
         return {
             "project_id": 0,
-            "analysis_scope": "multi_chapter" if len(chapters_data) > 1 else "single_chapter",
-            "chapters_analyzed": [ch["id"] for ch in chapters_data],
+            "analysis_scope": "multi_chapter" if len([ch for ch in chapters_data if not ch.get("is_context")]) > 1 else "single_chapter",
+            "chapters_analyzed": [ch["id"] for ch in chapters_data if not ch.get("is_context")],
+            "context_chapters": [ch["id"] for ch in chapters_data if ch.get("is_context")],
             "dimensions": list(rule_results.keys()),
             "overall_score": round(overall_score, 2),
             "dimension_scores": dimension_scores,

@@ -219,6 +219,7 @@
       :project-id="projectId"
       :total-units="projectTotalUnits"
       :unit-label="unitLabel"
+      :consistency-update="writingStore.consistencyReport"
     />
 
     <!-- 实时质控仪表盘弹窗(v2.2重构 - 正文质控组件) -->
@@ -248,6 +249,9 @@
       :script-style-names="scriptStyleData.selectedNames"
       :script-style-dimensions="scriptStyleData.dimensions"
       :script-style-intensity="scriptStyleData.intensity"
+      v-model:thinking-mode-enabled="thinkingModeEnabled"
+      v-model:thinking-reasoning-effort="thinkingReasoningEffort"
+      v-model:thinking-save-dir="thinkingSaveDir"
       @show-style-detail="showStyleDocumentDetail = true"
       @delete-style-document="handleDeleteStyleDocument"
       @show-model-config="showModelConfigDialog = true"
@@ -259,6 +263,7 @@
       @threshold-change="handleThresholdChange"
       @upload-success="handleStyleUploadSuccess"
       @upload-error="handleStyleUploadError"
+      @thinking-mode-change="handleThinkingModeChange"
     />
 
     <!-- 文风选择器对话框 -->
@@ -547,6 +552,40 @@ const consistencyReportVisible = ref(false);
 const showSettingsDialog = ref(false);
 const showQualityControlVisualization = ref(false);
 
+// DeepSeek 思考模式
+const thinkingModeEnabled = ref(false);
+const thinkingReasoningEffort = ref('high');
+const thinkingSaveDir = ref('./data/thinking_logs');
+
+// 加载思考模式配置
+async function loadThinkingModeConfig() {
+  try {
+    const { userConfigApi } = await import('@/api')
+    const res = await userConfigApi.getThinkingModeConfig()
+    if (res.data) {
+      thinkingModeEnabled.value = res.data.enable_thinking ?? false
+      thinkingReasoningEffort.value = res.data.reasoning_effort || 'high'
+      thinkingSaveDir.value = res.data.thinking_save_dir || './data/thinking_logs'
+    }
+  } catch (error) {
+    console.error('加载思考模式配置失败:', error)
+  }
+}
+
+// 思考模式变更处理
+async function handleThinkingModeChange(enabled) {
+  try {
+    const { userConfigApi } = await import('@/api')
+    await userConfigApi.setThinkingModeConfig({
+      enable_thinking: enabled,
+      reasoning_effort: thinkingReasoningEffort.value,
+      thinking_save_dir: thinkingSaveDir.value || './data/thinking_logs'
+    })
+  } catch (error) {
+    console.error('保存思考模式配置失败:', error)
+  }
+}
+
 // ==================== 质控相关处理 ====================
 
 /**
@@ -610,6 +649,9 @@ onMounted(async () => {
   
   // 加载风格文档信息（包含AI文风消除设置）
   await styleMgmt.loadStyleDocumentInfo()
+  
+  // 加载思考模式配置
+  await loadThinkingModeConfig()
 })
 
 onUnmounted(() => {

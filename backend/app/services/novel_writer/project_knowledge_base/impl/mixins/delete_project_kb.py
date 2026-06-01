@@ -34,6 +34,16 @@ class DeleteProjectKbMixin:
                 if filename.startswith(f"project_{project_id}_unit_") and filename.endswith("_graph.json"):
                     os.remove(os.path.join(self.persist_dir, filename))
 
+            # 3. 删除一致性状态文件
+            consistency_state_path = os.path.join(self.persist_dir, "consistency_state.json")
+            if os.path.exists(consistency_state_path):
+                os.remove(consistency_state_path)
+
+            # 4. 删除旧版事件状态索引（兼容）
+            old_event_path = os.path.join(self.persist_dir, "event_status_index.json")
+            if os.path.exists(old_event_path):
+                os.remove(old_event_path)
+
             self.logger.info(f"项目知识库已删除: project_id={project_id}")
             return True
 

@@ -37,3 +37,17 @@ class PreprocessorConfigResponse(BaseModel):
     semantic_threshold: float = 0.7
     summarization_enabled: bool = False
     graphrag_enabled: bool = True
+
+
+class ThinkingModeConfig(BaseModel):
+    """DeepSeek思考模式配置"""
+    enable_thinking: bool = Field(False, description="是否启用思考模式")
+    reasoning_effort: str = Field("high", description="思考强度：high 或 max")
+    thinking_save_dir: str = Field("./data/thinking_logs", description="思考过程保存目录")
+
+
+class ThinkingModeConfigResponse(BaseModel):
+    """DeepSeek思考模式配置响应"""
+    enable_thinking: bool = False
+    reasoning_effort: str = "high"
+    thinking_save_dir: str = "./data/thinking_logs"

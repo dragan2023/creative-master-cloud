@@ -523,6 +523,10 @@ const props = defineProps({
   unitLabel: {
     type: String,
     default: '章'
+  },
+  consistencyUpdate: {
+    type: Object,
+    default: null
   }
 })
 
@@ -563,6 +567,53 @@ watch(() => props.visible, (newVal) => {
   if (newVal) {
     loadReport()
   }
+})
+
+// ==================== 监听实时一致性状态推送 ====================
+watch(() => props.consistencyUpdate, (newVal) => {
+  if (!newVal) return
+  if (!props.visible) return
+  
+  const raw = newVal
+  // 将WebSocket推送的原始一致性状态映射为报告数据格式
+  const mappedData = {
+    status: 'ready',
+    chapter: raw.chapter_num,
+    project_id: raw.project_id,
+    // 保留已有的角色状态（WS不推送角色维度）
+    character_states: reportData.value.character_states || {},
+    // 设施维度: 将dict转为前端期望的{name: state}格式
+    facility_states: raw.facilities || {},
+    // 事件维度: 将dict转为list，过滤已完成的
+    unfinished_events: Object.values(raw.events || {}).filter(
+      e => e.status && !['已完成', '已结束', '已取消'].includes(e.status)
+    ),
+    // 群体维度
+    group_states: raw.groups || {},
+    // 道具维度
+    item_ownership: raw.items || {},
+    // 伏笔维度: 将dict转为list，过滤已回收的
+    pending_foreshadows: Object.values(raw.foreshadows || {}).filter(
+      f => f.status !== '已回收'
+    ),
+    // 世界规则维度
+    active_rules: Object.values(raw.world_rules || {}),
+    // 时间上下文
+    time_context: raw.time_context || {},
+    // 一致性警告（WS不包含，保留已有）
+    consistency_warnings: reportData.value.consistency_warnings || [],
+    // 标记来源
+    _from_ws: true
+  }
+  
+  reportData.value = mappedData
+  console.log(
+    '[一致性报告] 实时更新: chapter=%d, facilities=%d, events=%d, items=%d',
+    raw.chapter_num,
+    Object.keys(raw.facilities || {}).length,
+    Object.keys(raw.events || {}).length,
+    Object.keys(raw.items || {}).length
+  )
 })
 
 // ==================== 计算属性 ====================

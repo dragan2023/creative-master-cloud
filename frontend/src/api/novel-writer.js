@@ -321,6 +321,15 @@ export const novelWriterApi = {
     const params = { content }
     if (unitNumber !== null) params.unit_number = unitNumber
     return api.post(`/api/v1/novel-writer/projects/${projectId}/check-content-consistency`, null, { params })
+  },
+
+  // ==================== 单元内容编辑 API ====================
+
+  // 更新单元正文内容
+  updateUnitContent: (data) => {
+    const { unit_index, content, project_id } = data
+    const params = project_id ? { project_id } : {}
+    return api.put(`/api/v1/novel-writer/units/${unit_index}/content`, { content }, { params })
   }
 
 }

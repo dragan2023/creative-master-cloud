@@ -35,6 +35,7 @@ from ._common import (
     _sync_writing_unit_to_novel_chapter
 )
 from ._unit import analyze_single_unit_quality
+from ._basic import _sync_visual_content  # v2.5: 视觉内容同步
 
 
 # ==================== 请求模型 ====================
@@ -335,23 +336,59 @@ async def _execute_batch_qc_task(
                             issues=issues,
                             chapters_data=chapters_data,
                             project=project,
+                            content_type=getattr(project, 'content_type', None) or 'novel',
                             db=task_db,
                             user_id=user_id
                         )
                         
+                        # [v2.7修复] auto_fix['fixed']是完整正文，只应用第一个符合条件的fix
+                        content_applied = False
                         for issue in issues_with_fixes:
                             auto_fix = issue.get('auto_fix')
-                            if auto_fix and auto_fix.get('confidence', 0) >= request.auto_fix_threshold:
+                            if not auto_fix or auto_fix.get('confidence', 0) < request.auto_fix_threshold:
+                                continue
+
+                            if not content_applied:
+                                content_applied = True
                                 new_content = auto_fix.get('fixed', fixed_content)
                                 if new_content != fixed_content:
+                                    original_len = len(content)
+                                    new_len = len(new_content)
+                                    change_ratio = abs(new_len - original_len) / original_len if original_len > 0 else 0
+                                    if change_ratio > 0.3:
+                                        logger.warning(
+                                            f"[批量质控] ⚠️ 修改幅度较大({change_ratio*100:.1f}%)，"
+                                            f"unit={unit_index}, category={issue.get('category')}"
+                                        )
                                     fixed_content = new_content
-                                    auto_fix_applied.append({
-                                        "issue_id": issue.get('id'),
-                                        "category": issue.get('category'),
-                                        "confidence": auto_fix.get('confidence'),
-                                        "description": auto_fix.get('description')
-                                    })
-                    
+
+                            auto_fix_applied.append({
+                                "issue_id": issue.get('id'),
+                                "category": issue.get('category'),
+                                "confidence": auto_fix.get('confidence'),
+                                "description": auto_fix.get('description')
+                            })
+                        
+                        # ========== v2.5: 视觉内容智能同步 ==========
+                        # 正文修正后，同步更新拍摄脚本、分镜设计、AI视觉资源提示词
+                        if auto_fix_applied and fixed_content != content:
+                            try:
+                                sync_result = await _sync_visual_content(
+                                    old_content=content,
+                                    new_content=fixed_content,
+                                    content_type=getattr(project, 'content_type', None) or 'novel',
+                                    db=task_db,
+                                    user_id=user_id
+                                )
+                                if not sync_result.get("fallback"):
+                                    fixed_content = sync_result.get("synced_content", fixed_content)
+                                logger.info(
+                                    f"[视觉同步] 单元{unit_index}同步完成: "
+                                    f"skipped={sync_result.get('skipped')}, "
+                                    f"visual_updates={len(sync_result.get('visual_updates_applied', []))}"
+                                )
+                            except Exception as sync_err:
+                                logger.warning(f"[视觉同步] 单元{unit_index}同步失败(非致命): {sync_err}")
                     # 更新单元质控结果
                     unit.quality_control_status = 'completed'
                     unit.quality_control_report = qc_report
@@ -622,6 +659,7 @@ async def apply_selected_fixes_for_unit(
                 issues=issues_needing_fix,
                 chapters_data=chapters_data,
                 project=project,
+                content_type=getattr(project, 'content_type', None) or 'novel',
                 db=db,
                 user_id=current_user.id
             )
@@ -631,21 +669,37 @@ async def apply_selected_fixes_for_unit(
             all_issues = issues_with_existing_fix
         
         # 应用修正
+        # [v2.7修复] auto_fix['fixed']是完整正文，只应用第一个符合条件的fix
+        # 变化幅度基于original_content计算。
         applied_fixes = []
         fixed_content = original_content
+        content_applied = False
         
         for issue in all_issues:
             auto_fix = issue.get("auto_fix")
-            if auto_fix and auto_fix.get("fixed"):
+            if not auto_fix or not auto_fix.get("fixed"):
+                continue
+            
+            if not content_applied:
+                content_applied = True
                 new_content = auto_fix.get("fixed", fixed_content)
                 if new_content != fixed_content:
+                    original_len = len(original_content)
+                    new_len = len(new_content)
+                    change_ratio = abs(new_len - original_len) / original_len if original_len > 0 else 0
+                    if change_ratio > 0.3:
+                        logger.warning(
+                            f"[选择性修正] ⚠️ 修改幅度较大({change_ratio*100:.1f}%)，"
+                            f"unit={unit_index}, category={issue.get('category')}"
+                        )
                     fixed_content = new_content
-                    applied_fixes.append({
-                        "issue_id": issue.get("id"),
-                        "category": issue.get("category"),
-                        "confidence": auto_fix.get("confidence"),
-                        "description": auto_fix.get("description")
-                    })
+
+            applied_fixes.append({
+                "issue_id": issue.get("id"),
+                "category": issue.get("category"),
+                "confidence": auto_fix.get("confidence"),
+                "description": auto_fix.get("description")
+            })
         
         # 如果没有新应用的修正，检查是否已在生成时自动应用
         if not applied_fixes:
@@ -688,6 +742,26 @@ async def apply_selected_fixes_for_unit(
                     success=False,
                     message="未能生成有效的修正内容"
                 )
+        
+        # ========== v2.5: 视觉内容智能同步 ==========
+        # 正文修正后，同步更新拍摄脚本、分镜设计、AI视觉资源提示词
+        if applied_fixes and fixed_content != original_content:
+            try:
+                sync_result = await _sync_visual_content(
+                    old_content=original_content,
+                    new_content=fixed_content,
+                    content_type=getattr(project, 'content_type', None) or 'novel',
+                    db=db,
+                    user_id=current_user.id
+                )
+                if not sync_result.get("fallback"):
+                    fixed_content = sync_result.get("synced_content", fixed_content)
+                logger.info(
+                    f"[视觉同步] 选择性修正同步完成: "
+                    f"visual_updates={len(sync_result.get('visual_updates_applied', []))}"
+                )
+            except Exception as sync_err:
+                logger.warning(f"[视觉同步] 选择性修正同步失败(非致命): {sync_err}")
         
         # 更新单元
         unit.final_content = fixed_content
@@ -825,6 +899,7 @@ async def preview_unit_fix(
                 issues=[target_issue],
                 chapters_data=chapters_data,
                 project=project,
+                content_type=getattr(project, 'content_type', None) or 'novel',
                 db=db,
                 user_id=current_user.id
             )

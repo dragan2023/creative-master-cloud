@@ -61,7 +61,7 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
 
         try:
             # 检查是否为整章生成模式
-            direct_mode = context.extra.get("direct_mode", False)
+            direct_mode = context.extra.get("direct_mode", False) if isinstance(context.extra, dict) else False
 
             if direct_mode:
                 # 整章生成模式
@@ -85,42 +85,66 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
         Returns:
             AgentResult: 执行结果
         """
+        try:
+            # 🔴 防御：安全提取 context 字段
+            _config = context.config if isinstance(context.config, dict) else {}
+            _extra = context.extra if isinstance(context.extra, dict) else {}
+        except Exception as e:
+            self.logger.error(f"[整章生成] 上下文字段提取失败: {e!r}", exc_info=True)
+            return self._build_error_result(f"上下文字段异常: {str(e)[:200]}")
+
         # 提取单元信息
-        content_type = context.config.get("content_type", "novel") if isinstance(context.config, dict) else "novel"
+        content_type = _config.get("content_type", "novel")
         _unit_label_map = {"novel": "章", "series_script": "集", "movie_script": "场", "script": "场"}
         unit_label = _unit_label_map.get(content_type, "章")
         default_title = f"未命名{unit_label}节"
-        unit_title = context.extra.get("unit_title", default_title) if isinstance(context.extra, dict) else default_title
-        unit_summary = context.extra.get("unit_summary", "") if isinstance(context.extra, dict) else ""
+        unit_title = _extra.get("unit_title", default_title)
+        unit_summary = _extra.get("unit_summary", "")
 
         # 字数配置
-        target_words = context.config.get("words_per_scene", 3000) if isinstance(context.config, dict) else 3000
+        target_words = _config.get("words_per_scene", 3000)
 
         self.logger.info(
             f"[整{unit_label}生成] 开始生成{unit_label}节内容 - 标题: {unit_title}, "
             f"目标字数: {target_words}, 模式: 全局大纲+单元概述"
         )
 
-        system_prompt = self._build_direct_writer_system_prompt(context)
+        # 阶段1: 构建系统提示词
+        try:
+            system_prompt = self._build_direct_writer_system_prompt(context)
+        except Exception as e:
+            self.logger.error(f"[整{unit_label}生成] 构建系统提示词失败: {e!r}", exc_info=True)
+            self._log_context_types(context, f"[整{unit_label}生成] 上下文诊断")
+            return self._build_error_result(f"构建系统提示词失败: {str(e)[:200]}")
 
-        user_prompt = self._build_direct_writer_user_prompt(
-            unit_title=unit_title,
-            unit_summary=unit_summary,
-            previous_content=context.previous_content,
-            global_context=context.global_context,
-            target_words=target_words,
-            context=context
-        )
+        # 阶段2: 构建用户提示词
+        try:
+            user_prompt = self._build_direct_writer_user_prompt(
+                unit_title=unit_title,
+                unit_summary=unit_summary,
+                previous_content=context.previous_content,
+                global_context=context.global_context,
+                target_words=target_words,
+                context=context
+            )
+        except Exception as e:
+            self.logger.error(f"[整{unit_label}生成] 构建用户提示词失败: {e!r}", exc_info=True)
+            self._log_context_types(context, f"[整{unit_label}生成] 上下文诊断")
+            return self._build_error_result(f"构建用户提示词失败: {str(e)[:200]}")
 
-        # 调用LLM生成内容
-        response = await self.call_llm(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            task_id=context.task_id,
-            scene_id=f"{context.unit_index}_direct"
-        )
+        # 阶段3: 调用LLM生成内容
+        try:
+            response = await self.call_llm(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                task_id=context.task_id,
+                scene_id=f"{context.unit_index}_direct"
+            )
+        except Exception as e:
+            self.logger.error(f"[整{unit_label}生成] LLM调用失败: {e!r}", exc_info=True)
+            return self._build_error_result(f"LLM调用失败: {str(e)[:200]}")
 
         # [防御] 确保 response 是 dict 类型
         if not isinstance(response, dict):
@@ -131,13 +155,21 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
         content = response.get("content", "")
 
         # 清理内容
-        content = self._clean_content(content)
+        try:
+            content = self._clean_content(content)
+        except Exception as e:
+            self.logger.error(f"[整{unit_label}生成] 内容清理失败: {e!r}", exc_info=True)
+            return self._build_error_result(f"内容清理失败: {str(e)[:200]}")
 
         # 计算字数
         word_count = len(content)
 
         # 生成摘要
-        summary = await self._generate_summary(content, unit_title)
+        try:
+            summary = await self._generate_summary(content, unit_title)
+        except Exception as e:
+            self.logger.error(f"[整{unit_label}生成] 摘要生成失败: {e!r}", exc_info=True)
+            summary = ""
 
         # 计算耗时
         duration_ms = int((time.time() - start_time) * 1000)
@@ -160,3 +192,18 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
             word_count=word_count,
             scene_title=unit_title
         )
+
+    @staticmethod
+    def _log_context_types(context, prefix="上下文诊断"):
+        """记录上下文字段的类型信息，用于错误诊断"""
+        try:
+            fields = ["config", "extra", "style_guide", "outline", "character_profiles",
+                      "world_settings", "previous_content", "global_context"]
+            parts = []
+            for f in fields:
+                val = getattr(context, f, None)
+                parts.append(f"{f}={type(val).__name__}")
+            logger = get_logger("agent.writer")
+            logger.error(f"{prefix}: {', '.join(parts)}")
+        except Exception:
+            pass

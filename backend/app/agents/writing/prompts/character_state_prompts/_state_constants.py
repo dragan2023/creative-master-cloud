@@ -24,6 +24,7 @@ SCRIPT_STATE_DIMENSIONS = [
     "称呼变化",
     "台词风格",
     "情感变化",
+    "视觉呈现一致性",
     "其他变化"
 ]
 
@@ -63,5 +64,9 @@ VISUAL_PRESENTATION_GUIDE = {
     "emotion": {
         "novel": "通过心理描写、行为反应呈现",
         "script": "通过表情、肢体语言、镜头语言呈现"
+    },
+    "visual_consistency": {
+        "novel": "（不适用）",
+        "script": "通过服装连续性、场景道具一致性、外貌特征稳定性呈现"
     }
 }

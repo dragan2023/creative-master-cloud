@@ -48,23 +48,64 @@ export function useAgentPipeline(writingStore, taskFormRef) {
   });
 
   // Agent流水线状态
+  // 后端通过 workflow_step 消息（type="workflow_step"，含 agent_name + status 字段）
+  // 来推送各Agent的运行状态。task_progress 消息也可能携带 agent_name。
   const agentPipeline = computed(() => {
     const messages = writingStore.progressMessages;
+    const isRunning = writingStore.isRunning;
+    const isCompleted = writingStore.isCompleted;
+
     const pipeline = agentConfigs.map((agent) => {
-      // 查找该Agent的最新消息
+      // 查找该Agent的相关消息（优先 workflow_step，其次 task_progress 带agent_name的消息）
       const agentMsgs = messages.filter(
         (m) =>
+          (m.type === "workflow_step" && m.data?.agent_name?.includes(agent.label)) ||
+          (m.type === "task_progress" && m.agent_name?.includes(agent.label)) ||
           m.data?.agent_role === agent.role ||
           m.data?.agent_name?.includes(agent.label),
       );
-      const latestMsg = agentMsgs[0];
+      // 取最后一条消息（最新状态），消息通过 push 追加到数组末尾
+      const latestMsg = agentMsgs.length > 0 ? agentMsgs[agentMsgs.length - 1] : null;
 
       let status = "waiting";
       let statusLabel = "等待中";
       let statusType = "info";
 
       if (latestMsg) {
-        if (
+        // workflow_step 消息：status 为 "running" | "done" | "error"
+        if (latestMsg.type === "workflow_step") {
+          if (latestMsg.data?.status === "done") {
+            status = "completed";
+            statusLabel = "已完成";
+            statusType = "success";
+          } else if (latestMsg.data?.status === "error") {
+            status = "error";
+            statusLabel = "失败";
+            statusType = "danger";
+          } else if (latestMsg.data?.status === "running") {
+            status = "running";
+            statusLabel = "运行中";
+            statusType = "primary";
+          }
+        }
+        // task_progress 消息携带 agent_name 时，使用其 status 字段
+        else if (latestMsg.type === "task_progress" && latestMsg.agent_name) {
+          if (latestMsg.status === "completed" || latestMsg.status === "done") {
+            status = "completed";
+            statusLabel = "已完成";
+            statusType = "success";
+          } else if (latestMsg.status === "failed" || latestMsg.status === "error") {
+            status = "error";
+            statusLabel = "失败";
+            statusType = "danger";
+          } else if (latestMsg.status === "started" || latestMsg.status === "processing") {
+            status = "running";
+            statusLabel = "运行中";
+            statusType = "primary";
+          }
+        }
+        // 兼容旧的 agent_complete / agent_error / agent_start 类型（如果后端未来恢复）
+        else if (
           latestMsg.type === "agent_complete" ||
           latestMsg.type === "unit_complete"
         ) {
@@ -83,10 +124,15 @@ export function useAgentPipeline(writingStore, taskFormRef) {
           statusLabel = "运行中";
           statusType = "primary";
         }
+      } else if (isRunning) {
+        // 任务运行中，但该Agent尚未收到任何消息 → 等待调度
+        status = "waiting";
+        statusLabel = "等待中";
+        statusType = "info";
       }
 
       // 如果任务已完成，所有Agent都标记为完成
-      if (writingStore.isCompleted) {
+      if (isCompleted) {
         status = "completed";
         statusLabel = "已完成";
         statusType = "success";

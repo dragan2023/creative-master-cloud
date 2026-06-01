@@ -38,7 +38,9 @@ class ExportToDictMixin:
                 }
                 for r in self._relationship_history
             ],
-            "known_locations": list(self._known_locations)
+            "known_locations": list(self._known_locations),
+            # 🆕 伏笔追踪数据（跨会话持久化）
+            "foreshadowing_items": getattr(self, '_foreshadowing_items', {}),
         }
 
 

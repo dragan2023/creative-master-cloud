@@ -185,6 +185,67 @@
       </div>
     </div>
 
+    <!-- DeepSeek 思考模式 -->
+    <el-divider content-position="left">
+      <el-icon><Cpu /></el-icon>
+      <span style="margin-left: 6px">DeepSeek 思考模式</span>
+    </el-divider>
+
+    <div class="thinking-mode-section">
+      <div class="section-header">
+        <span class="section-title">启用思考模式</span>
+        <el-switch
+          :model-value="thinkingModeEnabled"
+          @update:model-value="$emit('update:thinkingModeEnabled', $event)"
+          @change="$emit('thinking-mode-change', $event)"
+        />
+      </div>
+      <p class="section-desc">
+        启用后 DeepSeek V4 Pro/Flash 模型在回答前会进行深度推理，提升复杂任务准确性。
+        启用后自动禁用 temperature 参数。
+      </p>
+
+      <div class="thinking-config" v-if="thinkingModeEnabled">
+        <div class="effort-setting">
+          <span class="effort-label">思考强度</span>
+          <el-radio-group
+            :model-value="thinkingReasoningEffort"
+            @update:model-value="$emit('update:thinkingReasoningEffort', $event)"
+            size="small"
+          >
+            <el-radio value="high">high（推荐）</el-radio>
+            <el-radio value="max">max（最强）</el-radio>
+          </el-radio-group>
+        </div>
+
+        <div class="save-dir-setting">
+          <span class="dir-label">保存目录</span>
+          <el-input
+            :model-value="thinkingSaveDir"
+            @update:model-value="$emit('update:thinkingSaveDir', $event)"
+            placeholder="./data/thinking_logs"
+            size="small"
+            style="max-width: 300px"
+          />
+          <el-text type="info" size="small">思考过程日志保存路径</el-text>
+        </div>
+
+        <el-alert
+          title="提示"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-top: 12px"
+        >
+          <template #default>
+            <span style="font-size: 12px">
+              思考过程不会在前端显示，仅保存到文件。响应时间增加30%-100%，Token消耗增加。
+            </span>
+          </template>
+        </el-alert>
+      </div>
+    </div>
+
     <!-- 模型配置入口 -->
     <el-divider />
     <div class="settings-model-config">
@@ -204,7 +265,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Edit, Document, Upload, Setting } from '@element-plus/icons-vue'
+import { Edit, Document, Upload, Setting, Cpu } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps({
@@ -265,6 +326,19 @@ const props = defineProps({
   scriptStyleIntensity: {
     type: Number,
     default: 0.7
+  },
+  // DeepSeek 思考模式
+  thinkingModeEnabled: {
+    type: Boolean,
+    default: false
+  },
+  thinkingReasoningEffort: {
+    type: String,
+    default: 'high'
+  },
+  thinkingSaveDir: {
+    type: String,
+    default: './data/thinking_logs'
   }
 })
 
@@ -282,7 +356,12 @@ const emit = defineEmits([
   'elimination-change',
   'threshold-change',
   'upload-success',
-  'upload-error'
+  'upload-error',
+  // DeepSeek 思考模式
+  'update:thinkingModeEnabled',
+  'update:thinkingReasoningEffort',
+  'update:thinkingSaveDir',
+  'thinking-mode-change'
 ])
 
 const contentTypeLabel = computed(() => {
@@ -469,6 +548,62 @@ function handleUploadError(error) {
     .el-icon {
       font-size: 18px;
       color: #409eff;
+    }
+  }
+}
+
+.thinking-mode-section {
+  padding: 0 4px;
+
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+
+    .section-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: #303133;
+    }
+  }
+
+  .section-desc {
+    font-size: 12px;
+    color: #909399;
+    margin: 0 0 16px 0;
+    line-height: 1.5;
+  }
+
+  .thinking-config {
+    padding: 16px;
+    background: #f5f7fa;
+    border-radius: 8px;
+
+    .effort-setting {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+
+      .effort-label {
+        font-size: 13px;
+        color: #606266;
+        min-width: 70px;
+      }
+    }
+
+    .save-dir-setting {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+
+      .dir-label {
+        font-size: 13px;
+        color: #606266;
+        min-width: 70px;
+      }
     }
   }
 }

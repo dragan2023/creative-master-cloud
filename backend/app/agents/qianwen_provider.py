@@ -106,9 +106,13 @@ class QianwenProvider(BaseLLMProvider):
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
+        module_name: str = "unknown",
         **kwargs
     ) -> LLMResponse:
         """生成文本（支持多模态：文本、图片）"""
+
+        # 弹出 module_name 避免透传到 DashScope SDK
+        kwargs.pop("module_name", None)
 
         # 如果有图片且模型支持视觉，使用多模态API（千问不支持视频）
         if images and self._supports_vision():
@@ -204,9 +208,13 @@ class QianwenProvider(BaseLLMProvider):
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
+        module_name: str = "unknown",
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式生成文本（支持多模态：文本、图片）"""
+
+        # 弹出 module_name 避免透传到 DashScope SDK
+        kwargs.pop("module_name", None)
 
         # 多模态暂不支持流式，降级为普通模式（千问不支持视频）
         if images and self._supports_vision():

@@ -6,8 +6,8 @@
 - 场景图：Gemini (Nano Banana 2) / 豆包 AI 绘图
 - 视频：Seedance 2.0 / Veo
 
-@date: 2026-05-06
-@version: v1.0.0
+@date: 2026-05-19
+@version: v2.0.0 — 全面中文化：所有视觉资源提示词使用中文输出格式
 """
 
 # ============================================================================
@@ -35,18 +35,18 @@ STORYBOARD_TEMPLATE = """## 分镜设计表
 
 IMAGE_PROMPT_INTRO = """## 🎬 AI场景图生成提示词
 
-基于以上剧本内容，为以下关键场景生成AI图片提示词。
+基于以上剧本内容，为以下关键场景生成AI图片提示词。**所有提示词必须使用中文输出。**
 
 ### 提示词构建指南
 
 #### Gemini (Nano Banana 2) 最佳实践
-公式：`[Subject] + [Action] + [Location/Context] + [Composition] + [Style]`
+公式：`[主体描述] + [动作姿态] + [地点环境] + [构图方式] + [风格标签]`
 
-- **Subject（主体）**：角色的外貌、服装、姿态、表情
-- **Action（动作）**：角色正在做什么，动作的状态
-- **Location/Context（地点/背景）**：场景环境、时间、天气、氛围
-- **Composition（构图）**：景别（close-up/medium/wide）、角度（low angle/high angle/eye level）
-- **Style（风格）**：photorealistic / cinematic / oil painting / anime / 3D render
+- **主体描述**：角色的外貌、服装、姿态、表情（中文描述）
+- **动作姿态**：角色正在做什么，动作的状态（中文描述）
+- **地点环境**：场景环境、时间、天气、氛围（中文描述）
+- **构图方式**：景别（特写/近景/中景/全景/远景）、角度（低角度/高角度/平视）
+- **风格标签**：写实/电影级/油画/动漫/3D渲染 等
 
 #### 豆包 AI 绘图 最佳实践
 公式：`主体描述 + 环境 + 光线 + 风格 + 质量标签`
@@ -58,21 +58,21 @@ IMAGE_PROMPT_INTRO = """## 🎬 AI场景图生成提示词
 - **质量标签**：高质量、精细、{aspect_ratio}比例
 """
 
-GEMINI_IMAGE_PROMPT_FORMAT = """### Gemini Prompt（场景{scene_number}：{scene_name}）
+GEMINI_IMAGE_PROMPT_FORMAT = """### Gemini提示词（场景{scene_number}：{scene_name}）
 ```
-{subject} {action} at {location}, {composition}, {style}, cinematic lighting, photorealistic
+{subject}，{action}，位于{location}，{composition}，{style}，电影级布光，写实质感
 ```"""
 
-DOUBAO_IMAGE_PROMPT_FORMAT = """### 豆包 Prompt（场景{scene_number}：{scene_name}）
+DOUBAO_IMAGE_PROMPT_FORMAT = """### 豆包提示词（场景{scene_number}：{scene_name}）
 ```
-{subject_desc}，{environment}，{lighting}，{style}风格，高质量，{aspect_ratio}
+{subject_desc}，{environment}，{lighting}，{style}风格，高质量，精细刻画，{aspect_ratio}
 ```"""
 
 IMAGE_PROMPT_EXAMPLE = """### 示例
 
 **场景：黄昏决斗**
-- Gemini：`A middle-aged warrior in worn leather armor stands at the edge of a cliff at sunset, wide shot with dramatic backlighting, golden hour lighting, cinematic composition, photorealistic, 8K`
-- 豆包：`中年战士穿着破损皮甲站在悬崖边缘，夕阳逆光，金色光线洒落，远处有山峦剪影，黄昏天空云层绚丽，电影写实风格，高质量，16:9`"""
+- Gemini提示词：`中年战士身着磨损皮甲，立于悬崖边缘，黄昏时分，广角远景，戏剧性逆光构图，金色时光布光，电影级构图，写实质感，8K`
+- 豆包提示词：`中年战士穿着破损皮甲站在悬崖边缘，夕阳逆光，金色光线洒落，远处有山峦剪影，黄昏天空云层绚丽，电影写实风格，高质量，16:9`"""
 
 # ============================================================================
 # 视频生成提示词模板（Seedance 2.0 / Veo）
@@ -80,19 +80,25 @@ IMAGE_PROMPT_EXAMPLE = """### 示例
 
 VIDEO_PROMPT_INTRO = """## 🎥 AI视频生成提示词
 
-基于以上分镜设计，为每个镜头生成AI视频提示词。
+基于以上分镜设计，为每个镜头生成AI视频提示词。**所有提示词必须使用中文输出。**
 
 ### 提示词构建指南
 
-#### Seedance 2.0 最佳实践（6步公式）
+#### Seedance 2.0 最佳实践（核心公式）
+基于火山引擎官方指南，Seedance 2.0 提示词核心公式：
 ```
-[镜头类型]：[描述景别和运动方式]
-[主体]：[描述角色外貌、服装、状态]
-[动作]：[精确描述动作和运动轨迹]
-[环境]：[场景环境、天气、时间]
-[风格]：[视觉风格、色调、氛围]
-[运镜]：[摄像机运动方式]
-[负面提示词]：[不希望出现的元素]
+素材角色指定 → 动作/剧情描述 → 镜头语言 → 氛围/音效指令
+```
+
+详细字段（6步公式）：
+```
+[镜头类型]：描述景别和运动方式
+[主体]：描述角色外貌、服装、状态
+[动作]：精确描述动作和运动轨迹
+[环境]：场景环境、天气、时间
+[风格]：视觉风格、色调、氛围
+[运镜]：摄像机运动方式
+[负面提示词]：不希望出现的元素
 ```
 
 #### Veo 最佳实践（管道符分隔格式）
@@ -104,12 +110,12 @@ VIDEO_PROMPT_INTRO = """## 🎥 AI视频生成提示词
 
 ### 关键注意事项
 - Seedance 2.0 支持首帧/尾帧描述，可用于控制运动起止状态
-- Veo 使用管道符 `|` 分隔不同维度，每个维度保持简洁
+- Seedance 2.0 全能参考模式：可组合输入文本+图片+视频+音频，精准理解多模态输入
 - 动作描述要精确到位，避免"走来走去"等模糊表达
-- 负面提示词用于排除不希望出现的元素（如：模糊、抖动、变形）
+- 负面提示词用于排除不希望出现的元素（如：模糊、抖动、变形、水印）
 """
 
-SEEDANCE_VIDEO_PROMPT_FORMAT = """### Seedance 2.0 Prompt（镜头{shot_number}）
+SEEDANCE_VIDEO_PROMPT_FORMAT = """### Seedance 2.0 提示词（镜头{shot_number}）
 ```
 [镜头类型]：{shot_type}
 [主体]：{subject}
@@ -120,7 +126,7 @@ SEEDANCE_VIDEO_PROMPT_FORMAT = """### Seedance 2.0 Prompt（镜头{shot_number}�
 [负面提示词]：{negative_prompt}
 ```"""
 
-VEO_VIDEO_PROMPT_FORMAT = """### Veo Prompt（镜头{shot_number}）
+VEO_VIDEO_PROMPT_FORMAT = """### Veo 提示词（镜头{shot_number}）
 ```
 [主体]：{subject} | [动作]：{action} | [场景]：{environment}
 [运镜]：{camera} | [风格]：{style} | [音频]：{audio}
@@ -166,15 +172,17 @@ SEEDANCE_COMPREHENSIVE_REFERENCE_INTRO = """## 🎬 Seedance 2.0 全能参考模
 ### 1. 参考图生成提示词
 请根据剧本内容，为每个人物、场景、物品生成可直接用于 AI 图像工具（Gemini / DALL·E / 豆包）的提示词。
 - **关键要求**：提示词必须具体、可操作、无需二次加工。每个提示词应包含完整的外观描述、环境细节、光影氛围和风格标签。
+- **语言要求**：所有提示词必须使用中文输出，使用中文视觉描述术语（如"特写""广角""逆光""电影级质感"等）。
 - **知识补充**：如需确定特定历史时期服饰、建筑风格、器物形制等视觉细节，请根据你的知识库进行精确推理。若有不确定的历史/文化细节，请在提示词中使用通用的视觉描述而非编造专有名词。
 
 ### 2. 视频生成提示词
 基于上述已生成的参考图，为每个关键镜头提供 Seedance 2.0 全能参考模式的视频生成提示词。
 - **12字段完整性**：每个视频提示词必须包含全部12个字段，不可遗漏。
 - **参考图引用**：在视频提示词中明确引用对应的人物参考图、场景参考图和物品参考图名称。
+- **语言要求**：所有12个字段内容必须使用中文输出（角色名/场景名/物品名保留中文原名）。
 
 ### 3. 输出质量要求
-- 所有提示词必须使用英文专业视觉术语（角色名/场景名/物品名可保留中文）
+- 所有提示词必须使用中文专业视觉术语输出
 - 视频提示词遵循 Seedance 2.0 官方格式规范
 - 风格标签需与已选的创作风格维度保持一致
 - 如需补充特定知识以提升提示词质量，请积极利用你的知识储备进行推理和补充
@@ -188,32 +196,32 @@ SEEDANCE_CHARACTER_REF_PROMPT_FORMAT = """#### 人物参考图：{character_name
 - **外貌特征**：{appearance}
 - **服装风格**：{costume}
 - **表情气质**：{expression}
-- **图像生成提示词**（请LLM根据以上人物信息，生成可直接用于 Gemini / DALL·E / 豆包 的英文/中文混合提示词）：
+- **图像生成提示词**（请根据以上人物信息，生成可直接用于 Gemini / DALL·E / 豆包 的中文提示词）：
 ```
-[角色名] character concept art, {subject_desc}, {costume_desc}, {pose_desc}, {lighting}, {style} style, portrait, high quality, character design sheet, {aspect_ratio}
+{character_name}角色概念图，{subject_desc}，{costume_desc}，{pose_desc}，{lighting}，{style}风格，人物肖像，高质量，角色设定图，{aspect_ratio}
 ```
-> 请LLM将上述模板中的占位符替换为剧本中具体的人物描写，确保提示词能准确还原角色的视觉形象。"""
+> 请将上述模板中的占位符替换为剧本中具体的人物描写（使用中文），确保提示词能准确还原角色的视觉形象。"""
 
 # 场景参考图提示词模板（指令式：请LLM根据剧本场景描述生成完整提示词）
 SEEDANCE_SCENE_REF_PROMPT_FORMAT = """#### 场景参考图：{scene_name}
 - **场景类型**：{scene_type}（日/夜景，室内/室外）
 - **场景氛围**：{atmosphere}
 - **关键元素**：{key_elements}
-- **图像生成提示词**（请LLM根据以上场景信息，生成可直接用于 Gemini / DALL·E / 豆包 的英文/中文混合提示词）：
+- **图像生成提示词**（请根据以上场景信息，生成可直接用于 Gemini / DALL·E / 豆包 的中文提示词）：
 ```
-[场景名] environment concept art, {location_desc}, {time_weather}, {atmosphere_desc}, {composition}, {style} style, cinematic, high quality, {aspect_ratio}
+{scene_name}场景概念图，{location_desc}，{time_weather}，{atmosphere_desc}，{composition}，{style}风格，电影级质感，高质量，{aspect_ratio}
 ```
-> 请LLM将上述模板中的占位符替换为剧本中具体的场景描写，构图建议使用电影级术语（wide shot / medium shot / close-up / low angle 等）。"""
+> 请将上述模板中的占位符替换为剧本中具体的场景描写（使用中文），构图使用中文电影术语（广角全景 / 中景 / 特写 / 低角度 / 俯拍 等）。"""
 
 # 物品参考图提示词模板（指令式：请LLM根据剧本文本中的道具描述生成完整提示词）
 SEEDANCE_PROP_REF_PROMPT_FORMAT = """#### 物品参考图：{prop_name}
 - **物品描述**：{prop_description}
 - **物品意义**：{prop_significance}
-- **图像生成提示词**（请LLM根据以上道具信息，生成可直接用于 Gemini / DALL·E / 豆包 的英文/中文混合提示词）：
+- **图像生成提示词**（请根据以上道具信息，生成可直接用于 Gemini / DALL·E / 豆包 的中文提示词）：
 ```
-[道具名] prop concept art, {prop_desc}, {material}, {lighting}, {style} style, product photography, high quality, white background, {aspect_ratio}
+{prop_name}道具概念图，{prop_desc}，{material}，{lighting}，{style}风格，产品摄影，高质量，白底图，{aspect_ratio}
 ```
-> 请LLM将上述模板中的占位符替换为剧本文本中具体的道具描写，材质光影描述尽可能具体（如：磨砂金属、抛光玉石、做旧皮革等）。"""
+> 请将上述模板中的占位符替换为剧本文本中具体的道具描写（使用中文），材质光影描述尽可能具体（如：磨砂金属、抛光玉石、做旧皮革等）。"""
 
 # 基于参考图的视频生成提示词模板（指令式：请LLM根据剧本镜头设计生成完整12字段提示词）
 SEEDANCE_VIDEO_FROM_REF_FORMAT = """#### Seedance 2.0 视频生成：{shot_name}
@@ -221,7 +229,7 @@ SEEDANCE_VIDEO_FROM_REF_FORMAT = """#### Seedance 2.0 视频生成：{shot_name}
   - 人物参考：{character_refs}
   - 场景参考：{scene_ref}
   - 物品参考：{prop_refs}
-- **Seedance 2.0 全能参考模式视频生成提示词**（请LLM根据剧本中的具体镜头设计，填写以下12字段）：
+- **Seedance 2.0 全能参考模式视频生成提示词**（请根据剧本中的具体镜头设计，用中文填写以下12字段）：
 ```
 [参考模式]：全能参考
 [人物参考图]：{character_refs}
@@ -236,41 +244,42 @@ SEEDANCE_VIDEO_FROM_REF_FORMAT = """#### Seedance 2.0 视频生成：{shot_name}
 [尾帧描述]：{last_frame}
 [负面提示词]：{negative_prompt}
 ```
-> 请LLM确保12字段全部填写完整，首帧/尾帧描述要形成清晰的视觉起止点，运镜方式描述要具体（如：从全景缓慢推至中景，同时向右横摇45度）。"""
+> 请确保12字段全部用中文填写完整，首帧/尾帧描述要形成清晰的视觉起止点，运镜方式描述要具体（如：从全景缓慢推至中景，同时向右横摇45度）。"""
 
 # 全能参考模式聚合模板（指令式引导版）
 SEEDANCE_COMPREHENSIVE_TEMPLATE = """{reference_intro}
 
 ### 一、人物参考图生成提示词
-请LLM根据当前单元剧本中出场的每位主要角色，按以下要求生成角色概念图提示词：
+请根据当前单元剧本中出场的每位主要角色，按以下要求生成角色概念图提示词：
 - 每位角色1-3张（正面全身、半身特写、动态姿势各一张）
 - 提示词需包含：外貌特征、服装风格、姿态动作、光影氛围、风格标签、画幅比例
-- 使用英文专业术语（角色名可保留中文），确保可直接用于AI图像工具
+- **使用中文输出**，使用中文视觉描述术语，确保可直接用于AI图像工具
 
 {character_refs_section}
 
 ### 二、场景参考图生成提示词
-请LLM根据当前单元剧本中的每个关键场景，按以下要求生成场景概念图提示词：
+请根据当前单元剧本中的每个关键场景，按以下要求生成场景概念图提示词：
 - 每个场景1-2张（广角全景 + 局部特写各一张）
 - 提示词需包含：地点描述、时间/天气、氛围基调、电影级构图术语、风格标签、画幅比例
-- 构图描述使用英文电影术语（wide shot / medium shot / close-up / dutch angle 等）
+- **使用中文输出**，构图使用中文电影术语（广角全景 / 中景 / 特写 / 低角度 / 俯拍 / 跟拍 等）
 
 {scene_refs_section}
 
 ### 三、物品参考图生成提示词
-请LLM根据当前单元剧本中出现的重要道具/物品，按以下要求生成道具概念图提示词：
+请根据当前单元剧本中出现的重要道具/物品，按以下要求生成道具概念图提示词：
 - 每个物品1张，白底产品图风格
 - 提示词需包含：外观描述、材质质感、光影、风格标签、画幅比例
-- 材质描述具体化（如：磨砂金属、抛光玉石、做旧皮革等）
+- 材质描述具体化（如：磨砂金属、抛光玉石、做旧皮革等），**使用中文输出**
 
 {prop_refs_section}
 
 ### 四、基于参考图的视频生成提示词（Seedance 2.0 全能参考模式）
-请LLM基于上述已生成的参考图，为当前单元的每个关键镜头生成 Seedance 2.0 全能参考模式的12字段视频提示词：
+请基于上述已生成的参考图，为当前单元的每个关键镜头生成 Seedance 2.0 全能参考模式的12字段视频提示词：
 - 明确引用对应的人物/场景/物品参考图名称
 - 每个镜头包含首帧/尾帧描述，形成清晰的视觉起止点
 - 运镜方式具体描述（推拉摇移跟升降的具体参数）
 - 动作描述精确到位，避免模糊表达
+- **所有12个字段内容必须使用中文输出**
 
 {video_refs_section}
 

@@ -564,6 +564,9 @@ onMounted(async () => {
   await loadProject()
   await loadChapters()
 
+  // 加载知识库状态（页面初始化时主动查询后端真实状态）
+  await loadKnowledgeBaseStatus()
+
   // 加载完成后启动SSE连接或轮询
   startTaskMonitoring()
 })

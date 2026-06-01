@@ -117,6 +117,47 @@
           </el-button>
         </div>
 
+        <!-- 单元内容显示区域（v3.1新增 - 默认显示QC修正稿） -->
+        <div
+          v-if="hasUnitContent(unit)"
+          class="unit-content-area"
+        >
+          <div class="unit-content-header">
+            <span class="content-version-tag">
+              <el-tag v-if="isShowingFixedVersion(unit)" type="success" size="small" effect="plain">
+                <el-icon><CircleCheckFilled /></el-icon>修正稿
+              </el-tag>
+              <el-tag v-else type="info" size="small" effect="plain">初稿</el-tag>
+            </span>
+            <span class="content-word-count" v-if="getDisplayContent(unit)">
+              {{ getDisplayContent(unit).length }} 字
+            </span>
+            <div class="content-actions">
+              <el-button v-if="!isEditingUnit(unit.unit_index)" type="primary" size="small" plain @click.stop="startEditUnit(unit)">
+                <el-icon><Edit /></el-icon> 编辑内容
+              </el-button>
+              <template v-else>
+                <el-button type="success" size="small" @click.stop="saveUnitEdit(unit)" :loading="savingEdits[unit.unit_index]">
+                  <el-icon><Check /></el-icon> 保存修改
+                </el-button>
+                <el-button size="small" @click.stop="cancelUnitEdit(unit)">
+                  <el-icon><Close /></el-icon> 取消
+                </el-button>
+              </template>
+            </div>
+          </div>
+          <div class="unit-content-body">
+            <el-input
+              v-if="isEditingUnit(unit.unit_index)"
+              v-model="editContents[unit.unit_index]"
+              type="textarea"
+              :rows="15"
+              placeholder="请输入单元内容..."
+            />
+            <div v-else class="content-preview markdown-content" v-html="renderMarkdown(getDisplayContent(unit))"></div>
+          </div>
+        </div>
+
         <!-- 场景列表 -->
         <div
           class="scenes-list"
@@ -162,7 +203,7 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { ref, computed } from "vue";
 import {
   List,
   Connection,
@@ -171,11 +212,20 @@ import {
   CircleCheck,
   CircleCheckFilled,
   Loading,
+  Edit,
+  Check,
+  Close,
 } from "@element-plus/icons-vue";
+import { marked } from "marked";
 import {
   getSceneStatusType,
   getSceneStatusLabel,
 } from "../utils/contentHelpers";
+import { novelWriterApi } from "@/api/novel-writer";
+import { ElMessage } from "element-plus";
+import { useWritingTaskStore } from "@/stores/writingTask";
+
+const writingStore = useWritingTaskStore();
 
 const props = defineProps({
   displayUnits: { type: Array, default: () => [] },
@@ -194,12 +244,118 @@ const emit = defineEmits([
   "show-consistency-report",
   "show-quality-control",
   "show-unit-qc",
+  "unit-content-updated",
 ]);
 
 const collapseModel = computed({
   get: () => props.activeUnits,
   set: (val) => emit("update:activeUnits", val),
 });
+
+// ==================== 内容编辑状态 ====================
+const editingUnitIndex = ref(null);
+const editContents = ref({});
+const savingEdits = ref({});
+
+function isEditingUnit(unitIndex) {
+  return editingUnitIndex.value === unitIndex;
+}
+
+function startEditUnit(unit) {
+  editingUnitIndex.value = unit.unit_index;
+  editContents.value[unit.unit_index] = getDisplayContent(unit);
+}
+
+function cancelUnitEdit(unit) {
+  editingUnitIndex.value = null;
+  delete editContents.value[unit.unit_index];
+}
+
+async function saveUnitEdit(unit) {
+  const newContent = editContents.value[unit.unit_index];
+  if (!newContent || newContent.trim() === '') {
+    ElMessage.warning('内容不能为空');
+    return;
+  }
+
+  const projectId = writingStore.currentTask?.project_id;
+  if (!projectId) {
+    ElMessage.error('无法获取项目ID，请刷新页面后重试');
+    return;
+  }
+
+  savingEdits.value[unit.unit_index] = true;
+  try {
+    await novelWriterApi.updateUnitContent({
+      unit_index: unit.unit_index,
+      content: newContent,
+      project_id: projectId
+    });
+
+    // 本地立即更新 unit 内容
+    unit.final_content = newContent;
+    unit.word_count = newContent.length;
+
+    // 同步更新 quality_control 中的修正稿
+    if (unit.quality_control) {
+      unit.quality_control.content_after_qc_fix = newContent;
+      unit.quality_control.fixed_content = newContent;
+    }
+
+    ElMessage.success('内容已保存');
+    editingUnitIndex.value = null;
+    delete editContents.value[unit.unit_index];
+
+    emit('unit-content-updated', {
+      unit_index: unit.unit_index,
+      content: newContent
+    });
+  } catch (error) {
+    console.error('[UnitListPanel] 保存内容失败:', error);
+    ElMessage.error('保存失败: ' + (error.message || '未知错误'));
+  } finally {
+    savingEdits.value[unit.unit_index] = false;
+  }
+}
+
+// ==================== 内容显示逻辑 ====================
+
+/**
+ * 获取单元展示内容
+ * 优先级：content_after_qc_fix (修正稿) > fixed_content > final_content
+ */
+function getDisplayContent(unit) {
+  if (!unit) return '';
+  const qc = unit.quality_control;
+  if (qc) {
+    // 优先显示QC修正稿
+    if (qc.content_after_qc_fix) return qc.content_after_qc_fix;
+    if (qc.fixed_content) return qc.fixed_content;
+  }
+  // 回退到 final_content
+  return unit.final_content || '';
+}
+
+/** 判断是否有内容可显示 */
+function hasUnitContent(unit) {
+  return !!getDisplayContent(unit);
+}
+
+/** 判断当前显示的是否为修正稿 */
+function isShowingFixedVersion(unit) {
+  const qc = unit.quality_control;
+  return !!(qc && (qc.content_after_qc_fix || qc.fixed_content));
+}
+
+/** Markdown渲染 */
+function renderMarkdown(text) {
+  if (!text) return '';
+  try {
+    return marked.parse(text);
+  } catch {
+    return text;
+  }
+}
 
 function getScenes(unitIndex) {
   return props.scenes[unitIndex] || [];
@@ -339,6 +495,68 @@ function getQCStatusLabel(status) {
 
         .qc-fixed {
           color: #67c23a;
+        }
+      }
+    }
+
+    .unit-content-area {
+      margin-bottom: 12px;
+      border: 1px solid #e4e7ed;
+      border-radius: 8px;
+      overflow: hidden;
+
+      .unit-content-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        background: #fafafa;
+        border-bottom: 1px solid #ebeef5;
+
+        .content-version-tag {
+          flex-shrink: 0;
+        }
+
+        .content-word-count {
+          font-size: 12px;
+          color: #909399;
+          flex-shrink: 0;
+        }
+
+        .content-actions {
+          margin-left: auto;
+          display: flex;
+          gap: 8px;
+        }
+      }
+
+      .unit-content-body {
+        padding: 12px;
+
+        .content-preview {
+          max-height: 400px;
+          overflow-y: auto;
+          font-size: 14px;
+          line-height: 1.8;
+          color: #303133;
+          white-space: pre-wrap;
+          word-break: break-word;
+
+          :deep(p) {
+            margin-bottom: 8px;
+          }
+
+          :deep(h1), :deep(h2), :deep(h3),
+          :deep(h4), :deep(h5), :deep(h6) {
+            margin-top: 12px;
+            margin-bottom: 8px;
+            font-weight: 600;
+          }
+
+          :deep(ul), :deep(ol) {
+            padding-left: 20px;
+            margin-bottom: 8px;
+          }
         }
       }
     }

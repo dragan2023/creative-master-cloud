@@ -226,8 +226,11 @@ class AssemblerAgent(BaseWritingAgent):
         self.logger.info(f"开始合并单元 {context.unit_index} 的场景内容")
         
         try:
+            # 🔴 防御：安全提取 extra（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+            _ext = context.extra if isinstance(context.extra, dict) else {}
+
             # 1. 获取场景内容
-            scenes_content = context.extra.get("scenes_content", [])
+            scenes_content = _ext.get("scenes_content", [])
             
             if not scenes_content:
                 self.logger.warning(f"单元 {context.unit_index} 没有场景内容")
@@ -265,7 +268,7 @@ class AssemblerAgent(BaseWritingAgent):
                 duration_ms=duration_ms,
                 word_count=word_count,
                 scene_count=len(sorted_scenes),
-                unit_title=context.extra.get("unit_title", "")
+                unit_title=_ext.get("unit_title", "")
             )
             
         except Exception as e:
@@ -288,7 +291,7 @@ class AssemblerAgent(BaseWritingAgent):
         Returns:
             str: 合并后的完整内容
         """
-        unit_title = context.extra.get("unit_title", "")
+        unit_title = (context.extra if isinstance(context.extra, dict) else {}).get("unit_title", "")
         style_guide = context.style_guide or {}
         
         # 构建风格配置
@@ -341,7 +344,7 @@ class AssemblerAgent(BaseWritingAgent):
             messages = [
                 {"role": "system", "content": self.SYSTEM_PROMPT_TEMPLATE},
                 {"role": "user", "content": self.USER_PROMPT_TEMPLATE.format(
-                    unit_title=context.extra.get("unit_title", ""),
+                    unit_title=(context.extra if isinstance(context.extra, dict) else {}).get("unit_title", ""),
                     scenes_content=scenes_text,
                     style_guide=style_guide_text
                 )}

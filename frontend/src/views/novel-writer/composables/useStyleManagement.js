@@ -186,6 +186,20 @@ export function useStyleManagement(projectId, projectData) {
       _contentType.value = contentType
     }
 
+    // ==================== 恢复 AI文风消除 配置 ====================
+    // 从项目数据中恢复 ai_elimination_enabled 和 ai_elimination_threshold
+    // 注意：后端 getProject() 现在返回这两个字段（后端 schema 已添加）
+    if (projectDataValue.ai_elimination_enabled !== undefined && projectDataValue.ai_elimination_enabled !== null) {
+      aiEliminationEnabled.value = projectDataValue.ai_elimination_enabled
+    }
+    if (projectDataValue.ai_elimination_threshold !== undefined && projectDataValue.ai_elimination_threshold !== null) {
+      aiEliminationThreshold.value = projectDataValue.ai_elimination_threshold
+    }
+    console.log('[StyleMgmt] 从项目恢复AI文风消除配置:', {
+      enabled: aiEliminationEnabled.value,
+      threshold: aiEliminationThreshold.value
+    })
+
     if (contentType === 'movie_script' || contentType === 'series_script') {
       // 恢复剧本风格配置
       const configKey = contentType === 'movie_script' ? 'movie_script_config' : 'series_script_config'

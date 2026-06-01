@@ -102,7 +102,7 @@ async def _start_pipeline(task_id: int, project_id: int, config: dict):
                             api_base=saved_config.api_base,
                             api_key=api_key,
                             temperature=role_config.get("temperature", 0.7),
-                            max_tokens=role_config.get("max_tokens", 4096),
+                            max_tokens=role_config.get("max_tokens", 32000),
                             config_id=saved_config.id  # 保存config_id用于续传
                         ))
                         configured_roles.append({
@@ -126,7 +126,7 @@ async def _start_pipeline(task_id: int, project_id: int, config: dict):
                         api_base=role_config.get("api_base"),
                         api_key=role_config.get("api_key"),
                         temperature=role_config.get("temperature", 0.7),
-                        max_tokens=role_config.get("max_tokens", 4096)
+                        max_tokens=role_config.get("max_tokens", 32000)
                     ))
                     configured_roles.append({
                         "role": role_str,
@@ -293,7 +293,7 @@ async def _continue_pipeline(task_id: int, start_from: int, unit_count: int):
                             api_base=cfg.get("api_base"),
                             api_key=cfg.get("api_key"),
                             temperature=cfg.get("temperature", 0.7),
-                            max_tokens=cfg.get("max_tokens", 4096)
+                            max_tokens=cfg.get("max_tokens", 32000)
                         ))
                     except Exception as e:
                         logger.warning(

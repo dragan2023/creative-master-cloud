@@ -8,6 +8,7 @@ LLM 管理器
 @contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional, Dict, Any, AsyncGenerator, List
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -19,7 +20,9 @@ from app.agents.google_provider import GoogleProvider
 from app.agents.doubao_provider import DoubaoProvider
 from app.core.config import get_settings, PRESET_MODELS
 from app.core.security import api_key_encryption
-from app.models import UserAPIKey
+from app.models import UserAPIKey, SystemConfig
+
+logger = logging.getLogger(__name__)
 
 
 class LLMManager:
@@ -152,17 +155,23 @@ class LLMManager:
                 api_key_config.encrypted_key)
         except Exception as e:
             # 解密失败（可能是 SECRET_KEY 变更），标记为无效并使用系统预置
-            self.logger.warning(f"API Key解密失败，将使用系统预置: {e!r}")
+            logger.warning(f"API Key解密失败，将使用系统预置: {e!r}")
             api_key_config.is_valid = False
             await db.commit()
             # 尝试使用系统预置 API Key
             return await self.get_system_provider(provider_name or api_key_config.provider)
 
+        # 读取思考模式配置（优先用户级，回退系统级）
+        thinking_kwargs = {}
+        if api_key_config.provider == "deepseek":
+            thinking_kwargs = await self._get_thinking_config(db, user_id, api_key_config.provider)
+
         return self.create_provider(
             provider_name=api_key_config.provider,
             api_key=decrypted_key,
             model_name=api_key_config.model_name,
-            api_base=api_key_config.api_base
+            api_base=api_key_config.api_base,
+            **thinking_kwargs
         )
 
     async def get_system_provider(
@@ -215,7 +224,7 @@ class LLMManager:
             for key in fallback_keys:
                 api_key = getattr(settings, key, None)
                 if api_key:
-                    self.logger.info(f"使用回退 API Key: {key}")
+                    logger.info(f"使用回退 API Key: {key}")
                     break
 
         if not api_key:
@@ -224,11 +233,62 @@ class LLMManager:
                 f"T8STAR_API_KEY、ARK_API_KEY 或其他 LLM 服务的 API Key"
             )
 
-        return self.create_provider(provider_name, api_key)
+        # 读取思考模式配置（系统级设置）
+        settings = get_settings()
+        thinking_kwargs = {}
+        if provider_name == "deepseek":
+            thinking_kwargs = {
+                "enable_thinking": settings.DEEPSEEK_ENABLE_THINKING,
+                "reasoning_effort": settings.DEEPSEEK_REASONING_EFFORT,
+                "thinking_save_dir": settings.DEEPSEEK_THINKING_SAVE_DIR,
+            }
+
+        return self.create_provider(provider_name, api_key, **thinking_kwargs)
 
     def get_preset_models(self) -> Dict[str, Any]:
         """获取所有预置模型信息"""
         return PRESET_MODELS
+
+    async def _get_thinking_config(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        provider_name: str
+    ) -> dict:
+        """
+        获取思考模式配置（优先用户级DB配置，回退系统级环境变量）
+
+        Args:
+            db: 数据库会话
+            user_id: 用户ID
+            provider_name: 提供者名称
+
+        Returns:
+            思考模式配置字典
+        """
+        settings = get_settings()
+        result = {
+            "enable_thinking": settings.DEEPSEEK_ENABLE_THINKING,
+            "reasoning_effort": settings.DEEPSEEK_REASONING_EFFORT,
+            "thinking_save_dir": settings.DEEPSEEK_THINKING_SAVE_DIR,
+        }
+
+        # 尝试从DB读取用户级配置覆盖
+        try:
+            import json
+            config_key = f"user_thinking_mode_config_{user_id}"
+            stmt = select(SystemConfig).where(SystemConfig.id == config_key)
+            db_result = await db.execute(stmt)
+            config = db_result.scalar_one_or_none()
+            if config and config.config_value:
+                data = json.loads(config.config_value)
+                result["enable_thinking"] = data.get("enable_thinking", result["enable_thinking"])
+                result["reasoning_effort"] = data.get("reasoning_effort", result["reasoning_effort"])
+                result["thinking_save_dir"] = data.get("thinking_save_dir", result["thinking_save_dir"])
+        except Exception as e:
+            logger.warning(f"读取用户思考模式配置失败，使用系统默认: {e}")
+
+        return result
 
     def get_providers_by_type(self, model_type: str = "text") -> Dict[str, Any]:
         """
@@ -310,7 +370,17 @@ def _get_default_provider(self, provider_name: str = "qianwen") -> BaseLLMProvid
             f"T8STAR_API_KEY、ARK_API_KEY 或其他 LLM 服务的 API Key"
         )
 
-    return self.create_provider(provider_name, api_key)
+    # 读取思考模式配置（系统级设置）
+    settings = get_settings()
+    thinking_kwargs = {}
+    if provider_name == "deepseek":
+        thinking_kwargs = {
+            "enable_thinking": settings.DEEPSEEK_ENABLE_THINKING,
+            "reasoning_effort": settings.DEEPSEEK_REASONING_EFFORT,
+            "thinking_save_dir": settings.DEEPSEEK_THINKING_SAVE_DIR,
+        }
+
+    return self.create_provider(provider_name, api_key, **thinking_kwargs)
 
 
 # 动态添加方法到 LLMManager 类

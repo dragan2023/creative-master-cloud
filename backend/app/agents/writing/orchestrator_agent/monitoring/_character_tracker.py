@@ -59,7 +59,18 @@ class MonitoringCharacterMixin:
             )
 
             loaded = await self._character_tracker.load()
-            if not loaded:
+            if loaded:
+                char_count = len(self._character_tracker._character_states)
+                snapshot_count = len(self._character_tracker._chapter_snapshots)
+                rel_count = len(self._character_tracker._relationship_history)
+                foreshadowing_count = len(getattr(self._character_tracker, '_foreshadowing_items', {}))
+                self.logger.info(
+                    f"[持久化恢复] 从持久化恢复追踪器状态: "
+                    f"{char_count}个角色, {snapshot_count}个章节快照, "
+                    f"{rel_count}个关系变化"
+                    + (f", {foreshadowing_count}个伏笔" if foreshadowing_count > 0 else "")
+                )
+            else:
                 await self._character_tracker.initialize(
                     character_profiles=character_profiles,
                     world_settings=world_settings

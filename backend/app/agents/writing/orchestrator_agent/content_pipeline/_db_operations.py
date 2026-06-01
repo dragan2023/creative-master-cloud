@@ -48,11 +48,14 @@ class DBOperationsMixin:
         if unit:
             return unit
 
+        # 🔴 防御：安全提取 config（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+        _cfg = context.config if isinstance(context.config, dict) else {}
+
         unit_title = ""
         unit_summary = ""
 
         # 优先级1：从 context.config.unit_summaries 获取
-        unit_summaries = context.config.get("unit_summaries", {})
+        unit_summaries = _cfg.get("unit_summaries", {})
         self.logger.info(
             f"[_get_or_create_unit] 单元 {unit_index}: 尝试从 unit_summaries 获取，可用单元数: {len(unit_summaries)}")
         if unit_summaries and isinstance(unit_summaries, dict):
@@ -81,7 +84,7 @@ class DBOperationsMixin:
                     f"[_get_or_create_unit] 从 outline.chapters 获取单元 {unit_index}: title={unit_title}")
 
         # 根据 content_type 确定默认单元标题
-        content_type = context.config.get("content_type", "novel")
+        content_type = _cfg.get("content_type", "novel")
         if content_type == "series_script":
             default_title = f"第{unit_index}集"
         elif content_type == "movie_script":

@@ -20,7 +20,7 @@ from app.schemas.user import (
     APIKeyTestResult
 )
 
-from ._models import ProxyConfig, ProxyConfigResponse, PreprocessorConfig, PreprocessorConfigResponse
+from ._models import ProxyConfig, ProxyConfigResponse, PreprocessorConfig, PreprocessorConfigResponse, ThinkingModeConfig, ThinkingModeConfigResponse
 from ._api_keys import (
     handle_get_api_keys,
     handle_create_api_key,
@@ -36,6 +36,8 @@ from ._config import (
     handle_test_user_proxy,
     handle_get_user_preprocessor_config,
     handle_set_user_preprocessor_config,
+    handle_get_thinking_mode_config,
+    handle_set_thinking_mode_config,
 )
 
 router = APIRouter(prefix="/auth", tags=["配置"])
@@ -183,3 +185,24 @@ async def set_user_preprocessor_config(
 ):
     """设置用户文档预处理配置（用户级别）"""
     return await handle_set_user_preprocessor_config(config_data, current_user, db)
+
+
+# ==================== DeepSeek思考模式配置 ====================
+
+@router.get("/config/thinking-mode", response_model=ResponseModel[ThinkingModeConfigResponse])
+async def get_thinking_mode_config(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取DeepSeek思考模式配置（用户级别，回退到系统设置）"""
+    return await handle_get_thinking_mode_config(current_user, db)
+
+
+@router.post("/config/thinking-mode")
+async def set_thinking_mode_config(
+    config_data: ThinkingModeConfig,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """设置DeepSeek思考模式配置（用户级别）"""
+    return await handle_set_thinking_mode_config(config_data, current_user, db)

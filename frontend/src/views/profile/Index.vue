@@ -142,6 +142,70 @@
           </el-form-item>
         </el-form>
       </div>
+
+      <!-- DeepSeek思考模式设置 -->
+      <div class="profile-section">
+        <h3>
+          <el-icon><Cpu /></el-icon>
+          DeepSeek 思考模式
+          <el-tag v-if="thinkingModeConfig.enable_thinking" type="success" size="small" style="margin-left: 10px">已启用</el-tag>
+          <el-tag v-else type="info" size="small" style="margin-left: 10px">已禁用</el-tag>
+        </h3>
+        <p class="section-tip">
+          启用思考模式后，DeepSeek V4 Pro/Flash 模型在输出最终回答前会先进行深度推理（思维链），
+          显著提升复杂任务的准确性。启用后会自动禁用 temperature 等参数。
+        </p>
+        
+        <el-form :model="thinkingModeConfig" label-width="120px" v-loading="thinkingModeLoading">
+          <el-form-item label="启用思考模式">
+            <el-switch v-model="thinkingModeConfig.enable_thinking" />
+            <span class="form-tip">仅对 DeepSeek V4 Pro/Flash 模型生效，启用后将自动禁用 temperature/top_p 等参数</span>
+          </el-form-item>
+          
+          <el-form-item label="思考强度" v-if="thinkingModeConfig.enable_thinking">
+            <el-radio-group v-model="thinkingModeConfig.reasoning_effort">
+              <el-radio value="high">
+                <span style="font-weight: 500">高强度 (high)</span>
+                <span class="form-tip">推荐，适用于大多数复杂任务</span>
+              </el-radio>
+              <el-radio value="max">
+                <span style="font-weight: 500">最高强度 (max)</span>
+                <span class="form-tip">适用于极复杂的推理任务，耗时更长、Token消耗更多</span>
+              </el-radio>
+            </el-radio-group>
+          </el-form-item>
+          
+          <el-form-item label="保存目录" v-if="thinkingModeConfig.enable_thinking">
+            <el-input 
+              v-model="thinkingModeConfig.thinking_save_dir" 
+              placeholder="./data/thinking_logs"
+            />
+            <span class="form-tip">思考过程日志保存路径，留空使用默认目录（./data/thinking_logs）</span>
+          </el-form-item>
+
+          <el-alert
+            v-if="thinkingModeConfig.enable_thinking"
+            title="注意事项"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 16px"
+          >
+            <template #default>
+              <ul style="margin: 4px 0; padding-left: 18px; font-size: 13px; color: #606266;">
+                <li>响应时间增加 30%-100%（取决于思考强度）</li>
+                <li>reasoning_content 计入输出 Token，费用增加</li>
+                <li>思考过程不会在前端显示，仅保存到文件</li>
+                <li>简单问答、内容生成等场景建议关闭以节省成本</li>
+              </ul>
+            </template>
+          </el-alert>
+          
+          <el-form-item>
+            <el-button type="primary" @click="saveThinkingModeConfig" :loading="thinkingModeSaving">保存思考模式设置</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
     </div>
   </div>
 </template>
@@ -149,6 +213,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Cpu } from '@element-plus/icons-vue'
 import { userConfigApi } from '@/api'
 
 // 代理配置
@@ -177,9 +242,19 @@ const preprocessorConfig = ref({
   marker_model_dir: ''
 })
 
+// 思考模式配置
+const thinkingModeLoading = ref(false)
+const thinkingModeSaving = ref(false)
+const thinkingModeConfig = ref({
+  enable_thinking: false,
+  reasoning_effort: 'high',
+  thinking_save_dir: './data/thinking_logs'
+})
+
 onMounted(() => {
   loadProxyConfig()
   loadPreprocessorConfig()
+  loadThinkingModeConfig()
 })
 
 // 加载代理配置
@@ -278,6 +353,43 @@ async function savePreprocessorConfig() {
     ElMessage.error('保存失败')
   } finally {
     preprocessorSaving.value = false
+  }
+}
+
+// 加载思考模式配置
+async function loadThinkingModeConfig() {
+  thinkingModeLoading.value = true
+  try {
+    const res = await userConfigApi.getThinkingModeConfig()
+    if (res.data) {
+      thinkingModeConfig.value = {
+        enable_thinking: res.data.enable_thinking ?? false,
+        reasoning_effort: res.data.reasoning_effort || 'high',
+        thinking_save_dir: res.data.thinking_save_dir || './data/thinking_logs'
+      }
+    }
+  } catch (error) {
+    console.error('加载思考模式配置失败:', error)
+  } finally {
+    thinkingModeLoading.value = false
+  }
+}
+
+// 保存思考模式配置
+async function saveThinkingModeConfig() {
+  thinkingModeSaving.value = true
+  try {
+    await userConfigApi.setThinkingModeConfig({
+      enable_thinking: thinkingModeConfig.value.enable_thinking,
+      reasoning_effort: thinkingModeConfig.value.reasoning_effort,
+      thinking_save_dir: thinkingModeConfig.value.thinking_save_dir || './data/thinking_logs'
+    })
+    ElMessage.success('思考模式配置已保存')
+  } catch (error) {
+    console.error('保存思考模式配置失败:', error)
+    ElMessage.error('保存失败')
+  } finally {
+    thinkingModeSaving.value = false
   }
 }
 

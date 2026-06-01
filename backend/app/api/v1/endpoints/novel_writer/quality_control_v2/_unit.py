@@ -178,22 +178,30 @@ async def analyze_single_unit_quality(
                 issues=issues,
                 chapters_data=chapters_data,
                 project=project,
+                content_type=getattr(project, 'content_type', None) or 'novel',
                 db=db,
                 user_id=current_user.id
             )
 
             # 应用高置信度的修正
+            # [v2.7修复] auto_fix['fixed']是修正后的完整正文（非增量diff），
+            # 应用一次即替换全部内容。因此只应用第一个符合条件的fix，
+            # 后续fix全部跳过（内容已被替换，再应用会导致覆盖/乒乓）。
+            # 变化幅度基于original_content（修正前原始内容）计算。
             threshold = request.auto_fix_threshold if request else 0.8
+            content_applied = False  # 标记内容是否已被替换
             for issue in issues_with_fixes:
                 auto_fix = issue.get('auto_fix')
-                if auto_fix and auto_fix.get('confidence', 0) >= threshold:
-                    # 应用修正 - 注意：auto_fix['fixed']是修正后的完整正文
+                if not auto_fix or auto_fix.get('confidence', 0) < threshold:
+                    continue
+
+                if not content_applied:
+                    # 首次符合条件：应用修正内容（仅此一次）
+                    content_applied = True
                     new_content = auto_fix.get('fixed', fixed_content)
 
-                    # 检查内容是否真的被修改了
                     if new_content != fixed_content:
-                        # 新增：计算修改幅度
-                        original_len = len(fixed_content)
+                        original_len = len(original_content)
                         new_len = len(new_content)
                         change_ratio = abs(
                             new_len - original_len) / original_len if original_len > 0 else 0
@@ -204,7 +212,26 @@ async def analyze_single_unit_quality(
                             f"变化幅度{change_ratio*100:.1f}%"
                         )
 
-                        # 如果变化幅度超过30%，记录警告
+                        # [v2.8修复] LLM批量修正可能返回不完整的fixed_content（如只返回修改片段而非全文），
+                        # 当修正后内容缩减超过50%时，安全拒绝此修正，保留原始内容
+                        if change_ratio > 0.5:
+                            logger.error(
+                                f"[实时质控] ❌ 拒绝修正: 变化幅度过大({change_ratio*100:.1f}%)，"
+                                f"LLM可能未返回完整正文。保留原始内容(原文{original_len}字符)，"
+                                f"问题标记为已记录但未自动应用"
+                            )
+                            # 不更新fixed_content，保留原文
+                            # 但仍记录issue到fix列表，供用户手动查看
+                            auto_fix_applied.append({
+                                "issue_id": issue.get('id'),
+                                "category": issue.get('category'),
+                                "confidence": auto_fix.get('confidence'),
+                                "description": f"[自动修正被拒绝] {auto_fix.get('description', '')} (变化幅度{change_ratio*100:.1f}%，超过50%安全阈值)"
+                            })
+                            # 重置标记，允许下一个分组(不同batch_fix)的issue被尝试
+                            content_applied = False
+                            continue
+
                         if change_ratio > 0.3:
                             logger.warning(
                                 f"[实时质控] ⚠️ 修改幅度较大({change_ratio*100:.1f}%)，"
@@ -213,12 +240,13 @@ async def analyze_single_unit_quality(
 
                         fixed_content = new_content
 
-                    auto_fix_applied.append({
-                        "issue_id": issue.get('id'),
-                        "category": issue.get('category'),
-                        "confidence": auto_fix.get('confidence'),
-                        "description": auto_fix.get('description')
-                    })
+                # 记录所有符合条件的issue（无论是否首次，都记录到fix列表）
+                auto_fix_applied.append({
+                    "issue_id": issue.get('id'),
+                    "category": issue.get('category'),
+                    "confidence": auto_fix.get('confidence'),
+                    "description": auto_fix.get('description')
+                })
 
             logger.info(f"[实时质控] 修正完成: 应用了{len(auto_fix_applied)}个修正")
 

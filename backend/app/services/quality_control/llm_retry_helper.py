@@ -44,7 +44,8 @@ async def llm_call_with_retry(
         return await llm_provider.generate(
             prompt=prompt,
             temperature=temperature,
-            timeout=timeout
+            timeout=timeout,
+            module_name="qc_retry"
         )
 
     # 使用通用重试机制

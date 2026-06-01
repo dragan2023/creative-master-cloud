@@ -91,5 +91,16 @@ class MonitoringWSMixin:
                     f"task_id={task_id}, unit_index={data.get('unit_index')}, "
                     f"status={data.get('status')}, 连接数={result}"
                 )
+            elif msg_type == "consistency_report_update":
+                result = await self._ws_manager.send_custom_message(
+                    task_id=task_id,
+                    msg_type="consistency_report_update",
+                    data=data
+                )
+                self.logger.info(
+                    f"[WS消息] consistency_report_update已发送: "
+                    f"task_id={task_id}, chapter_num={data.get('chapter_num')}, "
+                    f"连接数={result}"
+                )
         except Exception as e:
             self.logger.warning(f"WebSocket消息发送失败: type={msg_type}, error={str(e)}")

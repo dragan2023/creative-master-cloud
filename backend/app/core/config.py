@@ -141,6 +141,20 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_DIR: str = "./logs"
 
+    # DeepSeek 思考模式配置
+    DEEPSEEK_ENABLE_THINKING: bool = Field(
+        default=False,
+        description="是否启用DeepSeek思考模式（Thinking Mode），启用后自动禁用temperature/top_p等参数"
+    )
+    DEEPSEEK_REASONING_EFFORT: str = Field(
+        default="high",
+        description="DeepSeek思考强度：high（高强度）或 max（最高强度，耗时更长）"
+    )
+    DEEPSEEK_THINKING_SAVE_DIR: str = Field(
+        default="./data/thinking_logs",
+        description="DeepSeek思考过程保存目录"
+    )
+
     # 文件上传配置
     MAX_UPLOAD_SIZE: int = Field(
         default=500 * 1024 * 1024,  # 500MB（为大文本大纲上传提供足够空间）

@@ -72,12 +72,15 @@ class CoreExecutionMixin:
         self.logger.info(f"开始执行写作任务: {context.task_id}")
 
         try:
+            # 🔴 防御：安全提取 config（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+            _cfg = context.config if isinstance(context.config, dict) else {}
+
             # 1. 加载或创建任务记录
             task = await self._load_or_create_task(context)
             self._current_task = task
 
             # 2. 初始化并发控制
-            self._max_concurrent_writers = context.config.get(
+            self._max_concurrent_writers = _cfg.get(
                 "max_concurrent_writers", 3)
             self._semaphore = asyncio.Semaphore(self._max_concurrent_writers)
 
@@ -86,12 +89,12 @@ class CoreExecutionMixin:
                 project_id=context.project_id,
                 character_profiles=context.character_profiles,
                 world_settings=context.world_settings,
-                persist_dir=context.config.get("persist_dir")
+                persist_dir=_cfg.get("persist_dir")
             )
 
             # [修复] 续传/继续生成时：从 DB 加载已完成的上一单元的结尾内容
             # 填补 previous_content 为空的断层，确保后续单元能获取前文结尾
-            start_unit = context.config.get("start_from", 1)
+            start_unit = _cfg.get("start_from", 1)
             if start_unit > 1 and not context.previous_content:
                 try:
                     from app.models.writing_unit import WritingUnit as _WritingUnit
@@ -117,7 +120,7 @@ class CoreExecutionMixin:
                     )
 
             # 3. 确定要处理的单元范围
-            unit_count = context.config.get("unit_count")
+            unit_count = _cfg.get("unit_count")
 
             # 获取生成模式
             generation_mode = "direct"
@@ -219,7 +222,7 @@ class CoreExecutionMixin:
                 else:
                     self.logger.error(
                         f"单元 {unit_index} 处理失败: {unit_result.errors}")
-                    if context.config.get("stop_on_error", True):
+                    if _cfg.get("stop_on_error", True):
                         task.status = TaskStatus.FAILED
                         task.error_message = f"单元 {unit_index} 失败: {unit_result.errors[0] if unit_result.errors else '未知错误'}"
                         await self.db.commit()

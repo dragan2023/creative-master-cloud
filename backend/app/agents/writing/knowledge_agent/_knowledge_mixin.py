@@ -31,10 +31,13 @@ class KnowledgeExecutionMixin:
         start_time = time.time()
 
         try:
+            # 🔴 防御：安全提取 extra（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+            _ext = context.extra if isinstance(context.extra, dict) else {}
+
             # 提取参数
-            query = context.extra.get("query", "")
-            knowledge_types = context.extra.get("knowledge_types")
-            top_k = context.extra.get("top_k", 10)
+            query = _ext.get("query", "")
+            knowledge_types = _ext.get("knowledge_types")
+            top_k = _ext.get("top_k", 10)
             project_id = context.project_id
             current_chapter = context.unit_index
 

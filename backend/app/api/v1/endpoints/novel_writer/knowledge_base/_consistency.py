@@ -491,6 +491,78 @@ async def check_content_consistency(
                 "description": f"待回收伏笔: {foreshadow.get('name')} (第{foreshadow.get('planted_chapter', '?')}章)"
             })
 
+        # 🆕 检查事件状态冲突
+        for event in consistency_report.get("unfinished_events", []):
+            event_name = event.get("name", "")
+            event_status = event.get("status", "")
+            if event_name and event_name in content:
+                # 已结束事件不应重新活跃出现
+                if event_status in ["已完成", "已结束", "已取消"]:
+                    conflicts.append({
+                        "type": "event_status",
+                        "event": event_name,
+                        "status": event_status,
+                        "description": f"事件'{event_name}'已标记为'{event_status}'，但内容中再次出现，请注意事件生命周期一致性"
+                    })
+                # 可能已完结的事件需要提醒
+                if event_status == "可能已完结":
+                    suggestions.append({
+                        "type": "event_stale",
+                        "name": event_name,
+                        "description": f"事件'{event_name}'长期未更新（始于第{event.get('first_chapter', '?')}章），可能已完结，请确认"
+                    })
+
+        # 🆕 检查群体状态冲突
+        for group_name, state in consistency_report.get("group_states", {}).items():
+            if group_name in content:
+                group_status = state.get("status", "")
+                if group_status in ["解散", "合并", "消亡"]:
+                    conflicts.append({
+                        "type": "group_status",
+                        "group": group_name,
+                        "status": group_status,
+                        "description": f"群体'{group_name}'已{group_status}，内容中再次出现请注意一致性"
+                    })
+
+        # 🆕 检查世界规则冲突
+        for rule in consistency_report.get("active_rules", []):
+            rule_name = rule.get("name", "")
+            rule_desc = rule.get("description", "")
+            if rule_name and rule_name in content:
+                suggestions.append({
+                    "type": "rule_reminder",
+                    "name": rule_name,
+                    "description": f"世界规则'{rule_name}'被引用，请确保内容不违反该规则"
+                })
+            if rule_desc and rule_desc in content:
+                suggestions.append({
+                    "type": "rule_reference",
+                    "name": rule_name,
+                    "description": f"检测到对世界规则'{rule_name}'的描述引用，请确认一致性"
+                })
+
+        # 🆕 检查时间线一致性
+        time_ctx = consistency_report.get("time_context", {})
+        time_nodes = time_ctx.get("time_nodes", [])
+        if time_nodes and len(time_nodes) >= 2:
+            # 检查时间节点是否在内容中有序出现
+            content_time_refs = []
+            for node in time_nodes:
+                node_name = node.get("name", "")
+                if node_name and node_name in content:
+                    content_time_refs.append(node_name)
+            if len(content_time_refs) >= 2:
+                # 简单检查：时间节点在内容中出现的顺序是否与记录一致
+                for i, ref in enumerate(content_time_refs):
+                    found_idx = content.find(ref)
+                    for later_ref in content_time_refs[i + 1:]:
+                        later_idx = content.find(later_ref)
+                        if later_idx < found_idx:
+                            suggestions.append({
+                                "type": "timeline_order",
+                                "description": f"时间节点'{later_ref}'出现在'{ref}'之前，请确认时间线顺序是否正确"
+                            })
+
         is_consistent = len(conflicts) == 0
 
         return ResponseModel(

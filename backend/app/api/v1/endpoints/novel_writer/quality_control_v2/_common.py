@@ -47,12 +47,16 @@ async def _generate_fixes_for_issues(
     chapters_data: list,
     project: Any,
     db: Any,
-    user_id: int
+    user_id: int,
+    content_type: str = "novel"
 ) -> list:
     """
     为检测结果中的每个问题自动生成修正建议
     
     v2.2优化：按章节分组，批量调用LLM修正，显著提升效率
+    v2.6: 新增 content_type 参数，用于按内容类型选择对应的修正提示词
+    v2.7: 修复——对series_script/movie_script使用批量修正（合并同一章节所有问题一次性修正），
+          与novel类型的批量修正流程保持一致，避免逐个问题分别调用LLM
 
     Args:
         issues: 问题列表
@@ -60,46 +64,66 @@ async def _generate_fixes_for_issues(
         project: 项目对象
         db: 数据库会话
         user_id: 用户ID
+        content_type: 内容类型 (novel/series_script/movie_script)，用于选择提示词
 
     Returns:
         包含修正建议的问题列表
     """
     from app.services.quality_control.fix_generator import QualityFixGenerator
 
+    # v2.7: 确保 content_type 不为 None（旧项目可能 content_type 为 NULL）
+    content_type = content_type or "novel"
+
     fix_generator = QualityFixGenerator()
     
     # 按章节号分组问题
-    issues_by_chapter = {}
-    for issue in issues:
-        chapter_number = (
-            issue.get('location', {}).get('chapter_number') or
-            issue.get('location', {}).get('chapter') or
-            issue.get('location', {}).get('start_chapter') or
-            0
+    # [v2.7修复] 单单元场景（chapters_data仅1条）：强制所有issue合为一组，
+    # 避免因LLM返回不一致的chapter_number导致issue被分到不同组，
+    # 不同组各自调用generate_batch_fix产生不同的fixed_content，
+    # 在应用阶段造成内容互相覆盖的"乒乓效应"。
+    is_single_unit = len(chapters_data) == 1
+    if is_single_unit:
+        # 单单元场景：使用chapters_data[0]的chapter_number作为统一分组键
+        unified_chapter = chapters_data[0].get('chapter_number', 1)
+        if not unified_chapter:
+            unified_chapter = 1
+        issues_by_chapter = {unified_chapter: list(issues)}
+        logger.info(
+            f"[批量修正] 单单元场景，{len(issues)}个issue强制合组: "
+            f"chapter={unified_chapter}"
         )
-        
-        # 归一化 chapter_number 为 int（LLM 可能返回字符串 "1"、"第1单元" 等格式）
-        chapter_number = _normalize_chapter_number(chapter_number)
-        
-        # 如果 chapter_number 为 0，尝试从 chapters_data 推断 fallback
-        if not chapter_number and chapters_data:
-            fallback = chapters_data[0].get('chapter_number')
-            if fallback:
-                logger.warning(
-                    f"[批量修正] issue {issue.get('id', '?')} 缺少chapter_number，"
-                    f"使用fallback chapter={fallback}"
-                )
-                chapter_number = int(fallback) if not isinstance(fallback, int) else fallback
-        
-        if chapter_number:
-            if chapter_number not in issues_by_chapter:
-                issues_by_chapter[chapter_number] = []
-            issues_by_chapter[chapter_number].append(issue)
-        else:
-            # 没有章节号且无 fallback 的问题单独处理
-            if 0 not in issues_by_chapter:
-                issues_by_chapter[0] = []
-            issues_by_chapter[0].append(issue)
+    else:
+        issues_by_chapter = {}
+        for issue in issues:
+            chapter_number = (
+                issue.get('location', {}).get('chapter_number') or
+                issue.get('location', {}).get('chapter') or
+                issue.get('location', {}).get('start_chapter') or
+                0
+            )
+            
+            # 归一化 chapter_number 为 int（LLM 可能返回字符串 "1"、"第1单元" 等格式）
+            chapter_number = _normalize_chapter_number(chapter_number)
+            
+            # 如果 chapter_number 为 0，尝试从 chapters_data 推断 fallback
+            if not chapter_number and chapters_data:
+                fallback = chapters_data[0].get('chapter_number')
+                if fallback:
+                    logger.warning(
+                        f"[批量修正] issue {issue.get('id', '?')} 缺少chapter_number，"
+                        f"使用fallback chapter={fallback}"
+                    )
+                    chapter_number = int(fallback) if not isinstance(fallback, int) else fallback
+            
+            if chapter_number:
+                if chapter_number not in issues_by_chapter:
+                    issues_by_chapter[chapter_number] = []
+                issues_by_chapter[chapter_number].append(issue)
+            else:
+                # 没有章节号且无 fallback 的问题单独处理
+                if 0 not in issues_by_chapter:
+                    issues_by_chapter[0] = []
+                issues_by_chapter[0].append(issue)
     
     # 对每个章节批量修正
     for chapter_number, chapter_issues in issues_by_chapter.items():
@@ -192,6 +216,7 @@ async def _generate_fixes_for_issues(
                 knowledge_graph_context=knowledge_graph_context,
                 character_profiles=getattr(project, 'character_profiles', []) or [],
                 worldview_settings=getattr(project, 'worldview_settings', {}) or {},
+                content_type=content_type,
                 db=db,
                 user_id=user_id
             )

@@ -176,8 +176,11 @@ class ComplianceAgent(BaseWritingAgent):
         start_time = self._get_timestamp()
         
         try:
+            # 🔴 防御：安全提取 extra（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+            _ext = context.extra if isinstance(context.extra, dict) else {}
+
             # 获取待审查内容
-            content = context.extra.get("draft_content", "")
+            content = _ext.get("draft_content", "")
             if not content:
                 return self._build_error_result(
                     "缺少待审查内容",
@@ -190,7 +193,7 @@ class ComplianceAgent(BaseWritingAgent):
             
             # 第二层：LLM辅助判断
             llm_results = []
-            deep_check = context.extra.get("deep_check", False)
+            deep_check = _ext.get("deep_check", False)
             
             # 当Trie树检测到可疑内容或需要深度审查时调用LLM
             if trie_results or deep_check:
@@ -268,7 +271,7 @@ class ComplianceAgent(BaseWritingAgent):
             user_prompt = COMPLIANCE_PROMPTS["llm_check"].format(
                 content=content,
                 trie_findings=self._format_trie_results(trie_results),
-                content_type=context.extra.get("content_type", "文学作品")
+                content_type=_ext.get("content_type", "文学作品")
             )
             
             messages = [

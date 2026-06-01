@@ -125,17 +125,24 @@ def register_crud_routes(router: APIRouter):
             if project.unit_summaries and not task_config.get("unit_summaries"):
                 task_config["unit_summaries"] = project.unit_summaries
 
-            # 注入每章字数配置
+            # 注入每章字数配置（按内容类型差异化）
             if not task_config.get("words_per_chapter"):
-                words_per_chapter = 3000  # 默认值
-                # 优先从 novel_config 获取
-                if project.novel_config and isinstance(project.novel_config, dict):
-                    words_per_chapter = project.novel_config.get(
-                        "words_per_chapter", 3000)
-                # 其次从 generation_config 获取
-                elif project.generation_config and isinstance(project.generation_config, dict):
-                    words_per_chapter = project.generation_config.get(
-                        "words_per_chapter", 3000)
+                content_type = project.content_type or "novel"
+                if content_type in ("series_script", "movie_script"):
+                    # 剧本类型包含大量视觉方案内容（分镜设计、拍摄指导、运镜设计、
+                    # 光影方案、演出指导、剪辑思路、AI视觉资源生成提示词），
+                    # 字数需求远超纯文本小说，设置为较大的宽松值
+                    words_per_chapter = 20000
+                else:
+                    words_per_chapter = 3000  # 小说默认值
+                    # 优先从 novel_config 获取
+                    if project.novel_config and isinstance(project.novel_config, dict):
+                        words_per_chapter = project.novel_config.get(
+                            "words_per_chapter", 3000)
+                    # 其次从 generation_config 获取
+                    elif project.generation_config and isinstance(project.generation_config, dict):
+                        words_per_chapter = project.generation_config.get(
+                            "words_per_chapter", 3000)
                 task_config["words_per_chapter"] = words_per_chapter
 
             # 注入项目类型和生成模式

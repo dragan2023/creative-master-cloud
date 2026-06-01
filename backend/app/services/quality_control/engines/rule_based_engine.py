@@ -475,6 +475,11 @@ class RuleBasedEngine:
             return issues
 
         # 检查缺失的感官
+        # 感官分析是跨章节的全局分析，以第一个章节的 chapter_number 作为参考定位
+        reference_chapter = chapters_data[0] if chapters_data else {}
+        ref_chapter_number = reference_chapter.get("chapter_number", 0)
+        ref_chapter_id = reference_chapter.get("id", 0)
+
         for sense, count in sensory_counts.items():
             if count == 0:
                 sense_names = {
@@ -485,12 +490,18 @@ class RuleBasedEngine:
                     "tactile": "触觉"
                 }
 
+                location_data = {}
+                if ref_chapter_number:
+                    location_data["chapter_number"] = ref_chapter_number
+                if ref_chapter_id:
+                    location_data["chapter_id"] = ref_chapter_id
+
                 issues.append({
                     "id": f"SENS-{sense}",
                     "dimension": "scene",
                     "category": "感官缺失",
                     "severity": "warning",
-                    "location": {},
+                    "location": location_data,
                     "description": f"全文缺乏{sense_names[sense]}描写",
                     "evidence": f"{sense_names[sense]}词汇出现0次",
                     "suggestion": f"建议添加2-3处{sense_names[sense]}描写增强沉浸感",

@@ -165,12 +165,29 @@ class MonitoringKnowledgeGraphMixin:
                 # 🆕 [统一状态存储 v5.0] 维护轻量级一致状态索引
                 # 虽然单元实体不再同步到全局图谱（v3.2），但各维度状态需要跨章追踪
                 # 此处将所有维度状态变化持久化到 project 目录下的 consistency_state.json
-                await self._persist_unified_state(
+                unified_state = await self._persist_unified_state(
                     project_id=project_id,
                     chapter_num=chapter_num,
                     entities=entities,
                     graph_dir=graph_dir
                 )
+
+                # 🆕 [实时推送 v6.0] 将一致性状态变化推送到前端
+                if unified_state:
+                    try:
+                        await self._send_ws_message("consistency_report_update", {
+                            "chapter_num": chapter_num,
+                            "project_id": project_id,
+                            "events": unified_state.get("events", {}),
+                            "items": unified_state.get("items", {}),
+                            "facilities": unified_state.get("facilities", {}),
+                            "groups": unified_state.get("groups", {}),
+                            "foreshadows": unified_state.get("foreshadows", {}),
+                            "world_rules": unified_state.get("world_rules", {}),
+                            "time_context": unified_state.get("time_context", {}),
+                        })
+                    except Exception as ws_err:
+                        self.logger.debug(f"推送一致性报告到前端失败（非关键）: {ws_err}")
 
                 # 🆕 [事件生命周期 v4.0] 更新上下文累积器中的事件状态
                 if self._context_accumulator and unit_graph:
@@ -287,6 +304,7 @@ class MonitoringKnowledgeGraphMixin:
                 "groups": {},
                 "foreshadows": {},
                 "world_rules": {},
+                "time_context": {},
             }
 
             for entity in entities:
@@ -414,6 +432,25 @@ class MonitoringKnowledgeGraphMixin:
                             "last_update_chapter": chapter_num,
                         }
 
+                # --- 时间线维度 ---
+                elif entity_type == "时间节点":
+                    if text:
+                        current_updates["time_context"][text] = {
+                            "name": text,
+                            "type": attrs.get("时间类型", ""),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+                elif entity_type == "时间流逝":
+                    if text:
+                        current_updates["time_context"][text] = {
+                            "name": text,
+                            "type": "时间流逝",
+                            "description": attrs.get("流逝量", text),
+                            "first_chapter": chapter_num,
+                            "last_update_chapter": chapter_num,
+                        }
+
             # 2. 确定统一状态文件路径
             project_graph_base = os.path.dirname(graph_dir)
             unified_path = os.path.join(project_graph_base, "consistency_state.json")
@@ -446,7 +483,7 @@ class MonitoringKnowledgeGraphMixin:
 
             # 6. 日志汇总
             summary_parts = []
-            for dim_key in ["events", "items", "facilities", "groups", "foreshadows", "world_rules"]:
+            for dim_key in ["events", "items", "facilities", "groups", "foreshadows", "world_rules", "time_context"]:
                 dim_data = existing_state.get(dim_key, {})
                 total = len(dim_data)
                 if dim_key == "events":
@@ -464,6 +501,8 @@ class MonitoringKnowledgeGraphMixin:
                 elif dim_key == "foreshadows":
                     resolved = sum(1 for v in dim_data.values() if v.get("status") == "已回收")
                     summary_parts.append(f"伏笔={total}(已回收{resolved})")
+                elif dim_key == "time_context":
+                    summary_parts.append(f"时间线={total}")
                 else:
                     summary_parts.append(f"规则={total}")
             
@@ -472,8 +511,11 @@ class MonitoringKnowledgeGraphMixin:
                 + ", ".join(summary_parts)
             )
 
+            return existing_state
+
         except Exception as e:
             self.logger.warning(f"持久化统一一致性状态失败: {e}")
+            return None
 
     @staticmethod
     def load_unified_state(project_graph_dir: str) -> Dict[str, Any]:
@@ -499,6 +541,7 @@ class MonitoringKnowledgeGraphMixin:
         result = {
             "events": {}, "items": {}, "facilities": {},
             "groups": {}, "foreshadows": {}, "world_rules": {},
+            "time_context": {},
         }
 
         # 优先读取新格式
@@ -542,6 +585,7 @@ class MonitoringKnowledgeGraphMixin:
         default = {
             "events": {}, "items": {}, "facilities": {},
             "groups": {}, "foreshadows": {}, "world_rules": {},
+            "time_context": {},
         }
 
         # 新格式文件存在：直接加载

@@ -100,7 +100,10 @@ class StyleEditorAgent(
         start_time = self._get_timestamp()
 
         try:
-            draft_content = context.extra.get("draft_content", "")
+            # 🔴 防御：安全提取 extra（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+            _ext = context.extra if isinstance(context.extra, dict) else {}
+
+            draft_content = _ext.get("draft_content", "")
             if not draft_content:
                 return self._build_error_result(
                     "缺少待润色内容",
@@ -108,9 +111,9 @@ class StyleEditorAgent(
                 )
 
             style_guide = context.style_guide or {}
-            logic_issues = context.extra.get("logic_issues", [])
+            logic_issues = _ext.get("logic_issues", [])
             character_profiles = context.character_profiles or []
-            style_document_features = context.extra.get(
+            style_document_features = _ext.get(
                 "style_document_features", "")
 
             style_library_guide = style_guide.get("style_library_guide", {})

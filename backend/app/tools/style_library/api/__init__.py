@@ -176,10 +176,10 @@ def format_style_for_prompt(style_guide: Dict) -> str:
     if description:
         parts.append(f"**风格简介**: {description}")
 
+    from app.utils.style_utils import intensity_to_description, intensity_to_percent
     intensity = style_guide.get("intensity", 0.7)
-    intensity_desc = "淡入" if intensity < 0.4 else (
-        "强烈" if intensity > 0.8 else "适中")
-    parts.append(f"**风格强度**: {intensity_desc}({int(intensity * 100)}%)")
+    intensity_desc = intensity_to_description(intensity)
+    parts.append(f"**风格强度**: {intensity_desc}({intensity_to_percent(intensity)})")
 
     # 核心特征
     features = style_guide.get("style_features", {})

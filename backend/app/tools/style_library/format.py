@@ -24,10 +24,10 @@ def format_style_for_prompt(style_guide: Dict) -> str:
     if description:
         parts.append(f"**风格简介**: {description}")
 
+    from app.utils.style_utils import intensity_to_description, intensity_to_percent
     intensity = style_guide.get("intensity", 0.7)
-    intensity_desc = "淡入" if intensity < 0.4 else (
-        "强烈" if intensity > 0.8 else "适中")
-    parts.append(f"**风格强度**: {intensity_desc}({int(intensity * 100)}%)")
+    intensity_desc = intensity_to_description(intensity)
+    parts.append(f"**风格强度**: {intensity_desc}({intensity_to_percent(intensity)})")
 
     # 核心特征
     features = style_guide.get("style_features", {})
@@ -83,6 +83,26 @@ def format_style_for_prompt(style_guide: Dict) -> str:
 
     return "\n".join(parts)
 
+
+def _intensity_to_description(intensity: float) -> str:
+    """将风格强度(0.0-1.0)转换为人类可读的描述
+
+    与前端强度滑块阈值保持一致：
+    - <=0.4 → 淡入-轻微体现
+    - <=0.7 → 适中-明显但不突兀
+    - >0.7  → 强烈-非常突出
+
+    Args:
+        intensity: 风格强度，范围 0.0-1.0
+
+    Returns:
+        中文描述字符串
+    """
+    if intensity <= 0.4:
+        return "淡入-轻微体现"
+    if intensity <= 0.7:
+        return "适中-明显但不突兀"
+    return "强烈-非常突出"
 
 
 def get_style_list_for_api(category: Optional[str] = None) -> List[Dict]:

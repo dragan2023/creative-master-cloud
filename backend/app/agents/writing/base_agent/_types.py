@@ -29,7 +29,13 @@ class AgentRole(str, enum.Enum):
 
 @dataclass
 class AgentContext:
-    """Agent执行上下文 - Agent间通信标准数据结构"""
+    """Agent执行上下文 - Agent间通信标准数据结构
+
+    🔴 类型安全保证：
+    - __post_init__ 自动对 config/extra/style_guide 调用 safe_json_dict 标准化
+    - 确保下游所有 .get() 调用永不因字符串类型而崩溃
+    - 标准化是幂等的（已是 dict 时原样返回，零开销）
+    """
     task_id: str
     unit_index: int
     scene_index: Optional[int] = None
@@ -55,6 +61,27 @@ class AgentContext:
 
     config: Dict[str, Any] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        """🔴 源头根治：自动标准化 config/extra/style_guide 为安全 dict
+
+        解决问题：SQLAlchemy JSON 列可能返回字符串、知识图谱返回非 dict 值等场景下，
+        下游 .get() 调用因字符串无 .get() 方法而崩溃（AttributeError）。
+
+        标准化策略：
+        - 已是 dict → 原样返回（零开销）
+        - JSON 字符串 → 自动解析为 dict
+        - 非 JSON 字符串 → 包装为 {"_raw_text": value} 降级嵌入
+        - None → 返回 {}
+
+        此方法在每次 AgentContext 实例化时自动调用，确保所有 Agent 收到的
+        config/extra/style_guide 永远是安全的 dict 类型。
+        """
+        from app.utils.type_adapter import safe_json_dict
+
+        self.config = safe_json_dict(self.config, "AgentContext.config")
+        self.extra = safe_json_dict(self.extra, "AgentContext.extra")
+        self.style_guide = safe_json_dict(self.style_guide, "AgentContext.style_guide")
 
 
 @dataclass

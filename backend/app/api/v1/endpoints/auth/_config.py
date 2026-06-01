@@ -1,4 +1,4 @@
-"""用户配置处理器（代理、预处理器等）"""
+"""用户配置处理器（代理、预处理器、思考模式等）"""
 import json
 
 from sqlalchemy import select
@@ -8,7 +8,7 @@ from app.core.logger import get_logger
 from app.core.config import get_settings
 from app.models import User, SystemConfig
 from app.schemas.common import ResponseModel
-from ._models import ProxyConfig, ProxyConfigResponse, PreprocessorConfig, PreprocessorConfigResponse
+from ._models import ProxyConfig, ProxyConfigResponse, PreprocessorConfig, PreprocessorConfigResponse, ThinkingModeConfig, ThinkingModeConfigResponse
 
 
 async def handle_get_user_proxy_config(current_user: User, db: AsyncSession) -> ResponseModel:
@@ -203,3 +203,70 @@ async def handle_set_user_preprocessor_config(config_data: PreprocessorConfig, c
     logger.info(f"用户预处理配置已保存: {current_user.username}")
 
     return ResponseModel(message="预处理配置已保存")
+
+
+async def handle_get_thinking_mode_config(current_user: User, db: AsyncSession) -> ResponseModel:
+    """获取DeepSeek思考模式配置（用户级别，回退到系统设置）"""
+    settings = get_settings()
+
+    config_key = f"user_thinking_mode_config_{current_user.id}"
+    result = await db.execute(
+        select(SystemConfig).where(SystemConfig.id == config_key)
+    )
+    config = result.scalar_one_or_none()
+
+    # 默认从系统设置获取
+    thinking_config = ThinkingModeConfigResponse(
+        enable_thinking=settings.DEEPSEEK_ENABLE_THINKING,
+        reasoning_effort=settings.DEEPSEEK_REASONING_EFFORT,
+        thinking_save_dir=settings.DEEPSEEK_THINKING_SAVE_DIR,
+    )
+
+    # 用户有自定义配置则覆盖
+    if config and config.config_value:
+        try:
+            data = json.loads(config.config_value)
+            thinking_config.enable_thinking = data.get(
+                "enable_thinking", thinking_config.enable_thinking)
+            thinking_config.reasoning_effort = data.get(
+                "reasoning_effort", thinking_config.reasoning_effort)
+            thinking_config.thinking_save_dir = data.get(
+                "thinking_save_dir", thinking_config.thinking_save_dir)
+        except (json.JSONDecodeError, KeyError) as e:
+            logger = get_logger(str(current_user.id))
+            logger.warning(f"解析思考模式配置失败: {str(e)}")
+
+    return ResponseModel(data=thinking_config)
+
+
+async def handle_set_thinking_mode_config(config_data: ThinkingModeConfig, current_user: User, db: AsyncSession) -> ResponseModel:
+    """设置DeepSeek思考模式配置（用户级别）"""
+    logger = get_logger(str(current_user.id))
+
+    config_key = f"user_thinking_mode_config_{current_user.id}"
+    result = await db.execute(
+        select(SystemConfig).where(SystemConfig.id == config_key)
+    )
+    config = result.scalar_one_or_none()
+
+    config_value = json.dumps({
+        "enable_thinking": config_data.enable_thinking,
+        "reasoning_effort": config_data.reasoning_effort,
+        "thinking_save_dir": config_data.thinking_save_dir,
+    })
+
+    if config:
+        config.config_value = config_value
+        config.is_enabled = config_data.enable_thinking
+    else:
+        config = SystemConfig(
+            id=config_key,
+            config_value=config_value,
+            is_enabled=config_data.enable_thinking
+        )
+        db.add(config)
+
+    await db.commit()
+    logger.info(f"思考模式配置已保存: {current_user.username}, enable_thinking={config_data.enable_thinking}")
+
+    return ResponseModel(message="思考模式配置已保存")

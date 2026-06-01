@@ -250,6 +250,12 @@ export function useWritingTaskWebSocket(state) {
           if (unitIdx !== -1) {
             // 使用splice替换整个对象，确保Vue响应式系统能可靠检测到变化
             const oldUnit = state.units.value[unitIdx]
+
+            // v3.1: 处理 revert（撤销修正）场景
+            // 当质控状态为 'reverted' 时，清除 content_after_qc_fix
+            // 后续显示将退回到 content_after_generation 或 final_content
+            const isReverted = qcData.status === 'reverted'
+
             const updatedUnit = {
               ...oldUnit,
               quality_control: {
@@ -262,13 +268,14 @@ export function useWritingTaskWebSocket(state) {
                 issues: qcData.issues || [],
                 fixes_applied: qcData.fixes_applied || [],
                 original_content: qcData.original_content || null,
-                fixed_content: qcData.fixed_content || null,
+                fixed_content: isReverted ? null : (qcData.fixed_content || null),
                 // v3.0: 六维度分数与版本内容
                 dimension_scores: qcData.dimension_scores || {},
                 change_list: qcData.change_list || [],
                 context_summary: qcData.context_summary || '',
-                content_after_generation: qcData.content_after_generation || null,
-                content_after_qc_fix: qcData.content_after_qc_fix || null,
+                // v3.1: revert时清除修正稿，恢复显示初稿
+                content_after_generation: isReverted ? null : (qcData.content_after_generation || null),
+                content_after_qc_fix: isReverted ? null : (qcData.content_after_qc_fix || null),
                 updated_at: Date.now(),
                 _from_ws: true  // 标记数据来自WebSocket，优先级高于API数据
               }
@@ -276,7 +283,16 @@ export function useWritingTaskWebSocket(state) {
 
             // 质控修正完成后，同步更新单元的 final_content 和 word_count
             // 确保 WritingWorkbench 页面实时显示修正后的正文内容
-            if (qcData.fixed_content && qcData.status === 'completed') {
+            if (isReverted) {
+              // 撤销修正：恢复到初稿/原始内容
+              const revertedContent = qcData.reverted_content || qcData.original_content || ''
+              updatedUnit.final_content = revertedContent
+              updatedUnit.word_count = revertedContent.length
+              console.log(
+                '[WritingTask Store] 修正已撤销，恢复初稿: unit=%d, word_count=%d',
+                unitIndex, revertedContent.length
+              )
+            } else if (qcData.fixed_content && qcData.status === 'completed') {
               updatedUnit.final_content = qcData.fixed_content
               updatedUnit.word_count = qcData.fixed_content.length
               console.log(
@@ -290,6 +306,7 @@ export function useWritingTaskWebSocket(state) {
           } else {
             // 单元尚未在列表中(可能unit_progress消息还未到达)，创建一个带质控信息的单元
             console.log('[WritingTask Store] 单元未找到，创建带质控信息的新单元:', unitIndex)
+            const isReverted = qcData.status === 'reverted'
             const newUnit = {
               unit_index: unitIndex,
               unit_title: qcData.unit_title || `第${unitIndex}章`,
@@ -306,19 +323,21 @@ export function useWritingTaskWebSocket(state) {
                 issues: qcData.issues || [],
                 fixes_applied: qcData.fixes_applied || [],
                 original_content: qcData.original_content || null,
-                fixed_content: qcData.fixed_content || null,
+                fixed_content: isReverted ? null : (qcData.fixed_content || null),
                 // v3.0: 六维度分数与版本内容
                 dimension_scores: qcData.dimension_scores || {},
                 change_list: qcData.change_list || [],
                 context_summary: qcData.context_summary || '',
-                content_after_generation: qcData.content_after_generation || null,
-                content_after_qc_fix: qcData.content_after_qc_fix || null,
+                content_after_generation: isReverted ? null : (qcData.content_after_generation || null),
+                content_after_qc_fix: isReverted ? null : (qcData.content_after_qc_fix || null),
                 updated_at: Date.now(),
                 _from_ws: true  // 标记数据来自WebSocket
               }
             }
             // 质控修正完成后，同步设置 final_content
-            if (qcData.fixed_content && qcData.status === 'completed') {
+            if (isReverted) {
+              newUnit.final_content = qcData.reverted_content || qcData.original_content || ''
+            } else if (qcData.fixed_content && qcData.status === 'completed') {
               newUnit.final_content = qcData.fixed_content
             }
             state.units.value.push(newUnit)
@@ -427,6 +446,23 @@ export function useWritingTaskWebSocket(state) {
             avgScore: summaryData.avg_score || 0,
             completedAt: Date.now()
           }
+        }
+        break
+        
+      case 'consistency_report_update':
+        // 一致性报告实时更新（v6.0新增 - WebSocket推送）
+        if (msg.data) {
+          state.consistencyReport.value = {
+            ...msg.data,
+            _updatedAt: Date.now()
+          }
+          console.log(
+            '[WritingTask Store] 一致性报告实时更新: chapter=%d, events=%d, items=%d, facilities=%d',
+            msg.data.chapter_num,
+            Object.keys(msg.data.events || {}).length,
+            Object.keys(msg.data.items || {}).length,
+            Object.keys(msg.data.facilities || {}).length
+          )
         }
         break
         

@@ -237,6 +237,7 @@ class GoogleProvider(BaseLLMProvider):
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
+        module_name: str = "unknown",
         **kwargs
     ) -> LLMResponse:
         """生成文本（支持多模态：文本、图片、视频）"""
@@ -279,6 +280,7 @@ class GoogleProvider(BaseLLMProvider):
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
+        module_name: str = "unknown",
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式生成文本（支持多模态：文本、图片、视频）"""

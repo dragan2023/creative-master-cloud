@@ -16,6 +16,8 @@ from sqlalchemy import select as _select
 from app.agents.writing.base_agent import AgentContext, AgentResult, AgentRole
 from app.models.writing_scene import WritingScene, SceneStatus
 from app.models.writing_unit import UnitStatus
+from app.agents.writing.orchestrator_agent.content_pipeline._outline_alignment import check_outline_alignment
+from app.utils.type_adapter import safe_json_dict, safe_json_list
 
 
 class UnitDirectMixin:
@@ -66,8 +68,12 @@ class UnitDirectMixin:
         """
         unit_start_time = time.time()
 
+        # 🔴 防御：确保 orchestrator context 的 config/extra 是 dict
+        _ocfg = context.config if isinstance(context.config, dict) else {}
+        _oext = context.extra if isinstance(context.extra, dict) else {}
+
         # 根据内容类型确定单元标签（novel→章, series_script→集, movie_script→场）
-        content_type = context.config.get("content_type", "novel")
+        content_type = _ocfg.get("content_type", "novel")
         _unit_label_map = {"novel": "章", "series_script": "集", "movie_script": "场", "script": "场"}
         unit_label = _unit_label_map.get(content_type, "章")
 
@@ -107,7 +113,7 @@ class UnitDirectMixin:
             from app.agents.writing.writer_agent import WriterAgent
 
             writer_agent = self._get_agent(AgentRole.WRITER, WriterAgent)
-            words_per_unit = context.config.get("words_per_unit", 3000)
+            words_per_unit = _ocfg.get("words_per_unit", 3000)
 
             character_state_snapshot = ""
             knowledge_graph_context = ""
@@ -127,7 +133,27 @@ class UnitDirectMixin:
                 )
                 self.logger.info(f"[整{unit_label}生成] 已获取前文知识图谱参考: 单元 {unit_index}")
 
+            # v2.6: 提取结构化的人物位置和身份映射，供写手提示词使用
+            character_location_map = {}
+            character_identity_map = {}
+            if self._character_tracker:
+                try:
+                    all_chars = self._character_tracker.get_all_characters()
+                    for name, state in all_chars.items():
+                        if state.location:
+                            character_location_map[name] = state.location
+                        if state.identity:
+                            character_identity_map[name] = state.identity
+                    self.logger.info(
+                        f"[整{unit_label}生成] 已提取人物状态映射: "
+                        f"location_map={len(character_location_map)}人, "
+                        f"identity_map={len(character_identity_map)}人"
+                    )
+                except Exception as e:
+                    self.logger.warning(f"提取人物状态映射失败: {e}")
+
             # 🆕 [知识图谱优化 v3.1] 获取单元图谱的完整一致性报告
+            structured_consistency = {}
             if self._project_knowledge_base and context.project_id:
                 try:
                     from app.tools.novel_graph_rag import NovelKnowledgeGraph
@@ -137,6 +163,17 @@ class UnitDirectMixin:
                         knowledge_graph = NovelKnowledgeGraph(persist_path=graph_path)
                         if knowledge_graph.load():
                             extended_consistency_context = knowledge_graph.format_consistency_report_for_prompt(unit_index)
+                            # 🆕 同时获取结构化一致性数据，供 writer prompt 步骤6.8-6.14使用
+                            raw_report = knowledge_graph.get_consistency_report(unit_index)
+                            structured_consistency = {
+                                "facilities": safe_json_dict(raw_report.get("facility_states", {}), "facility_states"),
+                                "events": safe_json_list(raw_report.get("unfinished_events", []), "unfinished_events"),
+                                "groups": safe_json_dict(raw_report.get("group_states", {}), "group_states"),
+                                "items": safe_json_dict(raw_report.get("item_ownership", {}), "item_ownership"),
+                                "rules": safe_json_list(raw_report.get("active_rules", []), "active_rules"),
+                                "time": safe_json_dict(raw_report.get("time_context", {}), "time_context"),
+                                "cross_consistency_issues": safe_json_list(raw_report.get("consistency_warnings", []), "consistency_warnings"),
+                            }
                             self.logger.info(f"[整{unit_label}生成] 已获取扩展实体一致性上下文: 单元 {unit_index}")
                 except Exception as e:
                     self.logger.warning(f"获取扩展实体上下文失败: {e}")
@@ -159,9 +196,22 @@ class UnitDirectMixin:
 
             self.logger.info(f"[整{unit_label}生成] 使用全局大纲+单元概述模式: 单元 {unit_index}")
 
-            style_document_features = context.config.get("style_document_features", "")
+            style_document_features = _ocfg.get("style_document_features", "")
             if style_document_features:
                 self.logger.info(f"[整{unit_label}生成] 风格文档特征已加载，长度: {len(style_document_features)}")
+
+            # 🔴 防御：标准化上下文字段，确保 writer 收到的 config/extra/style_guide 永远是 dict
+            _safe_writer_config = safe_json_dict(
+                {
+                    "words_per_scene": words_per_unit,
+                    "content_type": _ocfg.get("content_type", "novel"),
+                    "style_document_features": style_document_features,
+                    "total_units": self._current_task.total_units if self._current_task else 1,
+                    **(_ocfg if isinstance(context.config, dict) else {}),
+                },
+                "writer_context.config"
+            )
+            _safe_writer_style_guide = safe_json_dict(context.style_guide, "writer_context.style_guide")
 
             writer_context = AgentContext(
                 task_id=context.task_id,
@@ -173,9 +223,12 @@ class UnitDirectMixin:
                 global_context=context.global_context,
                 character_profiles=context.character_profiles,
                 world_settings=context.world_settings,
-                style_guide=context.style_guide,
+                style_guide=_safe_writer_style_guide,
                 previous_content=context.previous_content,
                 character_state_snapshot=character_state_snapshot,
+                character_location_map=character_location_map,
+                character_identity_map=character_identity_map,
+                config=_safe_writer_config,
                 extra={
                     "unit_title": unit.unit_title,
                     "unit_summary": unit.unit_summary,
@@ -183,15 +236,16 @@ class UnitDirectMixin:
                     # 🆕 [知识图谱优化 v3.1] 使用合并后的完整上下文
                     "knowledge_graph_context": full_kg_context,
                     # 移除 extended_consistency_context (已合并到 knowledge_graph_context)
-                    "style_document_features": style_document_features
-                },
-                config={
-                    "words_per_scene": words_per_unit,
-                    "content_type": context.config.get("content_type", "novel"),
                     "style_document_features": style_document_features,
-                    "total_units": task.total_units if task else 1,
-                    **context.config
-                }
+                    # 🆕 累积式情节摘要（前文所有单元的关键剧情概览）
+                    "cumulative_summary": "\n".join(getattr(self, '_cumulative_summary_parts', [])) if hasattr(self, '_cumulative_summary_parts') and len(self._cumulative_summary_parts) > 1 else "",
+                    # 🆕 全局大纲对齐报告（每5单元更新一次，注入后续单元写作上下文）
+                    "alignment_report": getattr(self, '_alignment_report', ""),
+                    # 🆕 待回收伏笔清单（从追踪器获取，注入写手提词）
+                    "pending_foreshadowing": self._character_tracker.get_pending_foreshadowing_for_prompt() if self._character_tracker and hasattr(self._character_tracker, 'get_pending_foreshadowing_for_prompt') else "",
+                    # 🆕 全维度扩展一致性上下文（设施/事件/群体/道具/规则/时间线，供prompt步骤6.8-6.14使用）
+                    "extended_consistency": structured_consistency,
+                },
             )
 
             result = await writer_agent.execute(writer_context)
@@ -247,12 +301,42 @@ class UnitDirectMixin:
                     final_content=final_content,
                     unit_title=getattr(unit, 'unit_title', '') or "",
                     logger=self.logger,
-                    content_type=context.config.get("content_type", "novel")
+                    content_type=_ocfg.get("content_type", "novel")
                 )
             except Exception as sync_error:
                 self.logger.error(
                     f"[整{unit_label}生成-单元{unit_index}] NovelChapter 同步失败（内容已保存到WritingUnit，但正文表单可能无法显示）: {sync_error}",
                     exc_info=True
+                )
+
+            # 🆕 自动生成章节摘要（供质控分析 ±N章上下文机制使用）
+            # 非阻塞：失败不影响主流程
+            try:
+                from sqlalchemy import select
+                from app.models.novel_chapter import NovelChapter
+                chapter_query = select(NovelChapter).where(
+                    NovelChapter.project_id == context.project_id,
+                    NovelChapter.chapter_number == unit_index
+                )
+                chapter_result = await self.db.execute(chapter_query)
+                chapter = chapter_result.scalar_one_or_none()
+                if chapter and chapter.id:
+                    from app.services.quality_control.summary_generator import generate_and_store_chapter_summary
+                    import asyncio as _asyncio_summary
+                    _summary_user_id = context.user_id if context.user_id else (
+                        self._current_task.user_id if self._current_task else None
+                    )
+                    _asyncio_summary.ensure_future(
+                        generate_and_store_chapter_summary(
+                            db=self.db,
+                            chapter_id=chapter.id,
+                            chapter_content=final_content,
+                            user_id=_summary_user_id
+                        )
+                    )
+            except Exception as summary_error:
+                self.logger.warning(
+                    f"[整{unit_label}生成-单元{unit_index}] 摘要生成调度失败（不影响主流程）: {summary_error}"
                 )
 
             # 同步触发实时质控
@@ -279,7 +363,7 @@ class UnitDirectMixin:
                             content=final_content,
                             user_id=user_id,
                             ws_send_func=self._send_ws_message,
-                            content_type=context.config.get("content_type", "novel")
+                            content_type=_ocfg.get("content_type", "novel")
                         )
                         qc_completed = True
                         self.logger.info(f"[整{unit_label}生成-质控] 质控完成: unit={unit_index}")
@@ -324,6 +408,51 @@ class UnitDirectMixin:
             # 4. 保存检查点
             await self._save_checkpoint(context.task_id, unit_index, None, "unit_completed")
 
+            # 4.5 🆕 累积式情节摘要更新
+            # 在人物状态追踪之前更新，用于后续单元的前文参考
+            if not hasattr(self, '_cumulative_summary_parts'):
+                self._cumulative_summary_parts = []
+            unit_title_text = unit.unit_title or f"第{unit_index}单元"
+            unit_summary_text = unit.unit_summary or ""
+            summary_entry = f"第{unit_index}{unit_label}《{unit_title_text}》：{unit_summary_text[:300]}"
+            self._cumulative_summary_parts.append(summary_entry)
+            # 最多保留最近50个单元的摘要，避免token膨胀
+            if len(self._cumulative_summary_parts) > 50:
+                self._cumulative_summary_parts = self._cumulative_summary_parts[-50:]
+            self.logger.debug(f"[整{unit_label}生成] 累积摘要已更新，当前{len(self._cumulative_summary_parts)}个单元")
+
+            # 4.6 🆕 全局大纲对齐验证
+            # 每5个单元触发一次，检测已生成内容与全局大纲的偏离
+            if unit_index % 5 == 0 and self._cumulative_summary_parts:
+                try:
+                    # 尝试获取LLM provider（优先从context.extra，回退到提取专用provider）
+                    alignment_llm = None
+                    if _oext:
+                        alignment_llm = _oext.get('llm_provider')
+                    if alignment_llm is None and hasattr(self, '_get_llm_provider_for_extraction'):
+                        alignment_llm = await self._get_llm_provider_for_extraction()
+
+                    if alignment_llm and context.global_context:
+                        global_outline_text = context.global_context
+                        if isinstance(global_outline_text, dict):
+                            global_outline_text = global_outline_text.get("outline", str(global_outline_text))
+
+                        alignment_report = await check_outline_alignment(
+                            global_outline=str(global_outline_text),
+                            generated_summaries=list(self._cumulative_summary_parts),
+                            llm_provider=alignment_llm,
+                            interval=5,
+                            logger=self.logger
+                        )
+
+                        if alignment_report:
+                            if not hasattr(self, '_alignment_report'):
+                                self._alignment_report = ""
+                            self._alignment_report = alignment_report
+                            self.logger.info(f"[整{unit_label}生成] 大纲对齐报告已更新: 单元{unit_index}")
+                except Exception as e:
+                    self.logger.warning(f"[整{unit_label}生成] 大纲对齐检查失败: {e}")
+
             # 5. 更新人物状态追踪
             if self._character_tracker and final_content:
                 try:
@@ -331,9 +460,13 @@ class UnitDirectMixin:
                     if qc_completed:
                         try:
                             from app.models.writing_unit import WritingUnit
-                            await self.db.flush()
+                            # 质控在独立session中commit了status/final_content更新，
+                            # 当前session的identity map中仍缓存着旧对象，
+                            # 先保存PK再expire，避免expire后访问unit.id触发greenlet懒加载
+                            _saved_unit_id = unit.id
+                            self.db.expire(unit)
                             unit_query = _select(WritingUnit).where(
-                                WritingUnit.id == unit.id
+                                WritingUnit.id == _saved_unit_id
                             )
                             unit_result = await self.db.execute(unit_query)
                             refreshed_unit = unit_result.scalar_one_or_none()
@@ -348,8 +481,8 @@ class UnitDirectMixin:
                             self.logger.warning(f"[整{unit_label}生成-知识图谱] 读取修正后内容失败: {db_error}，使用原始内容")
 
                     llm_provider = None
-                    if hasattr(context, 'extra') and context.extra:
-                        llm_provider = context.extra.get('llm_provider')
+                    if _oext:
+                        llm_provider = _oext.get('llm_provider')
 
                     await self._update_character_states(
                         chapter_num=unit_index,
@@ -360,6 +493,82 @@ class UnitDirectMixin:
                     )
                 except Exception as e:
                     self.logger.warning(f"更新人物状态失败: {e}")
+
+            # 5.5 🆕 伏笔追踪同步
+            # 从知识图谱同步伏笔数据，并检测当前章节是否回收了pending伏笔
+            if self._character_tracker and final_content and hasattr(self._character_tracker, 'sync_foreshadowing_from_knowledge_graph'):
+                try:
+                    # 尝试获取知识图谱实例
+                    knowledge_graph = None
+                    if self._project_knowledge_base and context.project_id:
+                        graph_path = self._project_knowledge_base.get_graph_path(
+                            context.project_id, unit_index)
+                        if graph_path and _os.path.exists(graph_path):
+                            from app.tools.novel_graph_rag import NovelKnowledgeGraph
+                            knowledge_graph = NovelKnowledgeGraph(persist_path=graph_path)
+                            if knowledge_graph.load():
+                                self.logger.debug(f"[伏笔追踪] 加载知识图谱: 单元{unit_index}")
+
+                    # 同步伏笔数据
+                    self._character_tracker.sync_foreshadowing_from_knowledge_graph(
+                        knowledge_graph=knowledge_graph,
+                        chapter_num=unit_index
+                    )
+
+                    # 检测当前章节是否回收了pending伏笔
+                    self._character_tracker.detect_foreshadowing_resolution(
+                        content=final_content,
+                        chapter_num=unit_index
+                    )
+                except Exception as e:
+                    self.logger.warning(f"[伏笔追踪] 同步失败: {e}")
+
+            # 5.6 🆕 扩展实体交叉一致性检查
+            if self._character_tracker and final_content and hasattr(self._character_tracker, 'check_extended_consistency'):
+                try:
+                    # 加载一致性状态（consistency_state.json）
+                    consistency_state = {}
+                    if self._project_knowledge_base and context.project_id:
+                        graph_path = self._project_knowledge_base.get_graph_path(
+                            context.project_id, unit_index)
+                        if graph_path:
+                            graph_dir = _os.path.dirname(graph_path)
+                            from app.agents.writing.orchestrator_agent.monitoring._knowledge_graph import MonitoringKnowledgeGraphMixin
+                            consistency_state = MonitoringKnowledgeGraphMixin.load_unified_state(graph_dir)
+
+                    cross_result = self._character_tracker.check_extended_consistency(
+                        chapter_num=unit_index,
+                        content=final_content,
+                        consistency_state=consistency_state,
+                        context_accumulator=getattr(self, '_context_accumulator', None)
+                    )
+
+                    if cross_result:
+                        cross_issues = cross_result.get("issues", [])
+                        cross_warnings = cross_result.get("warnings", [])
+                        all_cross = cross_issues + cross_warnings
+                        if all_cross:
+                            # 将交叉一致性问题合并到 writer context 的 extended_consistency 中
+                            structured_consistency["cross_consistency_issues"] = (
+                                structured_consistency.get("cross_consistency_issues", []) + all_cross
+                            )
+                            self.logger.info(
+                                f"[交叉一致性] 单元{unit_index}: "
+                                f"发现{len(cross_issues)}个冲突, {len(cross_warnings)}个警告"
+                            )
+
+                            # 发送交叉一致性通知到前端
+                            await self._send_websocket_message(context.task_id, {
+                                "type": "cross_consistency_check",
+                                "status": "completed",
+                                "message": f"交叉一致性检查完成: {len(cross_issues)}个冲突, {len(cross_warnings)}个警告",
+                                "unit_index": unit_index,
+                                "issues": [{"type": i.get("type", ""), "message": i.get("message", "")} for i in cross_issues],
+                                "warnings": [{"type": w.get("type", ""), "message": w.get("message", "")} for w in cross_warnings],
+                                "icon": "WarningFilled"
+                            })
+                except Exception as e:
+                    self.logger.warning(f"[交叉一致性] 检查失败: {e}")
 
             duration_ms = int((time.time() - unit_start_time) * 1000)
             self.logger.info(f"[整{unit_label}生成] 单元 {unit_index} 处理完成，耗时 {duration_ms}ms")

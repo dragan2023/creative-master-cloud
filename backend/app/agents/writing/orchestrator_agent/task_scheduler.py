@@ -113,8 +113,11 @@ class TaskSchedulerMixin:
 
         self._current_task = task
 
+        # 🔴 防御：安全提取 config（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+        _cfg = context.config if isinstance(context.config, dict) else {}
+
         # 初始化并发控制
-        self._max_concurrent_writers = context.config.get("max_concurrent_writers", 3)
+        self._max_concurrent_writers = _cfg.get("max_concurrent_writers", 3)
         self._semaphore = asyncio.Semaphore(self._max_concurrent_writers)
 
         # 初始化人物状态追踪器
@@ -122,7 +125,7 @@ class TaskSchedulerMixin:
             project_id=context.project_id,
             character_profiles=context.character_profiles,
             world_settings=context.world_settings,
-            persist_dir=context.config.get("persist_dir")
+            persist_dir=_cfg.get("persist_dir")
         )
 
         # [修复] 继续生成时：从 DB 加载上一单元的结尾内容
@@ -222,7 +225,7 @@ class TaskSchedulerMixin:
                     )
             else:
                 self.logger.error(f"单元 {unit_index} 处理失败: {unit_result.errors}")
-                if context.config.get("stop_on_error", True):
+                if _cfg.get("stop_on_error", True):
                     task.status = TaskStatus.FAILED
                     task.error_message = f"单元 {unit_index} 失败: {unit_result.errors[0] if unit_result.errors else '未知错误'}"
                     await self.db.commit()

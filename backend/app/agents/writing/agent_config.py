@@ -51,7 +51,7 @@ class AgentModelConfig(BaseModel):
     model_id: str = Field(..., description="模型ID，如 gpt-5.2-pro")
     provider: str = Field(..., description="供应商名称，如 t8star")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="温度参数，控制创意度")
-    max_tokens: int = Field(default=4096, ge=256, le=128000, description="最大输出token数")
+    max_tokens: int = Field(default=32000, ge=256, le=128000, description="最大输出token数（v2.4: 4096→32000以支持10000+中文字输出）")
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Top-p采样参数")
     frequency_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0, description="频率惩罚")
     presence_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0, description="存在惩罚")

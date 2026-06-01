@@ -416,6 +416,15 @@ async def delete_project(
                 import shutil
                 shutil.rmtree(project_dir)
 
+        # 清理知识图谱文件和数据
+        try:
+            from app.services.novel_writer.project_knowledge_base import ProjectKnowledgeBase
+            kb_manager = ProjectKnowledgeBase(db=db)
+            await kb_manager.delete_project_kb(project_id)
+            logger.info(f"知识图谱已清理: project_id={project_id}")
+        except Exception as kb_error:
+            logger.warning(f"清理知识图谱失败（继续删除项目）: {kb_error}")
+
         # 删除数据库记录（级联删除章节）
         await db.delete(project)
         await db.commit()

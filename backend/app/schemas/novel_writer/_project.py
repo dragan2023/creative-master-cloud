@@ -186,6 +186,10 @@ class NovelProjectResponse(BaseModel):
     unit_summaries: Optional[Dict[str, Any]] = None  # 单元概述数据
     unit_summaries_status: Optional[str] = None  # 单元概述状态
 
+    # AI文风消除配置
+    ai_elimination_enabled: Optional[bool] = True  # 是否启用AI文风消除
+    ai_elimination_threshold: Optional[int] = 50  # AI文风消除阈值(0-100)
+
     created_at: datetime
     updated_at: datetime
 

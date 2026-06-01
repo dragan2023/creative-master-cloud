@@ -35,6 +35,8 @@ from app.agents.writing.character_state_tracker.impl.mixins import (
     GenerateCharacterProfilesFromOutlineMixin,
     GenerateProfileForNewCharacterMixin,
     VerifyNewCharactersWithLlmMixin,
+    ExtractForeshadowingMixin,
+    CheckExtendedConsistencyMixin,
 )
 
 class CharacterStateTracker(
@@ -53,6 +55,7 @@ class CharacterStateTracker(
     GetStateSummaryMixin,
     GetEvolutionTableMixin,
     CheckConsistencyMixin,
+    CheckExtendedConsistencyMixin,
     ExportToDictMixin,
     ImportFromDictMixin,
     SaveMixin,
@@ -68,6 +71,7 @@ class CharacterStateTracker(
     GenerateCharacterProfilesFromOutlineMixin,
     GenerateProfileForNewCharacterMixin,
     VerifyNewCharactersWithLlmMixin,
+    ExtractForeshadowingMixin,
 ):
     """CharacterStateTracker - 组合Mixin实现"""
 

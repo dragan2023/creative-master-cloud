@@ -135,6 +135,8 @@ def _build_project_response(project) -> NovelProjectResponse:
         outline_word_count=len(project.outline_content.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "")) if project.outline_content else 0,
         unit_summaries=project.unit_summaries if hasattr(project, 'unit_summaries') else None,
         unit_summaries_status=project.unit_summaries_status if hasattr(project, 'unit_summaries_status') else None,
+        ai_elimination_enabled=project.ai_elimination_enabled if hasattr(project, 'ai_elimination_enabled') and project.ai_elimination_enabled is not None else True,
+        ai_elimination_threshold=project.ai_elimination_threshold if hasattr(project, 'ai_elimination_threshold') and project.ai_elimination_threshold is not None else 50,
         created_at=project.created_at,
         updated_at=project.updated_at
     )

@@ -73,14 +73,49 @@ class WriterUtilsMixin:
         return content
 
     async def _generate_summary(self, content: str, scene_title: str) -> str:
-        """生成场景摘要
+        """生成章节摘要（LLM驱动，150-300字）。
+
+        当 LLM 可用时，调用 LLM 生成精准摘要；
+        不可用时，退化为正文前 200 字截取 + 标题。
 
         Args:
-            content: 场景内容
-            scene_title: 场景标题
+            content: 章节正文内容
+            scene_title: 章节标题
 
         Returns:
-            场景摘要
+            章节摘要文本
         """
-        # 返回完整场景内容
-        return f"【{scene_title}】{content}"
+        # 尝试 LLM 生成
+        try:
+            from app.agents.llm_manager import get_llm_manager
+            llm_mgr = get_llm_manager()
+            # 按优先级尝试多个系统预置提供者（不硬编码 deepseek）
+            default_providers = ["qianwen", "doubao", "siliconflow", "t8star"]
+            for provider_name in default_providers:
+                try:
+                    llm_provider = await llm_mgr.get_system_provider(provider_name)
+                    if llm_provider:
+                        break
+                except Exception:
+                    continue
+            if llm_provider:
+                content_preview = content[:2000] if len(content) > 2000 else content
+                prompt = (
+                    f"请为以下小说章节生成简洁摘要（150-300字），"
+                    f"只描述实际发生的关键事件和情节转折：\n\n"
+                    f"{content_preview}"
+                )
+                response = await llm_provider.generate(
+                    prompt=prompt,
+                    temperature=0.2,
+                    module_name="writer_summary"
+                )
+                summary = response.content if hasattr(response, 'content') else str(response)
+                if summary and len(summary.strip()) >= 50:
+                    return summary.strip()
+        except Exception:
+            pass
+
+        # 降级：前 200 字截取 + 标题
+        fallback = content[:200].replace("\n", " ")
+        return f"【{scene_title}】{fallback}..."

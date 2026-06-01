@@ -289,6 +289,41 @@ class ChapterDataMixin:
 
             for chapter in chapters:
                 content = chapter.final_content or ""
+
+                # v3.1: 优先使用QC修正稿内容（增强上下文质量）
+                # 尝试从 WritingUnit 获取 content_after_qc_fix
+                if content:
+                    chapter_num = chapter.chapter_number or chapter.episode_number or chapter.scene_number or 0
+                    try:
+                        from app.models.writing_unit import WritingUnit
+                        from app.models.writing_task import WritingTask
+                        task_query = select(WritingTask).where(
+                            WritingTask.project_id == project.id
+                        )
+                        task_result = await self.db.execute(task_query)
+                        tasks = task_result.scalars().all()
+                        if tasks:
+                            task_ids = [t.id for t in tasks]
+                            unit_q = select(WritingUnit).where(
+                                WritingUnit.unit_index == chapter_num,
+                                WritingUnit.task_id.in_(task_ids),
+                                WritingUnit.content_after_qc_fix.isnot(None),
+                                WritingUnit.content_after_qc_fix != ''
+                            ).order_by(WritingUnit.id.desc()).limit(1)
+                            unit_r = await self.db.execute(unit_q)
+                            matched_unit = unit_r.scalars().first()
+                            if matched_unit and matched_unit.content_after_qc_fix:
+                                content = matched_unit.content_after_qc_fix
+                                self.logger.debug(
+                                    f"[前文摘要] 单元{chapter_num}使用修正稿: "
+                                    f"{len(content)}字符"
+                                )
+                    except Exception as lookup_err:
+                        self.logger.debug(
+                            f"[前文摘要] 查询修正稿跳过: unit={chapter_num}, "
+                            f"err={lookup_err}"
+                        )
+
                 if content:
                     # 不再截断，直接使用完整内容
                     summary = content

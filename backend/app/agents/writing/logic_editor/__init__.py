@@ -156,17 +156,20 @@ class LogicEditorAgent(
         """审查内容的逻辑一致性，并在检测到问题时进行修正"""
         start_time = self._get_timestamp()
         try:
-            draft_content = context.extra.get("draft_content", "")
+            # 🔴 防御：安全提取 extra（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+            _ext = context.extra if isinstance(context.extra, dict) else {}
+
+            draft_content = _ext.get("draft_content", "")
             if not draft_content:
                 return self._build_error_result("缺少待审查内容", error_type="missing_content")
 
-            content_type = context.extra.get("content_type", "novel")
+            content_type = _ext.get("content_type", "novel")
             character_profiles = context.character_profiles or []
-            previous_scenes = context.extra.get("previous_scenes", [])
+            previous_scenes = _ext.get("previous_scenes", [])
             outline = context.outline or {}
             global_context = context.global_context or ""
-            global_outline = context.extra.get("global_outline", {})
-            previous_summary = context.extra.get("previous_summary", "")
+            global_outline = _ext.get("global_outline", {})
+            previous_summary = _ext.get("previous_summary", "")
             character_state_snapshot = context.character_state_snapshot or "暂无人物状态快照"
             relationship_summary = context.relationship_summary or "暂无人物关系摘要"
 

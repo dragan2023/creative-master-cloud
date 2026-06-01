@@ -64,6 +64,9 @@ class ImportFromDictMixin:
         self._initialized = data.get("initialized", False)
         self._current_chapter = data.get("current_chapter", 0)
 
+        # 🆕 恢复伏笔追踪数据
+        self._foreshadowing_items = data.get("foreshadowing_items", {})
+
         self.logger.info(
             f"导入追踪器状态完成: {len(self._character_states)}个人物，"
             f"{len(self._chapter_snapshots)}个章节快照"

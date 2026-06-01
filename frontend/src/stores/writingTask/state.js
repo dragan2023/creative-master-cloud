@@ -54,6 +54,9 @@ export function useWritingTaskState() {
     completedAt: null
   })
 
+  /** 一致性报告实时更新（v6.0新增 - WebSocket推送） */
+  const consistencyReport = ref(null)
+
   // ==================== 计算属性 ====================
   
   /** 任务是否运行中 */
@@ -135,6 +138,7 @@ export function useWritingTaskState() {
     wsConnected,
     progressMessages,
     batchQCProgress,  // v2.2新增
+    consistencyReport,  // v6.0新增 - 一致性报告实时推送
     // 计算属性
     isRunning,
     isPending,

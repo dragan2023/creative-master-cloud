@@ -39,6 +39,9 @@ class LogicDetectionMixin:
     ) -> Optional[Dict[str, Any]]:
         """检测逻辑问题"""
         try:
+            # 🔴 防御：安全提取 extra（defense-in-depth，__post_init__ 已标准化但保留二次守卫）
+            _ext = context.extra if isinstance(context.extra, dict) else {}
+
             detection_prompt = get_logic_detection_prompt(content_type)
 
             extended_context_prompt = ""
@@ -57,8 +60,8 @@ class LogicDetectionMixin:
                 character_profiles=self._format_character_profiles(character_profiles),
                 previous_summary=previous_summary or "暂无前文摘要",
                 character_state_snapshot=character_state_snapshot,
-                series_type=context.extra.get("series_type", "电视剧"),
-                script_mode=context.extra.get("script_mode", "real"),
+                series_type=_ext.get("series_type", "电视剧"),
+                script_mode=_ext.get("script_mode", "real"),
                 extended_context=extended_context_prompt
             )
 

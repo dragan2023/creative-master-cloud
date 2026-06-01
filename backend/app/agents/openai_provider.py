@@ -165,6 +165,7 @@ class OpenAIProvider(BaseLLMProvider):
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
+        module_name: str = "unknown",
         **kwargs
     ) -> LLMResponse:
         """生成文本（支持多模态：文本、图片）"""
@@ -176,6 +177,9 @@ class OpenAIProvider(BaseLLMProvider):
         # 构建多模态内容（OpenAI 不支持视频，忽略 videos 参数）
         user_content = self._build_content(prompt, images)
         messages.append({"role": "user", "content": user_content})
+
+        # 弹出 module_name 避免透传到 OpenAI SDK
+        kwargs.pop("module_name", None)
 
         response = await self.client.chat.completions.create(
             model=self.model_name,
@@ -206,6 +210,7 @@ class OpenAIProvider(BaseLLMProvider):
         images: Optional[List[str]] = None,
         videos: Optional[List[str]] = None,
         files: Optional[List[str]] = None,
+        module_name: str = "unknown",
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式生成文本（支持多模态：文本、图片）"""
@@ -217,6 +222,9 @@ class OpenAIProvider(BaseLLMProvider):
         # 构建多模态内容（OpenAI 不支持视频，忽略 videos 参数）
         user_content = self._build_content(prompt, images)
         messages.append({"role": "user", "content": user_content})
+
+        # 弹出 module_name 避免透传到 OpenAI SDK
+        kwargs.pop("module_name", None)
 
         try:
             stream = await self.client.chat.completions.create(

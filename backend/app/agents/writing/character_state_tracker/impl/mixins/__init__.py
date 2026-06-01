@@ -14,6 +14,7 @@ from .get_relationship_summary import GetRelationshipSummaryMixin
 from .get_state_summary import GetStateSummaryMixin
 from .get_evolution_table import GetEvolutionTableMixin
 from .check_consistency import CheckConsistencyMixin
+from .check_extended_consistency import CheckExtendedConsistencyMixin
 from .export_to_dict import ExportToDictMixin
 from .import_from_dict import ImportFromDictMixin
 from .save import SaveMixin
@@ -29,3 +30,4 @@ from .get_knowledge_graph_context_for_writing import GetKnowledgeGraphContextFor
 from .generate_character_profiles_from_outline import GenerateCharacterProfilesFromOutlineMixin
 from .generate_profile_for_new_character import GenerateProfileForNewCharacterMixin
 from .verify_new_characters_with_llm import VerifyNewCharactersWithLlmMixin
+from .extract_foreshadowing import ExtractForeshadowingMixin

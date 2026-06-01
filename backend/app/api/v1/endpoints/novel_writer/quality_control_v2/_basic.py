@@ -1,4 +1,7 @@
-"""质量管控 v2.0 - 基础质控端点（apply-fix, generate-fix, re-analyze, cancel, feedback）"""
+"""质量管控 v2.0 - 基础质控端点（apply-fix, generate-fix, re-analyze, cancel, feedback）
+
+v2.5: 新增视觉内容智能同步机制，质控修正正文后自动同步更新拍摄脚本和AI视觉资源提示词
+"""
 import uuid
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -18,6 +21,214 @@ from ._common import (
     CancelQCRequest, FeedbackRequest,
     _generate_fixes_for_issues, get_qc_subscriber
 )
+
+
+# ========== v2.4: 视觉内容完整性保护函数 ==========
+
+# 视觉内容段落标记关键词（用于识别拍摄脚本和AI视觉资源部分）
+_VISUAL_SECTION_MARKERS = [
+    "拍摄脚本参考", "运镜设计", "光影方案", "演出指导", "剪辑思路", "连续性衔接",
+    "AI视觉资源生成", "Seedance", "人物参考图生成提示词", "场景参考图生成提示词",
+    "物品参考图生成提示词", "视频生成提示词", "参考模式", "人物参考图",
+    "场景参考图", "物品参考图", "镜头类型", "主体动作", "环境描述",
+    "运镜方式", "风格要求", "首帧描述", "尾帧描述", "负面提示词",
+    "AI生成提示词", "六要素", "主视觉提示词", "备选方案提示词",
+]
+
+
+def _ensure_visual_content_integrity(old_content: str, new_content: str) -> str:
+    """
+    视觉内容完整性保护（安全网）
+
+    检测LLM修正后的内容是否丢失了拍摄脚本和AI视觉资源部分，
+    如果丢失则从原始内容中恢复。
+
+    Args:
+        old_content: 原始内容
+        new_content: LLM修正后的内容
+
+    Returns:
+        修正后的内容（如视觉部分丢失则已恢复）
+    """
+    if not old_content or not new_content:
+        return new_content
+
+    # 检测原始内容中是否存在视觉段落
+    has_visual_in_old = any(
+        marker in old_content for marker in _VISUAL_SECTION_MARKERS
+    )
+    if not has_visual_in_old:
+        return new_content  # 原始内容无视觉段落，无需保护
+
+    # 检测修正后内容中视觉段落是否丢失
+    markers_in_old = [m for m in _VISUAL_SECTION_MARKERS if m in old_content]
+    markers_in_new = [m for m in markers_in_old if m in new_content]
+
+    # 如果丢失了50%以上的标记，认为视觉部分被删除
+    loss_ratio = 1.0 - (len(markers_in_new) / max(len(markers_in_old), 1))
+    if loss_ratio > 0.5:
+        logger.warning(
+            f"[视觉内容保护] 检测到修正后视觉内容大量丢失 "
+            f"(原始标记:{len(markers_in_old)}个 -> 修正后:{len(markers_in_new)}个, "
+            f"丢失率:{loss_ratio:.0%})，触发安全网恢复"
+        )
+
+        # 策略：尝试定位视觉内容起始位置，将原始内容的视觉部分追加回去
+        # 寻找视觉段落的起始标记
+        visual_start_markers = [
+            "### AI视觉资源生成", "## AI视觉资源生成",
+            "### 拍摄脚本参考", "## 拍摄脚本参考",
+            "### 四、AI生成提示词", "## 四、AI生成提示词",
+            "### AI视觉资源", "## AI视觉资源",
+            "# AI视觉资源生成", "# 拍摄脚本参考",
+        ]
+
+        for marker in visual_start_markers:
+            idx = old_content.find(marker)
+            if idx > 0:
+                # 找到视觉内容起始位置，追加到修正后内容
+                visual_section = old_content[idx:]
+                # 确保正文和视觉内容之间有换行分隔
+                separator = "\n\n" if not new_content.endswith("\n\n") else ""
+                restored = new_content.rstrip() + separator + visual_section
+                logger.info(
+                    f"[视觉内容保护] 已从原始内容恢复视觉段落 "
+                    f"(标记: {marker}, 视觉内容长度: {len(visual_section)}字符)"
+                )
+                return restored
+
+        # 如果找不到明确的起始标记，尝试从最后一个视觉关键词之前提取
+        # 取最后一个匹配标记的位置，从此处开始保留
+        last_marker_idx = -1
+        for marker in markers_in_old:
+            idx = old_content.rfind(marker)
+            if idx > last_marker_idx:
+                last_marker_idx = idx
+
+        if last_marker_idx > 0:
+            # 向前搜索最近的段落标题或章节分隔符
+            search_start = max(0, last_marker_idx - 500)
+            prefix = old_content[search_start:last_marker_idx]
+            # 找最后一个 ## 或 ### 标题
+            for heading_pattern in ["\n### ", "\n## ", "\n# "]:
+                heading_idx = prefix.rfind(heading_pattern)
+                if heading_idx >= 0:
+                    visual_section = old_content[search_start + heading_idx:]
+                    separator = "\n\n" if not new_content.endswith("\n\n") else ""
+                    restored = new_content.rstrip() + separator + visual_section.lstrip()
+                    logger.info(
+                        f"[视觉内容保护] 已从原始内容恢复视觉段落 "
+                        f"(视觉内容长度: {len(visual_section)}字符)"
+                    )
+                    return restored
+
+        logger.warning("[视觉内容保护] 无法定位视觉段落起始位置，返回修正后内容")
+
+    return new_content
+
+
+# ========== v2.5: 视觉内容智能同步函数 ==========
+
+async def _sync_visual_content(
+    old_content: str,
+    new_content: str,
+    db: AsyncSession,
+    user_id: int,
+    content_type: str = "novel"
+) -> dict:
+    """
+    视觉内容智能同步（v2.5新增）
+
+    当质控修正了剧本正文后，调用LLM同步更新后续的拍摄脚本、
+    分镜设计、AI视觉资源提示词等，确保视觉内容与修正后的正文保持一致。
+
+    v2.6: 新增 content_type 参数，小说类型直接跳过视觉同步，节省token。
+
+    与 _ensure_visual_content_integrity 的分工：
+    - _ensure_visual_content_integrity: 安全网，防止视觉内容被删除（恢复丢失的章节）
+    - _sync_visual_content: 智能同步，确保视觉内容与正文修改一致（更新描述字段）
+
+    Args:
+        old_content: 修正前的原始内容
+        new_content: 修正后的内容（已通过完整性检查）
+        db: 数据库会话
+        user_id: 用户ID
+        content_type: 内容类型 (novel/series_script/movie_script)，小说直接跳过
+
+    Returns:
+        {
+            "synced_content": str,          # 同步后的完整内容
+            "body_changes_detected": list,   # 检测到的正文修改
+            "visual_updates_applied": list,  # 应用的视觉更新
+            "tokens_used": int,              # 消耗的token数
+            "skipped": bool,                 # 是否跳过（无视觉内容）
+            "fallback": bool,                # 是否因错误回退
+        }
+    """
+    try:
+        from app.services.quality_control.fix_generator import QualityFixGenerator
+
+        # v2.6: 小说类型直接跳过视觉同步，节省token
+        if content_type == "novel":
+            logger.debug("[视觉同步] 小说类型，跳过视觉内容同步")
+            return {
+                "synced_content": new_content,
+                "skipped": True,
+                "tokens_used": 0,
+            }
+
+        # 快速预检：无视觉标记则跳过
+        has_visual = any(
+            marker in new_content
+            for marker in _VISUAL_SECTION_MARKERS
+        )
+        if not has_visual:
+            logger.debug("[视觉同步] 内容中无视觉资源标记，跳过同步")
+            return {
+                "synced_content": new_content,
+                "skipped": True,
+                "tokens_used": 0,
+            }
+
+        # 内容无变化则跳过
+        if old_content == new_content:
+            logger.debug("[视觉同步] 内容无变化，跳过同步")
+            return {
+                "synced_content": new_content,
+                "skipped": True,
+                "tokens_used": 0,
+            }
+
+        logger.info(
+            f"[视觉同步] 检测到视觉资源内容，启动智能同步 "
+            f"(original={len(old_content)}chars, fixed={len(new_content)}chars)"
+        )
+
+        fix_generator = QualityFixGenerator()
+        sync_result = await fix_generator.sync_visual_sections(
+            original_content=old_content,
+            fixed_content=new_content,
+            db=db,
+            user_id=user_id
+        )
+
+        if sync_result.get("fallback"):
+            logger.warning(
+                f"[视觉同步] LLM同步失败，回退到修正后内容: "
+                f"{sync_result.get('error', 'unknown')}"
+            )
+
+        return sync_result
+
+    except Exception as e:
+        logger.error(f"[视觉同步] 同步异常: {str(e)}", exc_info=True)
+        return {
+            "synced_content": new_content,
+            "skipped": False,
+            "fallback": True,
+            "error": str(e),
+            "tokens_used": 0,
+        }
 
 
 @router.post("/quality-control/apply-fix", response_model=ResponseModel)
@@ -113,6 +324,34 @@ async def apply_quality_fix(
 
         # 应用修正: 替换内容
         new_content = auto_fix.get("fixed", old_content)
+
+        # ========== v2.4: 视觉内容完整性保护（安全网） ==========
+        # 防止LLM修正时误删拍摄脚本和AI视觉资源部分
+        new_content = _ensure_visual_content_integrity(old_content, new_content)
+
+        # ========== v2.5: 视觉内容智能同步 ==========
+        # 正文修正后，同步更新拍摄脚本、分镜设计、AI视觉资源提示词
+        sync_info = {"skipped": True, "tokens_used": 0}
+        if new_content != old_content:
+            sync_result = await _sync_visual_content(
+                old_content=old_content,
+                new_content=new_content,
+                content_type=getattr(project, 'content_type', None) or 'novel',
+                db=db,
+                user_id=current_user.id
+            )
+            if not sync_result.get("fallback"):
+                new_content = sync_result.get("synced_content", new_content)
+            sync_info = {
+                "skipped": sync_result.get("skipped", True),
+                "body_changes_detected": sync_result.get("body_changes_detected", []),
+                "visual_updates_applied": sync_result.get("visual_updates_applied", []),
+                "tokens_used": sync_result.get("tokens_used", 0),
+            }
+            logger.info(
+                f"[视觉同步] 同步完成: skipped={sync_info['skipped']}, "
+                f"visual_updates={len(sync_info.get('visual_updates_applied', []))}"
+            )
 
         # 更新章节内容
         if chapter.final_content:
@@ -222,7 +461,8 @@ async def apply_quality_fix(
                 "fix_type": auto_fix.get("type", "unknown"),
                 "confidence": auto_fix.get("confidence", 0),
                 "tokens_used": auto_fix.get("tokens_used", 0),
-                "consistency_update": consistency_results  # 联动更新结果
+                "consistency_update": consistency_results,  # 联动更新结果
+                "visual_sync": sync_info  # v2.5: 视觉同步结果
             }
         )
 
