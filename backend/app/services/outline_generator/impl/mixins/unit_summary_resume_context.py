@@ -11,7 +11,8 @@ class UnitSummaryResumeContextMixin:
         self,
         existing_parsed: Dict[str, Dict[str, Any]],
         start_from_unit: int,
-        content_type: str
+        content_type: str,
+        narrative_mode: str = "serialized"
     ) -> str:
         """
         构建续生成的上下文（增强版 v2）
@@ -113,6 +114,40 @@ class UnitSummaryResumeContextMixin:
             last_chapter_info = "（无前文章节）"
 
         # ===== 第三层：续生成指令（增强版）=====
+        # 根据叙事模式调整续生成要求
+        if narrative_mode == "episodic":
+            requirements_text = f"""【续生成要求】
+请从第{start_from_unit}{unit_label}开始继续生成后续章节概述。
+关键要求：
+1. 每{unit_label}为独立故事单元，不需要与前一{unit_label}的情节直接衔接
+2. 每{unit_label}应有独立完整的故事结构（开端、发展、高潮、结尾）
+3. 人物基本设定保持一致，但每{unit_label}的故事情节独立
+4. 参考全局大纲中第{start_from_unit}{unit_label}之后的情节分配
+5. 保持与前文相同的叙事风格和基调
+"""
+        elif narrative_mode == "episodic_with_arc":
+            requirements_text = f"""【续生成要求 — 主线串联单元剧模式】
+请从第{start_from_unit}{unit_label}开始继续生成后续章节概述。
+关键要求：
+1. 每{unit_label}为独立故事单元，应有独立完整的故事结构
+2. 在每{unit_label}中自然融入主线线索或与常驻角色的互动
+3. 人物基本设定和主线相关角色状态保持一致
+4. 主线伏笔和线索应在后续{unit_label}中继续推进
+5. 参考全局大纲中第{start_from_unit}{unit_label}之后的情节分配
+6. 保持与前文相同的叙事风格和基调
+"""
+        else:
+            requirements_text = f"""【续生成要求】
+请从第{start_from_unit}{unit_label}开始继续生成后续章节概述。
+关键要求：
+1. 第{start_from_unit}{unit_label}必须与第{start_from_unit - 1}{unit_label}的情节自然衔接，从上一章结尾的情境继续发展
+2. 人物状态和关系必须与「活跃角色状态」中描述的一致，不得出现状态矛盾
+3. 「未解决的情节线索」中的伏笔和悬念必须在后续章节中继续发展或回收
+4. 情感基调应从「{structured['emotion_tone']}」自然过渡，不宜突变
+5. 参考全局大纲中第{start_from_unit}{unit_label}之后的情节分配
+6. 保持与前文相同的叙事风格和节奏
+"""
+
         context = f"""【全局概览（已生成第1-{existing_count}{unit_label}）】
 {overview_text}
 
@@ -131,16 +166,7 @@ class UnitSummaryResumeContextMixin:
 【当前情感基调】
 {structured['emotion_tone']}
 
-【续生成要求】
-请从第{start_from_unit}{unit_label}开始继续生成后续章节概述。
-关键要求：
-1. 第{start_from_unit}{unit_label}必须与第{start_from_unit - 1}{unit_label}的情节自然衔接，从上一章结尾的情境继续发展
-2. 人物状态和关系必须与「活跃角色状态」中描述的一致，不得出现状态矛盾
-3. 「未解决的情节线索」中的伏笔和悬念必须在后续章节中继续发展或回收
-4. 情感基调应从「{structured['emotion_tone']}」自然过渡，不宜突变
-5. 参考全局大纲中第{start_from_unit}{unit_label}之后的情节分配
-6. 保持与前文相同的叙事风格和节奏
-"""
+{requirements_text}"""
         return context
 
 
@@ -156,7 +182,8 @@ class UnitSummaryResumeContextMixin:
         episode_duration_range: str = None,
         title_style: str = None,  # 标题风格ID（新增）
         title_style_name: str = None,  # 标题风格名称（新增）
-        unit_label: str = None  # 单元标签（新增）
+        unit_label: str = None,  # 单元标签（新增）
+        narrative_mode: str = "serialized"  # 叙事模式（新增）
     ) -> str:
         """构建续生成的提示词"""
         if not unit_label:
@@ -408,10 +435,7 @@ class UnitSummaryResumeContextMixin:
 2. 恰好生成{units_to_generate}个{unit_label}节，编号连续：{start_from_unit}, {start_from_unit + 1}, {start_from_unit + 2}, ..., {unit_count}
 
 ### 衔接要求
-- 第{start_from_unit}{unit_label}从前一{unit_label}结尾情境自然延续发展
-- 人物状态、关系发展与前文保持一致
-- 前文埋下的伏笔和线索在后续{unit_label}节中继续推进或回收
-- 参考全局大纲中第{start_from_unit}-{unit_count}{unit_label}的情节分配
+{self._build_resume_connection_requirements(narrative_mode, start_from_unit, unit_label, unit_count)}
 
 ### 逐{unit_label}细化指南
 
@@ -615,4 +639,40 @@ class UnitSummaryResumeContextMixin:
             'existing_count': existing_count
         }
 
+    def _build_resume_connection_requirements(
+        self,
+        narrative_mode: str,
+        start_from_unit: int,
+        unit_label: str,
+        unit_count: int
+    ) -> str:
+        """构建续生成的衔接要求文本
+
+        根据叙事模式返回不同的衔接要求：
+        - serialized: 强制跨集连续性（原有行为）
+        - episodic: 每集完全独立，不强制衔接
+        - episodic_with_arc: 各集独立故事，但保持主线线索和常驻角色一致性
+        """
+        if narrative_mode == "episodic":
+            return (
+                f"- 每{unit_label}为独立故事单元，不强制与前一{unit_label}的情节衔接\n"
+                f"- 每{unit_label}应有独立完整的故事结构\n"
+                f"- 人物基本设定保持一致，但各{unit_label}情节独立\n"
+                f"- 参考全局大纲中第{start_from_unit}-{unit_count}{unit_label}的情节分配"
+            )
+        if narrative_mode == "episodic_with_arc":
+            return (
+                f"- 每{unit_label}为独立故事单元，不强制与前一{unit_label}的情节衔接\n"
+                f"- 每{unit_label}应有独立完整的故事结构\n"
+                f"- 在每{unit_label}中自然融入主线线索或常驻角色互动\n"
+                f"- 人物基本设定和主线相关角色状态保持一致\n"
+                f"- 主线伏笔和线索应在后续{unit_label}中继续推进或回收\n"
+                f"- 参考全局大纲中第{start_from_unit}-{unit_count}{unit_label}的情节分配"
+            )
+        return (
+            f"- 第{start_from_unit}{unit_label}从前一{unit_label}结尾情境自然延续发展\n"
+            f"- 人物状态、关系发展与前文保持一致\n"
+            f"- 前文埋下的伏笔和线索在后续{unit_label}节中继续推进或回收\n"
+            f"- 参考全局大纲中第{start_from_unit}-{unit_count}{unit_label}的情节分配"
+        )
 

@@ -169,6 +169,12 @@ class SeriesScriptConfig(BaseModel):
         description="剧本模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成）"
     )
 
+    # 叙事模式（连续剧 vs 单元剧 vs 主线串联单元剧）
+    narrative_mode: str = Field(
+        default="serialized",
+        description="叙事模式（serialized=连续剧，各集情节连贯；episodic=纯单元剧，每集完全独立；episodic_with_arc=主线串联单元剧，各集独立但共享主线/常驻角色）"
+    )
+
     # 风格选择器配置（新增）
     style_selector_config: Optional[Dict[str, Any]] = Field(
         None,
@@ -254,6 +260,12 @@ class MovieScriptConfig(BaseModel):
     script_mode: str = Field(
         default="real",
         description="剧本模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI视频生成）"
+    )
+
+    # 叙事模式（连续叙事 vs 短片合集/单元电影 vs 主线串联单元电影）
+    narrative_mode: str = Field(
+        default="serialized",
+        description="叙事模式（serialized=连续叙事，情节连贯推进；episodic=纯单元电影/短片合集，各段完全独立；episodic_with_arc=主线串联单元电影，各段独立但共享主线/常驻角色）"
     )
 
     # 风格选择器配置（新增）

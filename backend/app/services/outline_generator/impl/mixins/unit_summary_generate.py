@@ -56,6 +56,14 @@ class UnitSummaryGenerateMixin:
         """
         use_atomic = atomic_mode if atomic_mode is not None else _ENABLE_ATOMIC_MODE
 
+        # v4.0优化：剧集/电影类型禁用自动质控，由对话修正功能替代
+        _script_types = ("series_outline", "movie_outline", "series_script", "movie_script", "script")
+        if content_type in _script_types and enable_quality_control:
+            self.logger.info(
+                f"[单元概述生成] 剧本类型({content_type})禁用自动质控，"
+                "质量反馈由用户对话修正功能提供")
+            enable_quality_control = False
+
         if use_atomic:
             return await self._generate_unit_summaries_atomic(
                 global_outline=global_outline,

@@ -87,11 +87,12 @@ class PipelineExecuteMixin(ContextBuilderMixin):
 
                 # 安全检查：校准 total_units，覆盖以下场景：
                 # ① total_units 为 0/None → 强制查询
-                # ② total_units 落后于 unit_summaries 实际长度 → 动态校准
+                # ② total_units 落后于 unit_summaries 实际长度 → 动态校准（向上）
+                # ③ total_units 超出 unit_summaries 实际长度 → 动态校准（向下，防止越界生成）
                 need_calibrate = (not self.task.total_units or self.task.total_units == 0)
                 actual_from_summaries = 0
 
-                # 先快速查询 unit_summaries 是否比 total_units 更长
+                # 快速查询 unit_summaries 实际长度，用于双向校准
                 if not need_calibrate:
                     try:
                         from app.models.novel_project import NovelProject
@@ -107,7 +108,15 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                             logger.warning(
                                 f"检测到 total_units 落后于 unit_summaries 实际长度: "
                                 f"task_id={self.task_id}, total_units={self.task.total_units}, "
-                                f"unit_summaries_count={actual_from_summaries}，触发校准")
+                                f"unit_summaries_count={actual_from_summaries}，触发向上校准")
+                        elif actual_from_summaries > 0 and actual_from_summaries < self.task.total_units:
+                            # [修复] total_units 超出 unit_summaries 实际数量时，向下校准
+                            # 防止生成超出单元概述范围的内容（如20集单元概述却生成24集正文）
+                            need_calibrate = True
+                            logger.warning(
+                                f"检测到 total_units 超出 unit_summaries 实际长度: "
+                                f"task_id={self.task_id}, total_units={self.task.total_units}, "
+                                f"unit_summaries_count={actual_from_summaries}，触发向下校准（防止越界生成）")
                     except Exception:
                         pass
 

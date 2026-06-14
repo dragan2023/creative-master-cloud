@@ -151,7 +151,12 @@ class VectorStore:
             logger.debug(f"[向量库] 已通过 API 删除集合: {name}")
         except Exception as e:
             err_msg = str(e).lower()
-            if self._is_hnsw_corruption_error(e) or "nothing found" in err_msg:
+            # 集合不存在 = 已处于期望状态，静默跳过
+            if "does not exist" in err_msg or "not found" in err_msg:
+                if name in self._collections:
+                    del self._collections[name]
+                logger.debug(f"[向量库] 集合不存在，跳过删除: {name}")
+            elif self._is_hnsw_corruption_error(e) or "nothing found" in err_msg:
                 logger.warning(
                     f"[向量库] API 删除失败（索引损坏），尝试 SQLite 强制清理: {name}"
                 )

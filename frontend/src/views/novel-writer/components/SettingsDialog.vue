@@ -204,6 +204,19 @@
         启用后 DeepSeek V4 Pro/Flash 模型在回答前会进行深度推理，提升复杂任务准确性。
         启用后自动禁用 temperature 参数。
       </p>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-top: 8px"
+      >
+        <template #title>
+          <span style="font-size: 12px; font-weight: normal">
+            ⚠️ 仅 <b>DeepSeek V4 Pro</b>、<b>DeepSeek V4 Flash</b> 及 <b>DeepSeek Reasoner</b> 模型支持思考模式。
+            若写作 Agent 使用的是其他模型，开启此开关不会生效。
+          </span>
+        </template>
+      </el-alert>
 
       <div class="thinking-config" v-if="thinkingModeEnabled">
         <div class="effort-setting">

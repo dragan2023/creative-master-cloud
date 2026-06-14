@@ -2,6 +2,8 @@
  * novelWriterApi - API 模块
  */
 import { api } from './_axios'
+import { API_BASE_URL } from '@/config'
+import { getToken } from '@/utils/authStorage'
 
 export const novelWriterApi = {
   // 项目管理
@@ -156,6 +158,11 @@ export const novelWriterApi = {
   // 获取全部电影场景正文内容
   getAllSceneContent: (projectId) =>
     api.get(`/api/v1/novel-writer/projects/${projectId}/all-scene-content`),
+
+  // 获取全部剧本正文+AI资源内容（剧集/电影类型专用，用于下载全文）
+  // 正文内容优先级: content_after_self_revise > content_after_qc_fix > content_after_generation
+  getAllScriptContent: (projectId) =>
+    api.get(`/api/v1/novel-writer/projects/${projectId}/all-script-content`),
 
   // ==================== 任务状态管理 API ====================
 
@@ -323,13 +330,235 @@ export const novelWriterApi = {
     return api.post(`/api/v1/novel-writer/projects/${projectId}/check-content-consistency`, null, { params })
   },
 
+  // ==================== AI视觉资源 API ====================
+
+  // 获取AI视觉资源内容
+  getAIResource: (projectId, unitIndex) =>
+    api.get(`/api/v1/novel-writer/projects/${projectId}/units/${unitIndex}/ai-resource`),
+
+  // 手动保存AI视觉资源内容
+  saveAIResource: (projectId, unitIndex, content) =>
+    api.put(`/api/v1/novel-writer/projects/${projectId}/units/${unitIndex}/ai-resource`, { content }),
+
+  // 流式生成AI视觉资源(SSE)
+  // sourceVersion: "draft" | "qc_fix" | "self_revise"
+  generateAIResource: (projectId, unitIndex, sourceVersion, onChunk, onDone, onError) => {
+    const abortController = new AbortController()
+
+    const promise = new Promise((resolve, reject) => {
+      const url = `${API_BASE_URL}/api/v1/novel-writer/projects/${projectId}/units/${unitIndex}/generate-ai-resource`
+      const token = getToken()
+      const headers = { 'Content-Type': 'application/json' }
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ source_version: sourceVersion }),
+        signal: abortController.signal
+      }).then(response => {
+        if (!response.ok) {
+          response.json().then(errData => {
+            reject(new Error(errData?.detail || `请求失败: ${response.status}`))
+          }).catch(() => reject(new Error(`请求失败: ${response.status}`)))
+          return
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let currentEventType = ''
+        let pendingData = ''
+        let cachedCompleteResult = null  // v2.7: 缓存complete事件数据，等待saved确认
+
+        function readChunk() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              // 连接关闭时，如果complete事件已收到但saved未到，仍触发onDone
+              if (cachedCompleteResult) {
+                if (onDone) onDone(cachedCompleteResult)
+              }
+              resolve()
+              return
+            }
+
+            const text = decoder.decode(value, { stream: true })
+            pendingData += text
+            const lines = pendingData.split('\n')
+            pendingData = lines.pop() || ''
+
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                currentEventType = line.slice(7).trim()
+                continue
+              }
+              if (line.startsWith('data: ')) {
+                try {
+                  const jsonStr = line.slice(6)
+                  if (jsonStr.trim()) {
+                    const eventData = JSON.parse(jsonStr)
+                    if (currentEventType === 'chunk') {
+                      if (onChunk) onChunk(eventData)
+                    } else if (currentEventType === 'complete') {
+                      // v2.7: 缓存结果，等待saved事件确认保存成功后再触发onDone
+                      cachedCompleteResult = eventData
+                    } else if (currentEventType === 'saved') {
+                      // v2.7: 保存成功，使用saved事件数据（含content）触发onDone
+                      if (onDone) onDone(cachedCompleteResult || eventData)
+                      cachedCompleteResult = null
+                    } else if (currentEventType === 'error') {
+                      const errMsg = eventData.message || 'AI资源生成失败'
+                      cachedCompleteResult = null  // 清除缓存，防止连接关闭时误触发onDone
+                      if (onError) onError(new Error(errMsg))
+                    }
+                    currentEventType = ''
+                  }
+                } catch (e) {
+                  console.warn('[GenerateAIResource] JSON parse failed:', e.message)
+                }
+              }
+            }
+            readChunk()
+          }).catch(error => {
+            if (error.name === 'AbortError') {
+              resolve()
+            } else {
+              reject(error)
+            }
+          })
+        }
+        readChunk()
+      }).catch(error => {
+        if (error.name === 'AbortError') {
+          resolve()
+        } else {
+          reject(error)
+        }
+      })
+    })
+
+    return { promise, abort: () => abortController.abort() }
+  },
+
   // ==================== 单元内容编辑 API ====================
 
   // 更新单元正文内容
   updateUnitContent: (data) => {
-    const { unit_index, content, project_id } = data
+    const { unit_index, content, project_id, save_as } = data
     const params = project_id ? { project_id } : {}
-    return api.put(`/api/v1/novel-writer/units/${unit_index}/content`, { content }, { params })
+    return api.put(`/api/v1/novel-writer/units/${unit_index}/content`, { content, save_as }, { params })
+  },
+
+  // 单元对话修正（流式）
+  // 使用原生 fetch + ReadableStream 自解析 SSE，支持 done/error 事件 + AbortController 中断
+  // 通过 POST JSON body 传输大字段，避免 URL 超长触发 HTTP 431
+  reviseUnitContent: (unitIndex, data, onMessage, onDone, onError) => {
+    const requestBody = {
+      project_id: data.project_id,
+      user_feedback: data.user_feedback,
+      current_content: data.current_content
+    }
+    if (data.revision_history && data.revision_history.length > 0) {
+      requestBody.revision_history = data.revision_history
+    }
+
+    const abortController = new AbortController()
+
+    const promise = new Promise((resolve, reject) => {
+      const url = `${API_BASE_URL}/api/v1/novel-writer/units/${unitIndex}/revision/stream`
+      const token = getToken()
+      const headers = { 'Content-Type': 'application/json' }
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: abortController.signal
+      }).then(response => {
+        if (!response.ok) {
+          response.json().then(errData => {
+            reject(new Error(errData?.detail || `请求失败: ${response.status}`))
+          }).catch(() => reject(new Error(`请求失败: ${response.status}`)))
+          return
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let currentEventType = ''
+        let pendingData = ''
+
+        function readChunk() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              resolve()
+              return
+            }
+
+            const text = decoder.decode(value, { stream: true })
+            pendingData += text
+            const lines = pendingData.split('\n')
+            pendingData = lines.pop() || ''
+
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                currentEventType = line.slice(7).trim()
+                continue
+              }
+              if (line.startsWith('data: ')) {
+                try {
+                  const jsonStr = line.slice(6)
+                  if (jsonStr.trim()) {
+                    const eventData = JSON.parse(jsonStr)
+
+                    // event: content / data: {"text": "..."}
+                    if (currentEventType === 'content') {
+                      if (onMessage) onMessage(eventData)
+                    }
+                    // event: done / data: {"content": "..."}
+                    else if (currentEventType === 'done') {
+                      if (onDone) onDone(eventData)
+                    }
+                    // event: error / data: {"message": "..."}
+                    else if (currentEventType === 'error') {
+                      const errMsg = eventData.message || eventData.data?.message || '修订失败'
+                      if (onError) onError(new Error(errMsg))
+                    }
+                    // 兼容无 event: 前缀的 data: {"event": "error", "data": {...}} 格式
+                    else if (eventData.event === 'error') {
+                      const errMsg = eventData.data?.message || eventData.message || '修订失败'
+                      if (onError) onError(new Error(errMsg))
+                    }
+                    // 兼容无 event: 前缀的 data: {"event": "done", ...} 格式
+                    else if (eventData.event === 'done') {
+                      if (onDone) onDone(eventData.data || eventData)
+                    }
+                    currentEventType = ''
+                  }
+                } catch (e) {
+                  console.warn('[UnitReviseStream] JSON parse failed:', e.message)
+                }
+              }
+            }
+            readChunk()
+          }).catch(error => {
+            if (error.name === 'AbortError') {
+              resolve()
+            } else {
+              reject(error)
+            }
+          })
+        }
+        readChunk()
+      }).catch(error => {
+        if (error.name === 'AbortError') {
+          resolve()
+        } else {
+          reject(error)
+        }
+      })
+    })
+
+    return { promise, abort: () => abortController.abort() }
   }
 
 }

@@ -211,10 +211,24 @@ export function useWritingTaskActions(state, connectWS, disconnectWS) {
             fixes_applied: unit.quality_control_fixes || [],
             original_content: unit.original_content_before_fix || null,
             fixed_content: unit.final_content || null,
+            // v4.0: 版本内容字段从API顶层映射到 quality_control 对象
+            content_after_generation: unit.content_after_generation || null,
+            content_after_qc_fix: unit.content_after_qc_fix || null,
+            content_after_self_revise: unit.content_after_self_revise || null,
             updated_at: unit.updated_at ? new Date(unit.updated_at).getTime() : Date.now()
           }
-          // 后端数据优先（除非前端有更新的WebSocket数据）
-          if (!qcData || !qcData._from_ws) {
+          // [修复] 即使存在_ws标记，也合并版本字段（WS消息可能不包含完整的版本内容）
+          if (qcData && qcData._from_ws) {
+            // WS数据的QC状态/分数优先保留，但版本字段从API补充
+            qcData = {
+              ...qcData,
+              // 版本字段：WS有值用WS，无值用API（API字段更可靠，因WS消息常不包含版本内容）
+              content_after_generation: qcData.content_after_generation || backendQC.content_after_generation,
+              content_after_qc_fix: qcData.content_after_qc_fix || backendQC.content_after_qc_fix,
+              content_after_self_revise: qcData.content_after_self_revise || backendQC.content_after_self_revise,
+            }
+          } else if (!qcData || !qcData._from_ws) {
+            // 无WS数据，使用API数据
             qcData = backendQC
           }
         }

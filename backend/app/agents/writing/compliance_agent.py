@@ -282,7 +282,8 @@ class ComplianceAgent(BaseWritingAgent):
             # 调用LLM（不传递max_tokens，让LLM自主控制）
             llm_result = await self.call_llm(
                 messages=messages,
-                task_id=context.task_id
+                task_id=context.task_id,
+                user_id=context.user_id
             )
             
             # 解析结果

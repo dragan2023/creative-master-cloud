@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 多Agent协作文学作品生成系统 - 写作任务状态管理（WebSocket部分）
  * 
  * 模块: writing-engine
@@ -250,11 +250,22 @@ export function useWritingTaskWebSocket(state) {
           if (unitIdx !== -1) {
             // 使用splice替换整个对象，确保Vue响应式系统能可靠检测到变化
             const oldUnit = state.units.value[unitIdx]
+            const oldQC = oldUnit.quality_control || {}
 
             // v3.1: 处理 revert（撤销修正）场景
             // 当质控状态为 'reverted' 时，清除 content_after_qc_fix
             // 后续显示将退回到 content_after_generation 或 final_content
             const isReverted = qcData.status === 'reverted'
+
+            // [修复] 版本字段保护：WS消息可能不包含 content_after_generation
+            // 1. 优先使用WS消息中的值
+            // 2. 回退到 oldUnit.quality_control 中已有的值
+            // 3. 回退到 oldUnit 顶层字段（API fetchUnits 已映射）
+            // 4. content_after_generation 永不因 revert 而清除（初稿是永久保留的）
+            const preservedDraft = qcData.content_after_generation
+              || oldQC.content_after_generation
+              || oldUnit.content_after_generation
+              || null
 
             const updatedUnit = {
               ...oldUnit,
@@ -263,6 +274,7 @@ export function useWritingTaskWebSocket(state) {
                 score: qcData.score || 0,
                 issues_count: qcData.issues_count || 0,
                 fixed_count: qcData.fixed_count || 0,
+                compliance_issue_count: qcData.compliance_issue_count || 0,
                 message: qcData.message || '',
                 report: qcData.report || null,
                 issues: qcData.issues || [],
@@ -273,9 +285,11 @@ export function useWritingTaskWebSocket(state) {
                 dimension_scores: qcData.dimension_scores || {},
                 change_list: qcData.change_list || [],
                 context_summary: qcData.context_summary || '',
-                // v3.1: revert时清除修正稿，恢复显示初稿
-                content_after_generation: isReverted ? null : (qcData.content_after_generation || null),
-                content_after_qc_fix: isReverted ? null : (qcData.content_after_qc_fix || null),
+                // [修复] 版本字段保护：content_after_generation 永不因revert清除
+                // revert时只清除content_after_qc_fix（修正稿），初稿保留不变
+                content_after_generation: preservedDraft,
+                content_after_qc_fix: isReverted ? null : (qcData.content_after_qc_fix || oldQC.content_after_qc_fix || null),
+                content_after_self_revise: qcData.content_after_self_revise || oldQC.content_after_self_revise || null,
                 updated_at: Date.now(),
                 _from_ws: true  // 标记数据来自WebSocket，优先级高于API数据
               }
@@ -304,7 +318,7 @@ export function useWritingTaskWebSocket(state) {
             state.units.value.splice(unitIdx, 1, updatedUnit)
             console.log('[WritingTask Store] 单元质控信息已更新(splice):', updatedUnit.quality_control)
           } else {
-            // 单元尚未在列表中(可能unit_progress消息还未到达)，创建一个带质控信息的单元
+            // 单元尚未在列表中(可能unit_progress消息还未到达)，创建一个带质控信息的新单元
             console.log('[WritingTask Store] 单元未找到，创建带质控信息的新单元:', unitIndex)
             const isReverted = qcData.status === 'reverted'
             const newUnit = {
@@ -318,6 +332,7 @@ export function useWritingTaskWebSocket(state) {
                 score: qcData.score || 0,
                 issues_count: qcData.issues_count || 0,
                 fixed_count: qcData.fixed_count || 0,
+                compliance_issue_count: qcData.compliance_issue_count || 0,
                 message: qcData.message || '',
                 report: qcData.report || null,
                 issues: qcData.issues || [],
@@ -328,8 +343,10 @@ export function useWritingTaskWebSocket(state) {
                 dimension_scores: qcData.dimension_scores || {},
                 change_list: qcData.change_list || [],
                 context_summary: qcData.context_summary || '',
-                content_after_generation: isReverted ? null : (qcData.content_after_generation || null),
+                // [修复] 版本字段保护：content_after_generation 永不因revert清除
+                content_after_generation: qcData.content_after_generation || null,
                 content_after_qc_fix: isReverted ? null : (qcData.content_after_qc_fix || null),
+                content_after_self_revise: qcData.content_after_self_revise || null,
                 updated_at: Date.now(),
                 _from_ws: true  // 标记数据来自WebSocket
               }
@@ -463,6 +480,25 @@ export function useWritingTaskWebSocket(state) {
             Object.keys(msg.data.items || {}).length,
             Object.keys(msg.data.facilities || {}).length
           )
+        }
+        break
+        
+      case 'writing_hints':
+        // 规则引擎实时提示（v4.0新增 - 剧本类型轻量级提示）
+        if (msg.data) {
+          const unitIndex = msg.data.unit_index
+          const hints = msg.data.hints || []
+          console.log('[WritingTask Store] 写作提示: unit=%d, hints=%d', unitIndex, hints.length)
+          
+          const unitIdx = state.units.value.findIndex(u => u.unit_index === unitIndex)
+          if (unitIdx !== -1) {
+            const oldUnit = state.units.value[unitIdx]
+            state.units.value.splice(unitIdx, 1, {
+              ...oldUnit,
+              writing_hints: hints,
+              _hints_updated_at: Date.now()
+            })
+          }
         }
         break
         

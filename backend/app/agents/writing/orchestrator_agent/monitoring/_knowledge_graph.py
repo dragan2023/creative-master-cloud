@@ -84,9 +84,14 @@ class MonitoringKnowledgeGraphMixin:
         chapter_num: int,
         content: str,
         project_id: int,
-        llm_provider=None
+        llm_provider=None,
+        narrative_mode: str = "serialized"
     ) -> Dict[str, Any]:
-        """同步扩展状态实体到知识图谱"""
+        """同步扩展状态实体到知识图谱
+
+        Args:
+            narrative_mode: 叙事模式（纯单元剧时跳过扩展实体提取）
+        """
         result = {
             "chapter": chapter_num,
             "facilities": 0,
@@ -98,6 +103,11 @@ class MonitoringKnowledgeGraphMixin:
             "total_relations": 0,
             "success": False
         }
+
+        # 纯单元剧模式：跳过扩展实体提取和一致性上下文（各单元独立）
+        if narrative_mode == "episodic":
+            self.logger.debug(f"[纯单元剧] 跳过扩展状态同步: 章节{chapter_num}")
+            return result
 
         if not self._project_knowledge_base:
             self.logger.warning("项目知识库未初始化，跳过扩展状态同步")
@@ -233,9 +243,24 @@ class MonitoringKnowledgeGraphMixin:
     async def _get_extended_context_info(
         self,
         project_id: int,
-        current_chapter: int
+        current_chapter: int,
+        narrative_mode: str = "serialized"
     ) -> Dict[str, Any]:
-        """获取扩展实体的上下文信息（优化版）"""
+        """获取扩展实体的上下文信息（优化版）
+
+        Args:
+            narrative_mode: 叙事模式（纯单元剧时跳过上下文获取）
+        """
+        # 纯单元剧模式：跳过扩展上下文获取（各单元独立，无需跨集一致性）
+        if narrative_mode == "episodic":
+            return {
+                "known_facilities": [],
+                "known_groups": [],
+                "known_items": [],
+                "unfinished_events": [],
+                "pending_foreshadows": []
+            }
+
         if self._context_accumulator is not None:
             context_info = self._context_accumulator.to_dict()
             self.logger.debug(f"[优化] 从累积器获取上下文: 设施={len(context_info['known_facilities'])}, 群体={len(context_info['known_groups'])}, 道具={len(context_info['known_items'])}, 事件={len(context_info['unfinished_events'])}, 伏笔={len(context_info['pending_foreshadows'])}")
@@ -451,12 +476,12 @@ class MonitoringKnowledgeGraphMixin:
                             "last_update_chapter": chapter_num,
                         }
 
-            # 2. 确定统一状态文件路径
-            project_graph_base = os.path.dirname(graph_dir)
-            unified_path = os.path.join(project_graph_base, "consistency_state.json")
+            # 2. 确定统一状态文件路径（v6.1 修复：按项目隔离，防止跨项目数据污染）
+            # graph_dir 已经是项目图谱目录，直接使用；加 project_id 后缀确保项目隔离
+            unified_path = os.path.join(graph_dir, f"consistency_state_project_{project_id}.json")
 
             # 3. 加载已有统一状态（含旧 event_status_index.json 迁移）
-            existing_state = self._load_or_migrate_unified_state(unified_path, project_graph_base)
+            existing_state = self._load_or_migrate_unified_state(unified_path, graph_dir)
 
             # 4. 合并：逐维度合并更新
             for dim_key in current_updates:
@@ -518,7 +543,7 @@ class MonitoringKnowledgeGraphMixin:
             return None
 
     @staticmethod
-    def load_unified_state(project_graph_dir: str) -> Dict[str, Any]:
+    def load_unified_state(project_graph_dir: str, project_id: int = None) -> Dict[str, Any]:
         """加载统一一致性状态
 
         供一致性报告等模块读取跨章各维度状态。
@@ -526,6 +551,7 @@ class MonitoringKnowledgeGraphMixin:
 
         Args:
             project_graph_dir: 项目图谱数据目录路径
+            project_id: 项目ID（v6.1 新增，用于加载项目级一致性状态文件）
 
         Returns:
             统一状态字典
@@ -535,7 +561,12 @@ class MonitoringKnowledgeGraphMixin:
                 "groups": {...}, "foreshadows": {...}, "world_rules": {...}
             }
         """
-        unified_path = os.path.join(project_graph_dir, "consistency_state.json")
+        # v6.1 修复：使用项目级文件名，防止跨项目数据污染
+        if project_id is not None:
+            unified_path = os.path.join(project_graph_dir, f"consistency_state_project_{project_id}.json")
+        else:
+            # 向后兼容：无 project_id 时使用旧文件名
+            unified_path = os.path.join(project_graph_dir, "consistency_state.json")
         old_events_path = os.path.join(project_graph_dir, "event_status_index.json")
 
         result = {
@@ -600,6 +631,29 @@ class MonitoringKnowledgeGraphMixin:
             except (json.JSONDecodeError, IOError) as e:
                 self.logger.warning(f"统一状态文件读取失败，将重建: {e}")
                 return default
+
+        # 尝试从旧 consistency_state.json 迁移（v6.1 前路径：graph 目录的父目录下）
+        old_consistency_path = os.path.join(os.path.dirname(project_graph_base), "consistency_state.json")
+        if os.path.exists(old_consistency_path):
+            try:
+                with open(old_consistency_path, "r", encoding="utf-8") as f:
+                    old_data = json.load(f)
+                if isinstance(old_data, dict) and old_data:
+                    for dim_key in default:
+                        if dim_key in old_data:
+                            default[dim_key] = old_data[dim_key]
+                    self.logger.info(
+                        f"[统一状态存储 v6.1] 从旧 consistency_state.json 迁移完成"
+                    )
+                    # 写入新格式文件，后续直接使用新路径
+                    try:
+                        with open(unified_path, "w", encoding="utf-8") as f:
+                            json.dump(default, f, ensure_ascii=False, indent=2)
+                    except IOError:
+                        pass
+                    return default
+            except (json.JSONDecodeError, IOError) as e:
+                self.logger.warning(f"旧 consistency_state.json 迁移失败: {e}")
 
         # 尝试从旧 event_status_index.json 迁移
         old_path = os.path.join(project_graph_base, "event_status_index.json")

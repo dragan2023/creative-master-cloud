@@ -20,7 +20,8 @@ class QcLayeredMixin:
         temperature: float = 0.7,
         workflow_yield=None,
         replace_content_yield=None,
-        user_id: int = 0
+        user_id: int = 0,
+        narrative_mode: str = "serialized"
     ) -> Dict:
         """
         分层质量管控（核心方法）
@@ -29,6 +30,10 @@ class QcLayeredMixin:
         - 第一层：局部检查（所有章节）
         - 第二层：边界检查（续生成时增强）
         - 第三层：增量全局检查（续生成时抽查）
+
+        Args:
+            narrative_mode: 叙事模式（serialized=连续剧，episodic=纯单元剧，episodic_with_arc=主线串联单元剧）
+                          纯单元剧仅检查 unit_structure + unit_ooc 两个维度
         """
         from app.services.quality_control import QualityControlService
 
@@ -57,13 +62,16 @@ class QcLayeredMixin:
                 "is_resumed": unit_data.get("is_resumed", False)
             })
 
-        # 执行单元概述专用的5维度质量分析
+        # 执行单元概述专用的5维度质量分析（纯单元剧仅2维度）
+        _is_pure_episodic = narrative_mode == "episodic"
+        qc_dimensions = ["unit_structure", "unit_ooc"] if _is_pure_episodic else [
+            "unit_structure", "unit_character", "unit_consistency",
+            "unit_timeline_space", "unit_ooc"
+        ]
         quality_report = await self._analyze_unit_summaries_quality(
             qc_service=qc_service,
             chapters_data=chapters_data,
-            dimensions=["unit_structure",
-                        "unit_character", "unit_consistency",
-                        "unit_timeline_space", "unit_ooc"],
+            dimensions=qc_dimensions,
             depth="deep",
             global_outline=global_outline,
             user_id=user_id
@@ -138,12 +146,16 @@ class QcLayeredMixin:
                 }
 
         # ==================== 自动修正严重问题 ====================
+        # v4.0优化: 剧本类型（series_script/movie_script/series_outline/movie_outline/script）
+        # 跳过自动修正，仅产出报告，修正责任转交给对话修订功能
+        _is_novel = content_type == "novel"
+
         critical_issues = [
             issue for issue in quality_report.get("issues", [])
             if issue.get("severity") == "critical"
         ]
 
-        if critical_issues:
+        if critical_issues and _is_novel:
             if workflow_yield:
                 yield {
                     "type": "step", "step": "qc_revision", "status": "running",

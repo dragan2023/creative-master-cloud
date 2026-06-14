@@ -356,7 +356,8 @@ class AssemblerAgent(BaseWritingAgent):
                 model=self.default_model,
                 temperature=0.3,  # 低温度，保持内容稳定
                 task_id=context.task_id,
-                scene_id=f"{context.unit_index}_assembler"
+                scene_id=f"{context.unit_index}_assembler",
+                user_id=context.user_id
             )
             
             return llm_result["content"]

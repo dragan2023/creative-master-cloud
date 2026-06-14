@@ -21,16 +21,44 @@ class GetConsistencyReportMixin:
             return os.path.dirname(self.persist_path)
         return ""
 
+    def _extract_project_id_from_path(self) -> int:
+        """从 persist_path 中提取 project_id
+
+        persist_path 格式: .../knowledge_graphs/project_{project_id}_global_graph.json
+        或: .../knowledge_graphs/project_{project_id}_unit_{unit_number}_graph.json
+
+        Returns:
+            project_id (int)，提取失败返回 None
+        """
+        if not getattr(self, 'persist_path', None):
+            return None
+        match = re.search(r'project_(\d+)_', self.persist_path)
+        if match:
+            return int(match.group(1))
+        return None
+
     def _load_consistency_state(self) -> Dict[str, Any]:
         """加载统一一致性状态
         
-        从 consistency_state.json 读取跨章各维度状态。
+        从项目级 consistency_state_project_{project_id}.json 读取跨章各维度状态。
         如果文件不存在则返回空字典。
+
+        v6.1 修复：文件名按 project_id 隔离，防止跨项目数据污染。
         """
         project_graph_dir = self._get_project_graph_dir()
         if not project_graph_dir:
             return {}
-        unified_path = os.path.join(project_graph_dir, "consistency_state.json")
+
+        # v6.1 修复：使用项目级文件名，从 persist_path 提取 project_id
+        project_id = self._extract_project_id_from_path()
+        if project_id is not None:
+            unified_path = os.path.join(
+                project_graph_dir,
+                f"consistency_state_project_{project_id}.json"
+            )
+        else:
+            # 向后兼容：无法提取 project_id 时回退到旧文件名
+            unified_path = os.path.join(project_graph_dir, "consistency_state.json")
         if not os.path.exists(unified_path):
             # 兼容旧版 event_status_index.json
             old_path = os.path.join(project_graph_dir, "event_status_index.json")

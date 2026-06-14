@@ -85,6 +85,9 @@ class UnitSummariesRequest(BaseModel):
     # GraphRAG知识库增强（可选，v4.1新增）
     project_id: Optional[int] = None  # 项目ID，用于知识图谱检索增强
 
+    # 叙事模式（serialized=连续剧，episodic=单元剧，默认连续剧）
+    narrative_mode: Optional[str] = "serialized"
+
 
 class BuildKnowledgeGraphRequest(BaseModel):
     """构建知识图谱请求（v4.2：二阶段流程内建）"""
@@ -110,6 +113,17 @@ class GlobalOutlineReviseRequest(BaseModel):
     user_feedback: str  # 用户修改意见
     revision_history: Optional[List[Dict[str, Any]]] = []  # 修订历史
     input_params: Optional[Dict[str, Any]] = {}
+    provider: Optional[str] = None
+    temperature: float = 0.7
+
+
+class UnitSummariesReviseRequest(BaseModel):
+    """单元概述流式对话修订请求"""
+    content_type: str  # novel/movie_outline/series_outline
+    global_outline: str  # 全局大纲（用于参照，保持一致性）
+    unit_summaries: Dict[str, Any]  # 单元概述解析后的字典 {unit_num: {title, summary, full_content, ...}}
+    user_feedback: str  # 用户修改意见
+    revision_history: Optional[List[Dict[str, Any]]] = []  # 修订历史 [{round, feedback, summary}, ...]
     provider: Optional[str] = None
     temperature: float = 0.7
 
@@ -383,6 +397,220 @@ def register_outline_routes(router: APIRouter):
 
             except Exception as e:
                 logger.error(f"全局大纲修订失败: {e!r}")
+                yield generator._format_sse("error", {"data": str(e)[:200]})
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive"
+            }
+        )
+
+    @router.post("/outline/units/revise-stream")
+    async def revise_unit_summaries_stream(
+        data: UnitSummariesReviseRequest,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """
+        流式对话修订单元概述
+
+        用户通过自然语言对话对单元概述进行修订。
+        LLM 流式输出修订结果，仅输出有改动的单元全文（JSON格式），
+        前端自动定位并替换对应的单元原文。
+
+        输入：全局大纲 + 单元概述全文 + 用户修改意见 + 修订历史
+        输出：SSE 流式事件（content / diff_complete / error）
+        """
+        from app.utils.generation_state_manager import GenerationStateManager
+
+        async def generate():
+            try:
+                generator = get_outline_generator(db)
+
+                # 获取LLM provider
+                llm_provider = await generator.llm_manager.get_provider_from_db(
+                    db, current_user.id, data.provider
+                )
+                if not llm_provider:
+                    raise ValueError(f"未找到LLM提供商: {data.provider}")
+
+                # 构建单元概述格式化文本（用于上下文）
+                unit_label = "章" if data.content_type == "novel" else "集" if data.content_type in (
+                    "series_script", "series_outline") else "场"
+
+                # 使用 unit_number 字段作为编号（而非 dict key），确保编号准确
+                sorted_units = []
+                for key, unit in data.unit_summaries.items():
+                    unit_num = unit.get("unit_number")
+                    if unit_num is None:
+                        try:
+                            unit_num = int(key)
+                        except (ValueError, TypeError):
+                            continue
+                    sorted_units.append((int(unit_num), unit_num, unit))
+                sorted_units.sort(key=lambda x: x[0])
+
+                formatted_units = []
+                for _, unit_num, unit in sorted_units:
+                    title = unit.get("title", "")
+                    summary = unit.get("summary", "")
+                    full_content = unit.get("full_content", "") or summary
+                    formatted_units.append(
+                        f"### 第{unit_num}{unit_label}：{title}\n\n{full_content}"
+                    )
+                unit_summaries_text = "\n\n---\n\n".join(formatted_units)
+
+                # 构建修订历史文本
+                history_text = ""
+                if data.revision_history:
+                    history_text = "\n\n## 修订历史\n"
+                    for rev in data.revision_history[-3:]:
+                        history_text += f"- 第{rev.get('round', '?')}轮: {rev.get('feedback', '')} \u2192 {rev.get('summary', '已修改')}\n"
+
+                # 构建修订提示词（输出格式改为可读的 markdown，便于流式展示）
+                revise_prompt = f"""您是一位专业的创意写作顾问和故事结构专家。
+
+## 全局大纲（参考，不可偏离）
+{data.global_outline[:3000]}
+
+## 当前单元概述
+{unit_summaries_text}
+
+## 用户修改意见
+{data.user_feedback}
+{history_text}
+
+## 任务
+请根据用户的修改意见，对单元概述进行精准修订。
+
+**修订规则**：
+1. **只输出有改动的单元**，不要输出未修改的单元
+2. 保持与全局大纲的一致性（人物设定、世界观、故事线）
+3. 确保单元之间的逻辑连贯性（情节衔接、人物状态连续性、时间线）
+4. 禁止出现人物位置不一致（闪现/瞬移）
+5. 保持原有的创意和风格
+6. 保留原有的结构化信息（情节要点、人物状态标注等）
+
+## 输出格式（强制）
+请按照以下格式输出**仅被修改的单元**的完整全文，每个单元之间用 `---` 分隔：
+
+```
+## 第3{unit_label}：修改后的标题
+
+**第3{unit_label}梗概**：修改后的梗概内容
+
+修改后的完整内容（保留原始的结构化标记格式）...
+
+---
+## 第5{unit_label}：修改后的标题
+
+**第5{unit_label}梗概**：修改后的梗概内容
+
+修改后的完整内容...
+```
+
+**关键要求**：
+- 每个修改后的单元必须包含完整的 full_content（不只是梗概）
+- 保持原有的 markdown 格式和结构化标记
+- 单元编号（第N{unit_label}）必须准确对应原始单元编号
+- 如果有修改原因，在单元内容末尾用一行 `> 修改原因：xxx` 说明
+
+请直接输出修订后的单元全文（不需要 JSON 包裹）：
+"""
+
+                # 流式生成修订内容
+                full_response = []
+                async for chunk in llm_provider.generate_stream(
+                    prompt=revise_prompt,
+                    temperature=data.temperature
+                ):
+                    content = chunk.content if hasattr(chunk, 'content') else chunk
+                    if isinstance(content, str):
+                        full_response.append(content)
+                        yield generator._format_sse("content", {"text": content})
+
+                revised_text = ''.join(full_response)
+
+                # 解析 LLM 返回的修订结果（从 markdown 格式中提取改动单元）
+                parsed_revisions = {}
+                revision_summary = f"已根据'{data.user_feedback[:50]}'完成修订"
+
+                try:
+                    # 按 --- 分隔符拆分各单元
+                    unit_blocks = re.split(r'\n---\n', revised_text)
+                    for block in unit_blocks:
+                        block = block.strip()
+                        if not block:
+                            continue
+
+                        # 匹配单元标题：## 第N章/集/场：标题
+                        header_match = re.search(
+                            r'##\s*第(\d+)(?:章|集|场)[：:]\s*(.+)',
+                            block
+                        )
+                        if not header_match:
+                            # 也尝试 ### 格式
+                            header_match = re.search(
+                                r'###\s*第(\d+)(?:章|集|场)[：:]\s*(.+)',
+                                block
+                            )
+                        if not header_match:
+                            continue
+
+                        unit_num = header_match.group(1)
+                        title = header_match.group(2).strip()
+
+                        # 提取梗概（**第N章/集/场梗概**：xxx）
+                        summary_match = re.search(
+                            r'\*\*第\d+(?:章|集|场)梗概\*\*[：:]\s*(.+?)(?:\n\n|\n\*\*|\n>|$)',
+                            block,
+                            re.DOTALL
+                        )
+                        summary = summary_match.group(1).strip() if summary_match else ""
+
+                        # 提取修改原因（> 修改原因：xxx）
+                        reason_match = re.search(r'>\s*修改原因[：:]\s*(.+)', block)
+                        reason = reason_match.group(1).strip() if reason_match else ""
+
+                        # full_content = 整个 block 去除修改原因行
+                        full_content = block
+                        if reason_match:
+                            full_content = block[:reason_match.start()].strip()
+
+                        parsed_revisions[unit_num] = {
+                            "title": title,
+                            "summary": summary,
+                            "full_content": full_content,
+                            "reason": reason
+                        }
+
+                    if parsed_revisions:
+                        revision_summary = f"已根据'{data.user_feedback[:50]}'完成修订，共修改 {len(parsed_revisions)} 个单元"
+                        logger.info(
+                            f"[单元概述修订] 解析修订结果成功，"
+                            f"修正 {len(parsed_revisions)} 个单元: {list(parsed_revisions.keys())}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[单元概述修订] 未能从 markdown 中解析到修订单元，"
+                            f"LLM 输出前300字: {revised_text[:300]}"
+                        )
+                except Exception as parse_err:
+                    logger.warning(f"[单元概述修订] 解析修订结果异常: {parse_err}")
+
+                # 发送修订完成事件
+                yield generator._format_sse("diff_complete", {
+                    "summary": revision_summary,
+                    "revisions": parsed_revisions,
+                    "content_length": len(revised_text)
+                })
+
+            except Exception as e:
+                logger.error(f"单元概述修订失败: {e!r}")
                 yield generator._format_sse("error", {"data": str(e)[:200]})
 
         return StreamingResponse(
@@ -710,6 +938,23 @@ def register_outline_routes(router: APIRouter):
         # [修复] 从complete事件中提取locked_chapters结构化数据
         locked_chapters_parsed = None
 
+        # 叙事模式查找：优先用显式传入，回退到项目配置
+        _narrative_mode = data.narrative_mode
+        if not _narrative_mode or _narrative_mode == "serialized":
+            if data.project_id:
+                try:
+                    from app.models.novel_project import NovelProject
+                    from sqlalchemy import select as _sa_select
+                    _proj_stmt = _sa_select(NovelProject).where(NovelProject.id == data.project_id)
+                    _proj_result = await db.execute(_proj_stmt)
+                    _proj = _proj_result.scalar_one_or_none()
+                    if _proj and _proj.series_script_config and isinstance(_proj.series_script_config, dict):
+                        _narrative_mode = _proj.series_script_config.get("narrative_mode", _narrative_mode)
+                        logger.info(f"[单元概述] 从项目配置获取叙事模式: {_narrative_mode}")
+                except Exception as _nm_err:
+                    logger.warning(f"[单元概述] 获取项目叙事模式失败: {_nm_err}")
+        _narrative_mode = _narrative_mode or "serialized"
+
         async def generate():
             nonlocal locked_chapters_parsed
             try:
@@ -741,6 +986,8 @@ def register_outline_routes(router: APIRouter):
                     title_style_name=data.title_style_name,
                     # GraphRAG知识库增强（v4.1新增）
                     project_id=data.project_id,
+                    # 叙事模式（serialized/episodic）
+                    narrative_mode=_narrative_mode,
                 ):
                     # 检查是否被取消
                     if cancel_event.is_set():
@@ -1060,15 +1307,17 @@ def register_outline_routes(router: APIRouter):
             )
 
             logger.info(
-                f"[单元概述自动质控] 完成，得分: {result['quality_report'].get('overall_score', 0) if result['quality_report'] else 'N/A'}, "
+                f"[单元概述自动质控] 完成，"
+                f"{'已跳过: ' + result.get('skip_reason', '') if result.get('skipped') else '得分: ' + str(result['quality_report'].get('overall_score', 0) if result['quality_report'] else 'N/A')}, "
                 f"修正单元数: {len(result.get('changes', []))}, "
                 f"问题数: {result.get('issues_count', 0)}"
             )
 
             # 返回完整结果
+            skip_msg = result.get('skip_reason', '')
             return ResponseModel(
                 success=True,
-                message="质控检测与修正完成",
+                message=skip_msg if result.get('skipped') else "质控检测与修正完成",
                 data={
                     "quality_report": result.get("quality_report"),
                     "revised_content": result.get("revised_content"),

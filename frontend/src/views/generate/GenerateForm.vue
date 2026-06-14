@@ -180,6 +180,7 @@
       @cancel-edit-unit="cancelEditUnitSummary"
       @update:editingUnitContent="editingUnitContent = $event"
       @start-revision="startRevision"
+      @start-unit-summaries-revision="handleStartUnitSummariesRevision"
       @submit-revision="submitRevision"
       @finalize-content="finalizeContent"
       @exit-revision="exitRevision"
@@ -673,7 +674,8 @@ const {
   globalOutlineContent,
   generatedContent,
   knowledgeRevising,
-  buildOutlineInputParams: buildOutlineParams
+  buildOutlineInputParams: buildOutlineParams,
+  unitSummaries
 })
 
 // 质量控制
@@ -1408,6 +1410,13 @@ async function handleCreateWritingProject() {
 // openStartUnitDialog → useUnitSummariesGeneration
 // handleGenerateFromUnit → useUnitSummariesGeneration
 // startRevision, submitRevision, finalizeContent, exitRevision → useRevisionMode
+
+/**
+ * 处理单元概述对话修订
+ */
+function handleStartUnitSummariesRevision() {
+  startRevision('units')
+}
 // startQCSSESubscription, stopQCSSEConnection → useQualityControl
 // handleImportedUnitSummariesQC, handleUnitSummariesQC → useQualityControl
 // handleGlobalOutlineQC, handleAutoGlobalOutlineRevise → useQualityControl

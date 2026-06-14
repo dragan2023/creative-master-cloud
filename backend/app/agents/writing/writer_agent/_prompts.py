@@ -83,23 +83,31 @@ class WriterPromptsMixin:
             base_prompt += "创作时请注意以下世界观设定，确保内容符合设定：\n"
             base_prompt += "时间背景、地点特征、社会环境、特殊规则等要保持一致。\n\n"
 
-        # Seedance 2.0 全能参考模式：剧集/电影始终输出AI视觉资源生成提示词（中文）
+        # 分镜脚本设计要求：剧集/电影在剧本正文中输出分镜脚本设计板块
         if content_type in ("series_script", "movie_script"):
-            base_prompt += "\n## AI视觉资源生成要求（Seedance 2.0 全能参考模式）\n\n"
-            base_prompt += "你需要在输出剧本正文内容的同时，生成以下AI视觉资源提示词。**所有视觉资源提示词必须使用中文输出，不得使用英文。**\n\n"
-            base_prompt += "1. **人物参考图生成提示词**：为当前单元出场的每位主要角色生成角色概念图提示词。"
-            base_prompt += "假设用户已拥有角色定妆照/概念图作为参考，你需要提供用于生成这些参考图的中文提示词。"
-            base_prompt += "提示词必须包含：角色外貌特征、服装风格、姿态动作、光影氛围、画幅比例。\n\n"
-            base_prompt += "2. **场景参考图生成提示词**：为每个关键场景生成场景概念图提示词。"
-            base_prompt += "提示词必须包含：地点描述、时间/天气、氛围基调、电影级构图、画幅比例。\n\n"
-            base_prompt += "3. **物品参考图生成提示词**：为重要道具/物品生成道具概念图提示词。"
-            base_prompt += "提示词必须包含：物品外观描述、材质质感、光影、白底产品图风格。\n\n"
-            base_prompt += "4. **视频生成提示词（Seedance 2.0）**：基于上述已生成的参考图，为每个关键镜头提供视频生成提示词。"
-            base_prompt += "必须包含12个字段：【参考模式】、【人物参考图】、【场景参考图】、【物品参考图】、"
-            base_prompt += "【镜头类型】、【主体动作】、【环境描述】、【运镜方式】、【风格要求】、【首帧描述】、【尾帧描述】、【负面提示词】。"
-            base_prompt += "所有12个字段内容必须使用中文输出。\n\n"
-            base_prompt += "5. **知识补充**：如需确定特定历史时期、地点、道具的准确视觉描述，请根据你已有的知识进行推理和补充。\n"
-            base_prompt += "确保视觉风格与已选风格维度保持一致，每个提示词都应具体、可操作、可直接用于AI图像/视频生成工具。\n"
+            base_prompt += "\n## 分镜脚本设计要求\n\n"
+            base_prompt += "你需要在输出剧本正文内容的同时，在\"配乐参考\"之后提供完整的\"分镜脚本设计\"板块。\n"
+            base_prompt += "分镜脚本需结合场景列表、剧本正文、拍摄脚本参考、配乐参考等所有前置内容板块进行完整设计。\n"
+            base_prompt += "**所有内容必须使用中文输出，不得使用英文。**\n\n"
+            base_prompt += "**分镜脚本设计包含要素**：\n"
+            base_prompt += "- **场景切换规划**：各场景之间的过渡方式与节奏设计\n"
+            base_prompt += "- **镜头语言**：每个镜头的景别（特写/近景/中景/全景/远景）、运动方式（推/拉/摇/移/跟/升降/固定）和拍摄角度（俯拍/仰拍/平视）\n"
+            base_prompt += "- **时长分配**：每个镜头通常3-15秒，分镜总时长应与剧本正文预估时长保持协调\n"
+            base_prompt += "- **情感意图**：每个镜头想传达的情感或叙事目的\n"
+            base_prompt += "- **转场方式**：切/淡入淡出/叠化/闪回等\n"
+
+        # 配乐参考要求：剧集/电影始终输出配乐方案（仅做音乐方向描述，不生成AI提示词）
+        # 注意：AI音乐生成提示词（Suno AI等）由独立的AI资源生成模块负责，此处仅做音乐方向的艺术描述。
+        if content_type in ("series_script", "movie_script"):
+            base_prompt += "\n## 配乐参考要求\n\n"
+            base_prompt += "你需要在输出剧本内容的同时，为关键场景设计配乐方案（音乐方向描述）。\n\n"
+            base_prompt += "1. **场景内嵌配乐描述**：在剧本正文的每个关键时间节点，用简短标注指明配乐参考。"
+            base_prompt += "描述应包含：音乐类型、情绪基调、乐器配置、节奏特点、与剧情的配合时机。\n\n"
+            base_prompt += "2. **配乐方案有两种选择**：\n"
+            base_prompt += "   - **原创BGM方案（优先推荐）**：在配乐参考板块中描述原创配乐的音乐风格、情绪基调、"
+            base_prompt += "乐器配置和节奏特点等音乐方向。\n"
+            base_prompt += "   - **版权音乐引用**：推荐现有版权曲目的风格参考和版权来源信息。\n\n"
+            base_prompt += "3. **输出语言**：所有配乐描述性内容使用中文输出，风格/类型标签可使用英文标准术语。\n"
 
         return base_prompt
 
@@ -141,6 +149,12 @@ class WriterPromptsMixin:
             "content_type", "novel") if context else "novel"
         _unit_label_map = {"novel": "章", "series_script": "集", "movie_script": "场", "script": "场"}
         unit_label = _unit_label_map.get(content_type, "章")
+        # 叙事模式检测：三态判断
+        _narrative_mode = _cfg.get("narrative_mode", "serialized")
+        _is_pure_episodic = _narrative_mode == "episodic"  # 纯单元剧
+        _is_episodic_with_arc = _narrative_mode == "episodic_with_arc"  # 主线串联单元剧
+        # 向后兼容：_is_episodic 对两种单元剧模式均返回 True（禁用前文衔接）
+        _is_episodic = _is_pure_episodic or _is_episodic_with_arc
 
         # 1. 故事背景（全局大纲）- 权重最高
         if global_context:
@@ -309,7 +323,8 @@ class WriterPromptsMixin:
                 prompt_parts.append("")
 
         # 6. 前文内容参考（增强滑动窗口 + 精确接续点）
-        if previous_content:
+        # 单元剧模式：跳过前文内容参考和衔接要求，每集独立
+        if previous_content and not _is_episodic:
             # 扩展前文参考长度到3000字，增强连贯性
             prev_excerpt = previous_content[-3000:] if len(
                 previous_content) > 3000 else previous_content
@@ -331,7 +346,8 @@ class WriterPromptsMixin:
             prompt_parts.append("")
 
         # 6.5 🆕 累积式情节摘要（覆盖前文所有单元的关键剧情概览）
-        if context:
+        # 纯单元剧模式：跳过累积摘要；主线串联单元剧和连续剧模式正常显示
+        if context and not _is_pure_episodic:
             cumulative_summary = _ext.get("cumulative_summary", "") if hasattr(context, 'extra') and context.extra else ""
             if cumulative_summary:
                 prompt_parts.append("【前文情节摘要（累积式，覆盖已发生的所有关键事件）】")
@@ -349,7 +365,8 @@ class WriterPromptsMixin:
                 prompt_parts.append("")
 
         # 6.7 🆕 待回收伏笔清单（前文埋设但尚未回收的伏笔）
-        if context:
+        # 纯单元剧模式：跳过跨集伏笔；主线串联单元剧和连续剧模式正常显示
+        if context and not _is_pure_episodic:
             pending_foreshadowing = _ext.get("pending_foreshadowing", "") if hasattr(context, 'extra') and context.extra else ""
             if pending_foreshadowing:
                 prompt_parts.append(pending_foreshadowing)
@@ -644,7 +661,8 @@ class WriterPromptsMixin:
     def _build_series_output_format(self, context: AgentContext) -> str:
         """Task 4.2: 构建剧集专属输出格式模板
 
-        嵌入剧集风格选择器配置（5维度）和系列参数。
+        嵌入剧集风格选择器配置（5维度）、系列参数和叙事模式分支。
+        v3.0增强：新增配乐参考、时间标记、结构化对话格式、单元剧/连续剧分支。
         """
         series_type = context.config.get("series_type", "电视剧") if isinstance(context.config, dict) else "电视剧"
         duration = context.config.get("episode_duration_range", [30, 45]) if isinstance(context.config, dict) else [30, 45]
@@ -653,6 +671,7 @@ class WriterPromptsMixin:
         style_intensity = context.config.get("series_style_intensity", 0.7) if isinstance(context.config, dict) else 0.7
         script_mode = context.config.get("script_mode", "real") if isinstance(context.config, dict) else "real"
         scenes_per_episode = context.config.get("scenes_per_episode_range", None) if isinstance(context.config, dict) else None
+        narrative_mode = context.config.get("narrative_mode", "serialized") if isinstance(context.config, dict) else "serialized"
         # [修复] 明确传递当前集数，防止LLM在巨型上下文中混淆
         episode_number = context.unit_index if context.unit_index else 1
         total_units = context.config.get("total_units", "?") if isinstance(context.config, dict) else "?"
@@ -660,8 +679,15 @@ class WriterPromptsMixin:
         style_guidance = self._format_series_style_for_prompt(
             style_dims, style_names, style_intensity)
 
-        # 构建 Seedance 2.0 全能参考模式段落（剧集/电影始终包含）
-        comprehensive_ref_section = self._build_comprehensive_ref_section("series", context)
+        # 叙事模式标签（三态）
+        _is_episodic = narrative_mode == "episodic"
+        _is_episodic_with_arc = narrative_mode == "episodic_with_arc"
+        if _is_episodic:
+            mode_label = "单元剧（每集独立）"
+        elif _is_episodic_with_arc:
+            mode_label = "主线串联单元剧（各集独立故事，共享主线发展）"
+        else:
+            mode_label = "连续剧（情节连贯）"
 
         parts = []
         parts.append(f"""# 剧集剧本输出格式要求
@@ -670,7 +696,9 @@ class WriterPromptsMixin:
 **必须严格遵循上方「本集创作指南（单元概述）」中规划的剧情内容。** 概述中指定的事件、出场人物、情节发展不得遗漏或擅自变更。
 
 ## ⚠️ 语言要求
-**本集所有内容（包括正文、分镜设计、场景描述、拍摄指导、运镜设计、光影方案、演出指导、剪辑思路、连续性衔接、AI视觉资源生成等）必须使用中文输出，不得使用英文。**
+**本集所有内容（包括正文、场景描述、配乐参考、拍摄指导、运镜设计、光影方案、演出指导、剪辑思路、分镜脚本设计等）必须使用中文输出，不得使用英文。**
+
+## 叙事模式：{mode_label}
 
 ## 已选剧集风格（强度{int(style_intensity * 100)}%）
 {style_guidance}
@@ -679,42 +707,158 @@ class WriterPromptsMixin:
 ## 本集信息
 - 当前集数：第{episode_number}集（共{total_units}集）
 - 剧集类型：{series_type}
-- 时长控制：{duration[0]}-{duration[1]}分钟""")
+- 叙事模式：{mode_label}
+- 参考时长：约{duration[0]}-{duration[1]}分钟（可根据剧情需要灵活调整）""")
 
         if scenes_per_episode:
             parts.append(f"- 场景数范围：{scenes_per_episode[0]}-{scenes_per_episode[1]}个场景")
 
+        # 时间信息标记规范
+        time_markers = """
+## 时间信息标记规范
+每个场景必须明确标注以下时间信息：
+- **场景时长**：标注格式为「**场景时长**：X分Y秒」，精确到秒
+- **时间线分配**：标注本场景在全集时间轴上的起止位置，格式为「**时间线**：第X分Y秒 — 第X分Z秒」
+- **关键时间节点**：重要情节转折点标注精确时间戳，格式为「**[关键节点]** @X分Y秒：事件简述」
+- **时长控制**：本集所有场景累计时长参考范围约{0}-{1}分钟，可根据剧情复杂度灵活调整
+""".format(duration[0], duration[1])
+
+        # 结构化对话格式
+        dialogue_format = """
+## 对话格式规范
+角色对话必须使用以下结构化标记格式，确保人物台词、情绪、动作明确区分：
+
+```
+【角色名】| 情绪：情感状态 | 动作：伴随动作/表情描述
+"角色台词内容"
+```
+
+示例：
+```
+【张三】| 情绪：愤怒、克制 | 动作：紧握剑柄，指节发白
+"你当真以为我不敢动手？"
+
+【李四】| 情绪：平静、略带嘲讽 | 动作：端起茶杯，目光未离开案卷
+"我等的就是你这句话。"
+```
+
+格式要求：
+- **说话人标识**：角色名称使用【姓名】格式，保持与人物设定一致
+- **情绪标注**：使用简短形容词或短语描述角色当前情感状态（如愤怒、喜悦、紧张、犹豫等）
+- **动作描述**：描述说话时伴随的肢体动作、表情变化或空间位移
+- **对白风格**：根据角色性格设定体现不同的语言特色（如文雅/粗犷/简练/啰嗦）
+"""
+
+        # 配乐参考模块（v4.3: ## 作为五大板块之一）
+        music_reference = """
+## 配乐参考
+为每个关键场景设计配乐方案，格式如下：
+
+### 场景配乐方案
+为每个关键场景标注：
+- **场景编号与名称**：第X场景：场景名称
+- **配乐类型**：原创BGM（推荐）或 版权音乐引用
+- **音乐类型**：管弦乐/电子/民乐/流行/爵士/氛围音乐等
+- **情绪基调**：激昂/悲伤/紧张/温馨/神秘/史诗等
+- **乐器配置**：主奏乐器 + 伴奏编制（如：钢琴+弦乐四重奏、电子合成器+打击乐等）
+- **节奏特点**：BPM范围、节奏型（进行曲/散板/切分音/自由节奏等）
+- **剧情配合时机**：本段音乐在场景X的Y时间点切入，配合[具体剧情事件/情感转折]
+
+### 版权音乐引用（如适用）
+如选用现有版权音乐，注明：
+- **推荐曲目风格**：描述参考音乐风格
+- **版权来源参考**：提示版权方或音乐库类型
+"""
+
+        # 根据叙事模式构建不同的输出结构
+        if _is_episodic:
+            continuity_section = """#### 本集独立结构
+本集为单元剧，**不需要**与上一集或下一集情节衔接。
+本集应具有完整独立的故事结构（开端→发展→高潮→结局），人物基本设定一致但故事情节独立。"""
+        elif _is_episodic_with_arc:
+            continuity_section = """#### 本集独立故事 + 主线连接点
+本集为主线串联单元剧模式：各集为独立故事单元，但共享全局主线。
+- 本集应有独立完整的故事结构（开端→发展→高潮→结局）
+- 在本集关键节点自然融入主线线索或与常驻角色的互动
+- 不需要与上一集情节直接衔接，但应保持主线推进的连贯感"""
+        else:
+            continuity_section = """#### 连续性衔接
+本集与上一集的衔接设计、本集结尾为下一集铺设的悬念/过渡"""
+
+        parts.append(time_markers)
+        parts.append(dialogue_format)
         parts.append(f"""
 ## 输出结构
+
+请严格按照以下 Markdown 标题层级（# → ## → ###）输出五大板块：
+
 ### 第{episode_number}集：[标题]
-**场景列表**：（标注场景号、日/夜景、室内/室外、地点）
-**剧本正文**：（标准剧本格式，含动作描述与对白）
 
-### 拍摄脚本参考
-#### 运镜设计
+## 场景列表
+（标注场景号、日/夜景、室内/室外、地点、场景时长、时间线位置）
+
+## 剧本正文
+（标准剧本格式，含动作描述与对白，遵循上方对话格式规范）
+
+## 拍摄脚本参考
+### 运镜设计
 每一场关键场景标注：推/拉/摇/移/跟/升降 + 景别（特写/近景/中景/全景/远景）
-#### 光影方案
+### 光影方案
 光源方向、色温（暖/冷/中性）、氛围关键词
-#### 演出指导
+### 演出指导
 关键节点的演员表情、肢体动作、台词节奏与停顿建议
-#### 剪辑思路
+### 剪辑思路
 转场方式（切/淡入淡出/叠化/闪回）、本集节奏控制、蒙太奇建议
-#### 连续性衔接
-本集与上一集的衔接设计、本集结尾为下一集铺设的悬念/过渡
+{continuity_section}
 
-### AI视觉资源生成（Seedance 2.0 全能参考模式）
-{comprehensive_ref_section}
+{music_reference}
 
+## 分镜脚本设计
+为全集关键场景设计分镜表，每个场景拆分为3-8个镜头。结合上述场景列表、剧本正文、拍摄脚本参考、配乐参考进行完整设计。
+
+### 分镜设计表
+| 序号 | 景别 | 镜头运动 | 画面描述 | 情感意图 | 时长(秒) |
+|------|------|----------|----------|----------|----------|
+| [请根据剧本内容逐镜头填写] |
+
+### 分镜说明
+- **场景切换规划**：各场景之间的过渡逻辑与节奏控制
+- **镜头语言**：景别选择理由、运动方式与情感表达的匹配
+- **时长分配**：每个镜头通常3-15秒，全部分镜累计银幕时长应与本集剧本正文的预估时长（约{duration[0]}-{duration[1]}分钟）保持协调，根据剧情节奏和内容密度灵活分配各镜头时长
+- **情感曲线**：全集镜头的情感起伏设计（紧张→舒缓→高潮→收束）
+- **转场方式**：各镜头间的转场设计（切/淡入淡出/叠化/闪回）""")
+
+        # 根据叙事模式构建不同的创作要求
+        if _is_episodic:
+            creative_requirements = f"""
+## 创作要求
+1. **独立故事完整性**：本集为独立单元剧，应有完整的起承转合，不需要与前后集做情节衔接
+2. **场景密度**：每集场景数量合理，情节密度适中
+3. **参考时长**：本集剧本正文（含动作描述与对白）预估银幕时长参考范围约{duration[0]}-{duration[1]}分钟，可根据剧情复杂度、场景密度和内容深度灵活调整，不必严格受限。**注意：此参考仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）、配乐参考和分镜脚本设计内容不在此时长限制内，应完整、详细地输出。**
+4. **集内结构**：开头（3-5分钟建立世界观/引入冲突）→ 中段（核心冲突展开与解决）→ 结尾（独立收束，不需要铺垫续集）
+5. **人物一致性**：虽然情节独立，但人物基本设定、性格特征应与全局大纲一致"""
+        elif _is_episodic_with_arc:
+            creative_requirements = f"""
+## 创作要求
+1. **独立故事 + 主线推进**：本集为独立故事单元，应有完整起承转合；同时在本集关键节点自然推进全局主线
+2. **场景密度**：每集场景数量合理，情节密度适中
+3. **参考时长**：本集剧本正文（含动作描述与对白）预估银幕时长参考范围约{duration[0]}-{duration[1]}分钟，可根据剧情复杂度、场景密度和内容深度灵活调整，不必严格受限。**注意：此参考仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）、配乐参考和分镜脚本设计内容不在此时长限制内，应完整、详细地输出。**
+4. **集内结构**：开头（3-5分钟建立本集世界观/引入本集冲突）→ 中段（核心冲突展开）→ 结尾（本集收束 + 主线线索推进）
+5. **主线一致性**：常驻角色的性格、关系发展应与全局大纲和前文累积摘要保持一致
+6. **伏笔管理**：可在本集中埋设或回收主线伏笔，但不强制与上一集情节衔接"""
+        else:
+            creative_requirements = f"""
 ## 创作要求
 1. **集间连续性**：本集开头自然承接上一集结尾状态；本集结尾铺设明确的悬念或过渡
 2. **场景密度**：每集场景数量合理，情节密度适中
-3. **时长控制**：本集剧本正文（含动作描述与对白）预估银幕时长约{duration[0]}-{duration[1]}分钟。**注意：此约束仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）和AI视觉资源生成内容不在此时长限制内，应完整、详细地输出。**
+3. **参考时长**：本集剧本正文（含动作描述与对白）预估银幕时长参考范围约{duration[0]}-{duration[1]}分钟，可根据剧情复杂度、场景密度和内容深度灵活调整，不必严格受限。**注意：此参考仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）、配乐参考和分镜脚本设计内容不在此时长限制内，应完整、详细地输出。**
 4. **集内结构**：开头（3-5分钟）→ 中段（核心冲突展开）→ 结尾（悬念/收束）
-5. **多线叙事**：合理安排主线与支线的交织节奏""")
+5. **多线叙事**：合理安排主线与支线的交织节奏"""
 
-        if script_mode == "virtual":
-            parts.append(self._build_virtual_mode_section("series"))
-            parts.append(f"\n> 当前风格参考：{', '.join(style_names) if style_names else '通用剧集风格'}")
+        parts.append(creative_requirements)
+
+        # v4.2: 虚拟模式AI提示词已移至独立的AI资源生成模块，
+        # 写手仅输出五板块内容：场景列表、剧本正文、拍摄脚本参考、配乐参考、分镜脚本设计
 
         parts.append("\n现在请开始创作本集剧本内容：")
         return "\n".join(parts)
@@ -723,6 +867,7 @@ class WriterPromptsMixin:
         """Task 4.3: 构建电影专属输出格式模板
 
         嵌入电影风格选择器配置（6维度，含台词风格）和电影参数。
+        v3.0增强：新增配乐参考、时间标记、结构化对话格式、连续叙事/短片合集分支。
         """
         movie_type = context.config.get("movie_type", "电影") if isinstance(context.config, dict) else "电影"
         duration = context.config.get("duration_range", [10, 15]) if isinstance(context.config, dict) else [10, 15]
@@ -731,16 +876,24 @@ class WriterPromptsMixin:
         style_intensity = context.config.get("movie_style_intensity", 0.7) if isinstance(context.config, dict) else 0.7
         script_mode = context.config.get("script_mode", "real") if isinstance(context.config, dict) else "real"
         total_scenes = context.config.get("total_scenes", 0) if isinstance(context.config, dict) else 0
+        narrative_mode = context.config.get("narrative_mode", "serialized") if isinstance(context.config, dict) else "serialized"
 
         style_guidance = self._format_movie_style_for_prompt(
             style_dims, style_names, style_intensity)
 
-        # 构建 Seedance 2.0 全能参考模式段落（剧集/电影始终包含）
-        comprehensive_ref_section = self._build_comprehensive_ref_section("movie", context)
-
         # [修复] 明确传递当前场次编号
         scene_number = context.unit_index if context.unit_index else 1
         total_units = context.config.get("total_units", "?") if isinstance(context.config, dict) else "?"
+
+        # 叙事模式标签（三态）
+        _is_episodic = narrative_mode == "episodic"
+        _is_episodic_with_arc = narrative_mode == "episodic_with_arc"
+        if _is_episodic:
+            mode_label = "单元电影/短片合集（各段独立）"
+        elif _is_episodic_with_arc:
+            mode_label = "主线串联单元电影（各段独立短片，共享主线发展）"
+        else:
+            mode_label = "连续叙事（情节连贯推进）"
 
         parts = []
         parts.append(f"""# 电影剧本输出格式要求
@@ -749,7 +902,9 @@ class WriterPromptsMixin:
 **必须严格遵循上方「本场创作指南（单元概述）」中规划的剧情内容。** 概述中指定的事件、出场人物、情节发展不得遗漏或擅自变更。
 
 ## ⚠️ 语言要求
-**本场所有内容（包括正文、分镜设计、场景描述、拍摄指导、运镜设计、光影方案、演出指导、剪辑思路、台词风格标注、AI视觉资源生成等）必须使用中文输出，不得使用英文。**
+**本场所有内容（包括正文、场景描述、配乐参考、拍摄指导、运镜设计、光影方案、演出指导、剪辑思路、台词风格标注、分镜脚本设计等）必须使用中文输出，不得使用英文。**
+
+## 叙事模式：{mode_label}
 
 ## 已选电影风格（强度{int(style_intensity * 100)}%）
 {style_guidance}
@@ -758,210 +913,171 @@ class WriterPromptsMixin:
 ## 本场信息
 - 当前场次：第{scene_number}场（共{total_units}场）
 - 电影类型：{movie_type}
-- 时长控制：每场约{duration[0]}-{duration[1]}分钟""")
+- 叙事模式：{mode_label}
+- 参考时长：每场约{duration[0]}-{duration[1]}分钟（可根据剧情需要灵活调整）""")
 
         if total_scenes > 0:
             parts.append(f"- 总场次数：{total_scenes}场")
 
+        # 时间信息标记规范
+        time_markers = f"""
+## 时间信息标记规范
+每个场景必须明确标注以下时间信息：
+- **场景时长**：标注格式为「**场景时长**：X分Y秒」，精确到秒
+- **时间线分配**：标注本场景在整部电影时间轴上的起止位置，格式为「**时间线**：第X分Y秒 — 第X分Z秒」
+- **关键时间节点**：重要情节转折点标注精确时间戳，格式为「**[关键节点]** @X分Y秒：事件简述」
+- **时长控制**：本场所有内容累计时长参考范围约{duration[0]}-{duration[1]}分钟，可根据剧情复杂度灵活调整
+"""
+
+        # 结构化对话格式
+        dialogue_format = """
+## 对话格式规范
+角色对话必须使用以下结构化标记格式，确保人物台词、情绪、动作明确区分：
+
+```
+【角色名】| 情绪：情感状态 | 动作：伴随动作/表情描述
+"角色台词内容"
+```
+
+示例：
+```
+【张三】| 情绪：愤怒、克制 | 动作：紧握剑柄，指节发白
+"你当真以为我不敢动手？"
+
+【李四】| 情绪：平静、略带嘲讽 | 动作：端起茶杯，目光未离开案卷
+"我等的就是你这句话。"
+```
+
+格式要求：
+- **说话人标识**：角色名称使用【姓名】格式，保持与人物设定一致
+- **情绪标注**：使用简短形容词或短语描述角色当前情感状态（如愤怒、喜悦、紧张、犹豫等）
+- **动作描述**：描述说话时伴随的肢体动作、表情变化或空间位移
+- **对白风格**：根据角色性格设定体现不同的语言特色（如文雅/粗犷/简练/啰嗦）
+"""
+
+        # 配乐参考模块（v4.3: ## 作为五大板块之一）
+        music_reference = """
+## 配乐参考
+为每个关键场景设计配乐方案，格式如下：
+
+### 场景配乐方案
+为每个关键场景标注：
+- **场景编号与名称**：第X场景：场景名称
+- **配乐类型**：原创BGM（推荐）或 版权音乐引用
+- **音乐类型**：管弦乐/电子/民乐/流行/爵士/氛围音乐等
+- **情绪基调**：激昂/悲伤/紧张/温馨/神秘/史诗等
+- **乐器配置**：主奏乐器 + 伴奏编制（如：钢琴+弦乐四重奏、电子合成器+打击乐等）
+- **节奏特点**：BPM范围、节奏型（进行曲/散板/切分音/自由节奏等）
+- **剧情配合时机**：本段音乐在场景X的Y时间点切入，配合[具体剧情事件/情感转折]
+
+### 版权音乐引用（如适用）
+如选用现有版权音乐，注明：
+- **推荐曲目风格**：描述参考音乐风格
+- **版权来源参考**：提示版权方或音乐库类型
+"""
+
+        # 根据叙事模式构建不同的结构要求
+        if _is_episodic:
+            continuity_section = """#### 短片独立性说明
+本场为短片合集/单元电影模式，各场次为独立短片，**不需要**与上一场或下一场情节衔接。
+每个短片应具有完整独立的故事结构（开端→发展→高潮→结局），人物基本设定一致但故事情节独立。"""
+        elif _is_episodic_with_arc:
+            continuity_section = """#### 独立短片 + 主线连接点
+本场为主线串联单元电影模式：各场次为独立短片，但共享全局主线。
+- 本场应有独立完整的故事结构（开端→发展→高潮→结局）
+- 在本场关键节点自然融入主线线索或与常驻角色的互动
+- 不需要与上一场情节直接衔接，但应保持主线推进的连贯感"""
+        else:
+            continuity_section = """#### 场次连贯衔接
+本场与上一场的衔接设计、本场结尾为下一场铺设的悬念/过渡"""
+
+        parts.append(time_markers)
+        parts.append(dialogue_format)
         parts.append(f"""
 ## 场次结构要求（核心）
 每场须包含完整的：开场（建立氛围/引入冲突）→ 发展（矛盾升级/角色关系变化）→ 高潮（冲突爆发/关键转折）→ 结局（场景收尾/为下一场铺垫）
 
 ## 输出结构
+
+请严格按照以下 Markdown 标题层级（# → ## → ###）输出五大板块：
+
 ### 第{scene_number}场：[标题]
-**场次结构**：（开场→发展→高潮→结局简述）
-**剧本正文**：（标准剧本格式）
 
-### 拍摄脚本参考
-#### 运镜设计
+## 场景列表
+（标注场景号、日/夜景、室内/室外、地点、场景时长、时间线位置）
+场次结构：（开场→发展→高潮→结局简述）
+
+## 剧本正文
+（标准剧本格式，含动作描述与对白，遵循上方对话格式规范）
+
+## 拍摄脚本参考
+### 运镜设计
 标注：景别 + 镜头运动 + 画面描述 + 情感意图
-#### 光影方案
+### 光影方案
 光源方向、色温倾向、氛围关键词、色彩基调
-#### 演出指导
+### 演出指导
 表情序列设计、肢体动作编排、台词节奏（语速/停顿/重音）
-#### 剪辑思路
+### 剪辑思路
 转场方式、本场节奏曲线、蒙太奇风格（基于已选剪辑/蒙太奇流派）
-#### 台词风格
+### 台词风格
 基于已选台词风格维度，标注对白的语言特征（简练/诗意/生活化/戏剧化等）
+{continuity_section}
 
-### AI视觉资源生成（Seedance 2.0 全能参考模式）
-{comprehensive_ref_section}
+{music_reference}
 
+## 分镜脚本设计
+为本场关键场景设计分镜表，每个场景拆分为3-8个镜头。结合上述场景列表、剧本正文、拍摄脚本参考、配乐参考进行完整设计。
+
+### 分镜设计表
+| 序号 | 景别 | 镜头运动 | 画面描述 | 情感意图 | 时长(秒) |
+|------|------|----------|----------|----------|----------|
+| [请根据剧本内容逐镜头填写] |
+
+### 分镜说明
+- **场景切换规划**：各场景之间的过渡逻辑与节奏控制
+- **镜头语言**：景别选择理由、运动方式与情感表达的匹配
+- **时长分配**：每个镜头通常3-15秒，全部分镜累计银幕时长应与本场剧本正文的预估时长（约{duration[0]}-{duration[1]}分钟）保持协调，根据剧情节奏和内容密度灵活分配各镜头时长
+- **情感曲线**：本场镜头的情感起伏设计（紧张→舒缓→高潮→收束）
+- **转场方式**：各镜头间的转场设计（切/淡入淡出/叠化/闪回）""")
+
+        # 根据叙事模式构建不同的创作要求
+        if _is_episodic:
+            creative_requirements = f"""
+## 创作要求
+1. **短片独立完整性**：本场为独立短片，应有完整的起承转合，不需要与前后场做情节衔接
+2. **戏剧张力**：每场有明确的戏剧冲突和情感高潮，避免平铺直叙
+3. **视听语言**：每场至少标注3处关键镜头语言（特写/长镜头/蒙太奇/跟拍/俯拍/仰拍）
+4. **台词风格**：严格遵循已选台词风格维度，对白体现该风格的语言特征
+5. **参考时长**：本场剧本正文（含动作描述与对白）预估银幕时长参考范围约{duration[0]}-{duration[1]}分钟，可根据剧情复杂度、场景密度和内容深度灵活调整，不必严格受限。**注意：此参考仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）、配乐参考和分镜脚本设计内容不在此时长限制内，应完整、详细地输出。**
+6. **独立收束**：每场结尾应有独立收束感，不需要为下一场铺设悬念或过渡
+7. **人物一致性**：虽然情节独立，但人物基本设定、性格特征应与全局大纲一致"""
+        elif _is_episodic_with_arc:
+            creative_requirements = f"""
+## 创作要求
+1. **独立短片 + 主线推进**：本场为独立短片，应有完整起承转合；同时在本场关键节点自然推进全局主线
+2. **戏剧张力**：每场有明确的戏剧冲突和情感高潮，避免平铺直叙
+3. **视听语言**：每场至少标注3处关键镜头语言（特写/长镜头/蒙太奇/跟拍/俯拍/仰拍）
+4. **台词风格**：严格遵循已选台词风格维度，对白体现该风格的语言特征
+5. **参考时长**：本场剧本正文（含动作描述与对白）预估银幕时长参考范围约{duration[0]}-{duration[1]}分钟，可根据剧情复杂度、场景密度和内容深度灵活调整，不必严格受限。**注意：此参考仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）、配乐参考和分镜脚本设计内容不在此时长限制内，应完整、详细地输出。**
+6. **主线一致性**：常驻角色的性格、关系发展应与全局大纲和前文累积摘要保持一致
+7. **伏笔管理**：可在本场中埋设或回收主线伏笔，但不强制与上一场情节衔接"""
+        else:
+            creative_requirements = f"""
 ## 创作要求
 1. **场次起承转合**：每场完整包含 开场→发展→高潮→结局 四个阶段
 2. **戏剧张力**：每场有明确的戏剧冲突和情感高潮，避免平铺直叙
 3. **视听语言**：每场至少标注3处关键镜头语言（特写/长镜头/蒙太奇/跟拍/俯拍/仰拍）
 4. **台词风格**：严格遵循已选台词风格维度，对白体现该风格的语言特征
-5. **时长控制**：本场剧本正文（含动作描述与对白）预估银幕时长约{duration[0]}-{duration[1]}分钟。**注意：此约束仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）和AI视觉资源生成内容不在此时长限制内，应完整、详细地输出。**
-6. **类型特征**：电影叙事比剧集更凝练，每场都需要推动主线或揭示关键信息""")
+5. **参考时长**：本场剧本正文（含动作描述与对白）预估银幕时长参考范围约{duration[0]}-{duration[1]}分钟，可根据剧情复杂度、场景密度和内容深度灵活调整，不必严格受限。**注意：此参考仅针对剧本正文部分，拍摄脚本参考（运镜设计、光影方案、演出指导、剪辑思路）、配乐参考和分镜脚本设计内容不在此时长限制内，应完整、详细地输出。**
+6. **类型特征**：电影叙事比剧集更凝练，每场都需要推动主线或揭示关键信息
+7. **场间衔接**：每场结尾应有明确的悬念或过渡，为下一场做铺垫"""
 
-        if script_mode == "virtual":
-            parts.append(self._build_virtual_mode_section("movie"))
-            parts.append(f"\n> 当前风格参考：{', '.join(style_names) if style_names else '通用电影风格'}")
+        parts.append(creative_requirements)
+
+        # v4.2: 虚拟模式AI提示词已移至独立的AI资源生成模块，
+        # 写手仅输出五板块内容：场景列表、剧本正文、拍摄脚本参考、配乐参考、分镜脚本设计
 
         parts.append("\n现在请开始创作本场电影剧本内容：")
-        return "\n".join(parts)
-
-    def _build_virtual_mode_section(self, content_type: str) -> str:
-        """Task 4.4 + Task 7 集成: 构建虚拟模式AIGC提示词段落
-
-        在剧本正文下方提供分镜设计 + AI场景图提示词 + AI视频提示词，
-        使用 Gemini/豆包 和 Seedance 2.0/Veo 最佳实践。
-        模板来源：virtual_mode_prompts.py（单一数据源）
-
-        Args:
-            content_type: "series" 或 "movie"
-        """
-        from app.agents.writing.prompts.virtual_mode_prompts import (
-            STORYBOARD_TEMPLATE, IMAGE_PROMPT_INTRO, IMAGE_PROMPT_EXAMPLE,
-            VIDEO_PROMPT_INTRO,
-        )
-        unit_label = "集" if content_type == "series" else "场"
-
-        storyboard_section = STORYBOARD_TEMPLATE.format(
-            storyboard_rows=f"| 1 | — | — | 待LLM根据剧本内容生成 | — | — |\n| ... | ... | ... | ... | ... | ... |"
-        )
-
-        return f"""
-### 虚拟模式 — AI视频生成分镜设计
-
-## 分镜设计表（为每{unit_label}关键场景填写）
-{storyboard_section}
-
-{IMAGE_PROMPT_INTRO}
-
-{IMAGE_PROMPT_EXAMPLE}
-
-{VIDEO_PROMPT_INTRO}
-
-请为每一场关键场景分别生成上述格式的生成提示词，确保视觉风格与已选风格维度保持一致。
-"""
-
-    def _build_comprehensive_ref_section(self, content_type: str, context):
-        """构建 Seedance 2.0 全能参考模式段落（剧集/电影始终包含）
-
-        强化版：引导LLM主动提取剧本中的视觉元素并生成可操作的提示词，
-        而非使用填空模板。每个提示词都是完整的、可直接用于AI图像/视频生成工具。
-        """
-        from app.agents.writing.prompts.virtual_mode_prompts import (
-            SEEDANCE_COMPREHENSIVE_REFERENCE_INTRO,
-        )
-        unit_label = "集" if content_type == "series" else "场"
-        if content_type == "series":
-            style_names = context.config.get("series_style_names", []) if isinstance(context.config, dict) else []
-        else:
-            style_names = context.config.get("movie_style_names", []) if isinstance(context.config, dict) else []
-        style_tags = "、".join(style_names) if style_names else "通用"
-        aspect_ratio = context.config.get("aspect_ratio", "16:9") if isinstance(context.config, dict) else "16:9"
-        character_names = []
-        if context.character_profiles:
-            for char in context.character_profiles:
-                if isinstance(char, dict) and char.get("name"):
-                    character_names.append(char["name"])
-
-        parts = [SEEDANCE_COMPREHENSIVE_REFERENCE_INTRO, ""]
-        parts.append("### 一、人物参考图生成提示词")
-        if character_names:
-            parts.append(f"请为当前{unit_label}出场的以下主要角色，根据剧本中的人物设定和外貌描述，生成角色概念图提示词：")
-            parts.append("")
-            for char_name in character_names[:8]:
-                parts.append(f"- **{char_name}**：请LLM根据人物设定（外貌、服装、气质）生成完整的角色概念图提示词")
-            parts.append("")
-            parts.append("**每位角色的提示词必须包含以下要素**：")
-            parts.append("- 角色外貌特征（年龄、体型、面部特征、发型发色等）")
-            parts.append("- 服装风格（时代、款式、颜色、材质、配饰）")
-            parts.append("- 姿态动作（站姿/动态、表情、眼神方向）")
-            parts.append("- 光影氛围（光源方向、色温、明暗对比）")
-            parts.append(f"- 视觉风格标签：{style_tags}")
-            parts.append(f"- 画面规格：角色概念图，高质量，人物定妆照，{aspect_ratio}")
-            parts.append("")
-            parts.append("**输出格式示例**：")
-            parts.append("```")
-            parts.append(f"{char_name}的角色概念图，[具体外貌特征描述]，[具体服装描述]，")
-            parts.append(f"[姿态动作描述]，[光影氛围描述]，{style_tags}风格，人物肖像，高质量，角色设定图，{aspect_ratio}")
-            parts.append("```")
-        else:
-            parts.append(f"请LLM根据当前{unit_label}剧本内容，主动识别出场人物，为每位主要角色生成角色概念图提示词。")
-            parts.append("提示词需包含：外貌特征、服装风格、姿态动作、光影氛围、画幅比例。")
-        parts.append("")
-
-        parts.append("### 二、场景参考图生成提示词")
-        parts.append(f"请为当前{unit_label}的每个关键场景生成场景概念图提示词：")
-        parts.append("")
-        parts.append("**每个场景提示词必须包含以下要素**：")
-        parts.append("- 地点描述（具体场景名、空间特征、建筑风格）")
-        parts.append("- 时间/天气（日/夜/晨/昏、晴天/阴天/雨天等）")
-        parts.append("- 氛围基调（紧张/宁静/浪漫/恐怖/史诗等）")
-        parts.append("- 电影级构图（广角全景/中景/特写、低角度/高角度/平视）")
-        parts.append(f"- 视觉风格标签：{style_tags}")
-        parts.append(f"- 画面规格：场景概念图，电影级质感，高质量，{aspect_ratio}")
-        parts.append("")
-        parts.append("**输出格式示例**：")
-        parts.append("```")
-        parts.append(f"[场景名]的场景概念图，[地点空间描述]，[时间天气描述]，")
-        parts.append(f"[氛围基调描述]，[构图方式描述]，{style_tags}风格，电影级质感，高质量，{aspect_ratio}")
-        parts.append("```")
-        parts.append("")
-
-        parts.append("### 三、物品参考图生成提示词")
-        parts.append(f"请为当前{unit_label}中出现的重要道具/物品生成道具概念图提示词：")
-        parts.append("")
-        parts.append("**每个物品提示词必须包含以下要素**：")
-        parts.append("- 物品外观描述（形状、大小、颜色、纹理）")
-        parts.append("- 材质质感（金属/木质/布料/玉石/玻璃等）")
-        parts.append("- 光影（专业产品布光、高光/阴影处理）")
-        parts.append(f"- 视觉风格标签：{style_tags}")
-        parts.append(f"- 画面规格：道具概念图，高质量，白底产品图，{aspect_ratio}")
-        parts.append("")
-        parts.append("**输出格式示例**：")
-        parts.append("```")
-        parts.append(f"[道具名]的道具概念图，[外观材质描述]，[光影描述]，")
-        parts.append(f"{style_tags}风格，高质量，白底产品图，{aspect_ratio}")
-        parts.append("```")
-        parts.append("")
-
-        parts.append("### 四、基于参考图的视频生成提示词（Seedance 2.0 全能参考模式）")
-        parts.append(f"基于上述已生成的人物/场景/物品参考图，为当前{unit_label}的每个关键镜头生成Seedance 2.0视频提示词。")
-        parts.append("假设用户已将参考图上传至Seedance 2.0，你需要为每个镜头提供完整的视频生成参数。")
-        parts.append("")
-        parts.append("**每个视频提示词必须包含以下12个字段**：")
-        parts.append("")
-        parts.append("| 序号 | 字段名 | 说明 |")
-        parts.append("|------|--------|------|")
-        parts.append("| 1 | 参考模式 | 固定填写：全能参考 |")
-        parts.append("| 2 | 人物参考图 | 引用上方生成的人物参考图名称 |")
-        parts.append("| 3 | 场景参考图 | 引用上方生成的场景参考图名称 |")
-        parts.append("| 4 | 物品参考图 | 引用上方生成的物品参考图名称（如无则为空） |")
-        parts.append("| 5 | 镜头类型 | 景别（特写/近景/中景/全景/远景）+ 运动方式（推/拉/摇/移/跟/升降/固定） |")
-        parts.append("| 6 | 主体动作 | 精确描述画面中主体的动作和运动轨迹 |")
-        parts.append("| 7 | 环境描述 | 场景环境、天气、时间、氛围 |")
-        parts.append("| 8 | 运镜方式 | 摄像机运动的具体描述（如：缓慢推近、横摇跟随等） |")
-        parts.append(f"| 9 | 风格要求 | 视觉风格标签：{style_tags} |")
-        parts.append("| 10 | 首帧描述 | 视频起始画面的具体描述 |")
-        parts.append("| 11 | 尾帧描述 | 视频结束画面的具体描述 |")
-        parts.append("| 12 | 负面提示词 | 不希望出现的元素（如：模糊、抖动、变形、水印等） |")
-        parts.append("")
-        parts.append("**输出格式示例**：")
-        parts.append("```")
-        parts.append("[参考模式]：全能参考")
-        parts.append("[人物参考图]：[人物名]的角色概念图")
-        parts.append("[场景参考图]：[场景名]的场景概念图")
-        parts.append("[物品参考图]：[道具名]的道具概念图（如适用）")
-        parts.append("[镜头类型]：中景，缓慢推近")
-        parts.append("[主体动作]：[人物名]从画面左侧走向右侧，转身面对镜头，表情由凝重转为坚定")
-        parts.append("[环境描述]：黄昏时分，古城街道，夕阳余晖洒在石板路上，远处有炊烟袅袅")
-        parts.append("[运镜方式]：从中景开始，缓慢推近至近景，跟随主体横向移动后定格")
-        parts.append(f"[风格要求]：{style_tags}，电影级质感，暖色调，戏剧性光影")
-        parts.append("[首帧描述]：黄昏街道全景，[人物名]独自站立在街道中央，背对镜头")
-        parts.append("[尾帧描述]：近景特写[人物名]的面部，坚定的眼神望向远方")
-        parts.append("[负面提示词]：模糊，抖动，画面变形，低质量，水印，文字")
-        parts.append("```")
-        parts.append("")
-        parts.append(f"> 视觉风格：{style_tags} | 画幅：{aspect_ratio}")
-        parts.append("> 以上提示词可直接用于Gemini/DALL-E/豆包生成参考图，以及Seedance 2.0进行视频生成")
-        parts.append("")
-        parts.append("**⚠️ 重要提示：以上所有参考图生成提示词和视频生成提示词，必须使用中文输出，"
-                     "不得使用英文。所有字段描述必须为中文内容。**")
         return "\n".join(parts)
 
     def _format_series_style_for_prompt(

@@ -49,6 +49,13 @@
               <el-option label="微短剧" value="微短剧" />
             </el-select>
           </el-form-item>
+          <el-form-item label="叙事模式">
+            <el-radio-group v-model="settingsForm.series_script_config.narrative_mode">
+              <el-radio value="serialized">连续剧（各集情节连贯）</el-radio>
+              <el-radio value="episodic_with_arc">主线串联单元剧（各集独立故事，共享主线发展）</el-radio>
+              <el-radio value="episodic">纯单元剧（每集完全独立）</el-radio>
+            </el-radio-group>
+          </el-form-item>
           <el-form-item label="每集时长">
             <div style="display: flex; align-items: center; gap: 10px;">
               <el-input-number v-model="settingsForm.series_script_config.episode_duration_range[0]" :min="1" :max="120" :step="5" style="width: 100px;" />
@@ -87,6 +94,13 @@
               <el-option label="微电影" value="微电影" />
               <el-option label="纪录片" value="纪录片" />
             </el-select>
+          </el-form-item>
+          <el-form-item label="叙事模式">
+            <el-radio-group v-model="settingsForm.movie_script_config.narrative_mode">
+              <el-radio value="serialized">连续叙事（情节连贯推进）</el-radio>
+              <el-radio value="episodic_with_arc">主线串联单元电影（各段独立，共享主线发展）</el-radio>
+              <el-radio value="episodic">纯单元电影/短片合集（各段完全独立）</el-radio>
+            </el-radio-group>
           </el-form-item>
           <el-form-item label="电影时长">
             <el-input-number v-model="settingsForm.movie_script_config.total_duration" :min="5" :max="180" :step="5" />

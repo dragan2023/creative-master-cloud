@@ -64,12 +64,27 @@ export function parseUnitSummariesFromContent(content, contentType) {
   if (!content) return result
 
   // [2026-05-05] 修复：优先使用显式content_type，回退到基于内容推测
-  const isMovie = contentType
-    ? contentType.includes('movie')
-    : (content.includes('场') && !content.includes('集'))
-  const isSeries = contentType
-    ? contentType.includes('series')
-    : (content.includes('集') && !content.includes('场'))
+  // [2026-06-03] 修复：剧集内容中同时含"集"(标题)和"场"(场景划分)，导致回退检测均失败
+  // 改用第\d+集/第\d+场模式匹配替代简单字符包含检测
+  const _detectContentType = () => {
+    if (contentType) {
+      if (contentType.includes('movie')) return 'movie'
+      if (contentType.includes('series')) return 'series'
+      return 'novel'
+    }
+    // 回退检测：统计第N集和第N场出现的次数
+    const episodeMatches = content.match(/第\d+集/g)
+    const sceneMatches = content.match(/第\d+场/g)
+    const episodeCount = episodeMatches ? episodeMatches.length : 0
+    const sceneCount = sceneMatches ? sceneMatches.length : 0
+    if (sceneCount > 0 && episodeCount === 0) return 'movie'
+    if (episodeCount > sceneCount) return 'series'
+    if (sceneCount > episodeCount) return 'movie'
+    return 'novel'
+  }
+  const detectedType = _detectContentType()
+  const isMovie = detectedType === 'movie'
+  const isSeries = detectedType === 'series'
   const unitChar = isMovie ? '场' : (isSeries ? '集' : '章')
 
   // [2026-05-05] 修复：支持**第N集**：和**第N集：**两种bold格式

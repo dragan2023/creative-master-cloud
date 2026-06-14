@@ -286,7 +286,7 @@ class GlobalOutlineMixin:
         temperature: float = 0.7,
         user_id: int = None,
         enable_knowledge: bool = False,  # 是否启用知识库修正（默认False，由用户主动控制）
-        enable_auto_qc: bool = True,  # v2.3新增：是否启用自动质控修正
+        enable_auto_qc: bool = False,  # v2.3新增：是否启用自动质控修正（v4.0优化：剧本类型默认关闭）
         style_ids: List[str] = [],
         style_names: List[str] = [],
         style_intensity: float = 0.7,
@@ -423,7 +423,9 @@ class GlobalOutlineMixin:
             current_content = revised_content if (
                 enable_knowledge and revised_content) else ''.join(full_content_chunks)
 
-            if enable_auto_qc:
+            # v4.0优化：全局大纲流式生成中的自动质控修正仅对小说类型生效
+            # 剧集/电影类型通过用户手动触发的全局大纲质控按钮执行检测
+            if enable_auto_qc and content_type == "novel":
                 try:
                     self.logger.info("[全局大纲流式] 开始自动质控修正...")
                     yield self._format_sse("workflow", {
@@ -442,15 +444,12 @@ class GlobalOutlineMixin:
                         # 有修正内容，发送替换事件
                         yield self._format_sse("replace_content", {
                             "content": qc_result["revised_content"],
-                            "original_content": current_content,  # v2.4新增：传递原始内容用于对比
-                            # v2.4新增：明确传递修正后内容
+                            "original_content": current_content,
                             "revised_content": qc_result["revised_content"],
                             "qc_applied": True,
                             "issues_fixed": qc_result.get("issues_fixed", 0),
                             "qc_report": qc_result.get("qc_report"),
-                            # v2.4新增：原始长度
                             "original_length": len(current_content),
-                            # v2.4新增：修正后长度
                             "revised_length": len(qc_result["revised_content"])
                         })
                         yield self._format_sse("workflow", {
@@ -480,6 +479,16 @@ class GlobalOutlineMixin:
                         "type": "step", "step": "auto_qc", "status": "error",
                         "message": "质量检测失败，跳过修正", "icon": "Check"
                     })
+            elif enable_auto_qc:
+                # v4.0: 剧本类型跳过自动质控，记录日志
+                self.logger.info(
+                    f"[全局大纲流式] 剧本类型({content_type})跳过自动质控修正，"
+                    "请使用手动质控按钮或在写作工作台中查看大纲质量报告")
+                yield self._format_sse("workflow", {
+                    "type": "step", "step": "auto_qc", "status": "skipped",
+                    "message": "剧本类型已跳过自动质控，可在写作工作台中手动触发质量检测",
+                    "icon": "Check"
+                })
 
             yield self._format_sse("workflow", {"type": "complete"})
 

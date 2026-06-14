@@ -210,6 +210,7 @@ class NovelProject(BaseModel):
     # movie_script_config 结构示例:
     # {
     #     "movie_type": "院线电影",
+    #     "narrative_mode": "serialized",  # serialized=连续叙事, episodic=短片合集/单元电影
     #     "total_duration": 120,
     #     "format_standard": "标准格式",
     #     "dialogue_narration_ratio": "均衡",

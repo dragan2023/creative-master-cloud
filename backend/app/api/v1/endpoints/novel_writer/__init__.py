@@ -39,6 +39,8 @@ from . import content       # 内容管理端点
 from . import quality_control  # 质量管控端点(旧版)
 from . import quality_control_v2  # 质量管控端点v2.0(LLM智能修正+反馈学习)
 from . import _unit_content  # 单元内容编辑端点
+from . import _unit_revision  # 单元对话修正端点
+from . import _ai_resource  # AI视觉资源管理端点
 
 # 从 task_manager 直接导出
 from app.services.task_manager import (

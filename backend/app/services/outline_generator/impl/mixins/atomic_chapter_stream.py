@@ -39,6 +39,8 @@ class AtomicChapterStreamMixin:
         cancel_event=None,
         # GraphRAG知识库增强（v4.1新增）
         project_id: int = None,
+        # 叙事模式（serialized=连续剧，episodic=单元剧）
+        narrative_mode: str = "serialized",
     ) -> AsyncGenerator[str, None]:
         """逐章流式生成，每章完成后立即发送SSE事件给前端
 

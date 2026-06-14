@@ -105,6 +105,12 @@ class WritingUnitResponse(BaseModel):
         default=None, description="LLM初稿(生成完成后存储，永不覆盖)")
     content_after_qc_fix: Optional[str] = Field(
         default=None, description="质控修正稿(质控完成后存储)")
+    # v4.0: 用户自主修订稿 (新增)
+    content_after_self_revise: Optional[str] = Field(
+        default=None, description="用户自主修订稿(通过UnitRevisionDialog确认保存)")
+    # v4.1: AI视觉资源内容（独立于剧本正文存储）
+    ai_resource_content: Optional[str] = Field(
+        default=None, description="AI视觉资源生成内容(独立于剧本正文存储)")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 

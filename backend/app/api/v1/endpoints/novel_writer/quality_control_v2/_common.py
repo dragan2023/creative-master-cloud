@@ -74,9 +74,27 @@ async def _generate_fixes_for_issues(
     # v2.7: 确保 content_type 不为 None（旧项目可能 content_type 为 NULL）
     content_type = content_type or "novel"
 
+    # v3.2: 过滤掉合规提醒类问题（敏感实体检测），仅提醒不自动修正
+    compliance_issues = [i for i in issues if i.get('is_compliance')]
+    fixable_issues = [i for i in issues if not i.get('is_compliance')]
+    
+    if compliance_issues:
+        logger.info(
+            f"[批量修正] 跳过 {len(compliance_issues)} 个合规提醒问题（仅提醒不自动修正）: "
+            f"IDs={[i.get('id') for i in compliance_issues]}"
+        )
+        # 合规类问题不生成 auto_fix
+        for issue in compliance_issues:
+            issue['auto_fix'] = None
+    
+    # 如果没有可修正的问题，直接返回（合规类已标记 auto_fix=None）
+    if not fixable_issues:
+        logger.info("[批量修正] 所有问题均为合规提醒，无需生成修正方案")
+        return issues
+
     fix_generator = QualityFixGenerator()
     
-    # 按章节号分组问题
+    # 按章节号分组问题（仅处理非合规问题）
     # [v2.7修复] 单单元场景（chapters_data仅1条）：强制所有issue合为一组，
     # 避免因LLM返回不一致的chapter_number导致issue被分到不同组，
     # 不同组各自调用generate_batch_fix产生不同的fixed_content，
@@ -87,14 +105,14 @@ async def _generate_fixes_for_issues(
         unified_chapter = chapters_data[0].get('chapter_number', 1)
         if not unified_chapter:
             unified_chapter = 1
-        issues_by_chapter = {unified_chapter: list(issues)}
+        issues_by_chapter = {unified_chapter: list(fixable_issues)}
         logger.info(
-            f"[批量修正] 单单元场景，{len(issues)}个issue强制合组: "
+            f"[批量修正] 单单元场景，{len(fixable_issues)}个issue强制合组: "
             f"chapter={unified_chapter}"
         )
     else:
         issues_by_chapter = {}
-        for issue in issues:
+        for issue in fixable_issues:
             chapter_number = (
                 issue.get('location', {}).get('chapter_number') or
                 issue.get('location', {}).get('chapter') or

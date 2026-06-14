@@ -348,6 +348,16 @@ class ContextBuilderMixin(PipelineConfigMixin):
 
         # Task 1.2: 按内容类型构建专属配置
         type_specific_config = {}
+
+        # 提取 narrative_mode（剧集/电影共用）
+        narrative_mode = task_config.get("narrative_mode", "serialized")
+        if content_type == "series_script" and project and project.series_script_config:
+            ssc = project.series_script_config if isinstance(project.series_script_config, dict) else {}
+            narrative_mode = task_config.get("narrative_mode") or ssc.get("narrative_mode", "serialized")
+        elif content_type == "movie_script" and project and project.movie_script_config:
+            msc = project.movie_script_config if isinstance(project.movie_script_config, dict) else {}
+            narrative_mode = task_config.get("narrative_mode") or msc.get("narrative_mode", "serialized")
+
         if content_type == "series_script":
             episode_duration_range = task_config.get("episode_duration_range", [30, 45])
             if isinstance(episode_duration_range, (list, tuple)) and len(episode_duration_range) == 2:
@@ -356,6 +366,7 @@ class ContextBuilderMixin(PipelineConfigMixin):
                 duration_minutes = 40  # 默认每集约40分钟
             type_specific_config = {
                 "series_type": task_config.get("series_type", "电视剧"),
+                "narrative_mode": narrative_mode,
                 "episode_duration_range": episode_duration_range,
                 "duration_minutes": duration_minutes,
                 "scenes_per_episode_range": task_config.get("scenes_per_episode_range", None),
@@ -373,6 +384,7 @@ class ContextBuilderMixin(PipelineConfigMixin):
                 duration_minutes = 12  # 默认每场约12分钟
             type_specific_config = {
                 "movie_type": task_config.get("movie_type", "电影"),
+                "narrative_mode": narrative_mode,
                 "duration_range": duration_range,
                 "duration_minutes": duration_minutes,
                 "total_scenes": task_config.get("total_scenes", 0),
@@ -403,6 +415,7 @@ class ContextBuilderMixin(PipelineConfigMixin):
                 "unit_summaries": unit_summaries,
                 "generation_mode": generation_mode,
                 "content_type": content_type,
+                "narrative_mode": narrative_mode,
                 "ai_elimination_enabled": ai_elimination_enabled,
                 "ai_elimination_threshold": ai_elimination_threshold,
                 "style_document_features": style_document_features,

@@ -239,7 +239,7 @@ set FRONTEND_PORT=
 set /a WAIT_COUNT+=1
 
 REM 检测前端实际监听的端口
-for %%p in (3000 5173 5174 5175 5176 5177 5178 5179 5180) do (
+for %%p in (5173 5174 5175 5176 5177 5178 5179 5180) do (
     if "!FRONTEND_PORT!"=="" (
         netstat -ano | findstr ":%%p.*LISTENING" >nul 2>&1
         if not errorlevel 1 (
@@ -396,7 +396,7 @@ if not errorlevel 1 (
 
 REM 检查前端状态
 set FRONTEND_RUNNING=0
-for %%p in (3000 5173 5174 5175 5176 5177 5178 5179 5180) do (
+for %%p in (5173 5174 5175 5176 5177 5178 5179 5180) do (
     netstat -ano | findstr ":%%p.*LISTENING" >nul 2>&1
     if not errorlevel 1 (
         echo [运行中] 前端服务 - http://localhost:%%p

@@ -39,6 +39,8 @@ backend/data/novel_projects/
 backend/data/uploads/
 backend/data/backups/
 backend/data/marker_models/
+backend/data/character_states/
+backend/data/thinking_logs/
 *.db
 *.sqlite3
 *.db-journal
@@ -62,6 +64,7 @@ logs/
 *.log
 *.log.zip
 backend/logs/
+backend/data/thinking_logs/
 nginx/logs/
 install.log
 
@@ -102,6 +105,7 @@ nginx/ssl/*.key
 .DS_Store
 Thumbs.db
 Desktop.ini
+nul
 
 # ===== 构建产物 =====
 dist/
@@ -121,6 +125,8 @@ tests/
 
 # ===== 审查差异与临时文件 =====
 *_diff*.txt
+dev_artifacts/
+output_files/
 backend_status.png
 reports/
 # 根目录诊断/清理脚本（临时用）

@@ -269,7 +269,8 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     episode_duration_range: [30, 45],
     format_standard: '标准格式',
     dialogue_narration_ratio: '均衡',
-    target_broadcast: ''
+    target_broadcast: '',
+    narrative_mode: 'serialized',  // 叙事模式: serialized=连续剧, episodic_with_arc=主线串联单元剧, episodic=纯单元剧
   }
 
   const DEFAULT_MOVIE_SCRIPT_CONFIG = {
@@ -277,7 +278,8 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     total_duration: 90,
     format_standard: '标准格式',
     dialogue_narration_ratio: '均衡',
-    target_platform: ''
+    target_platform: '',
+    narrative_mode: 'serialized',  // 叙事模式: serialized=连续叙事, episodic_with_arc=主线串联单元电影, episodic=纯单元电影
   }
 
   // ==================== 表单 ====================
@@ -514,8 +516,8 @@ export function useProjectDetailState(refreshCallbacks = {}) {
           title: res.data.title,
           genre: res.data.genre || '',
           novel_config: res.data.novel_config || { ...DEFAULT_NOVEL_CONFIG },
-          series_script_config: res.data.series_script_config || { ...DEFAULT_SERIES_SCRIPT_CONFIG },
-          movie_script_config: res.data.movie_script_config || { ...DEFAULT_MOVIE_SCRIPT_CONFIG },
+          series_script_config: { ...DEFAULT_SERIES_SCRIPT_CONFIG, ...(res.data.series_script_config || {}) },
+          movie_script_config: { ...DEFAULT_MOVIE_SCRIPT_CONFIG, ...(res.data.movie_script_config || {}) },
           kb_vertical_enabled: kbConfig.kb_vertical_enabled || false,
           kb_user_specific_enabled: kbConfig.kb_user_specific_enabled || false,
           kb_manual_enabled: kbConfig.kb_manual_enabled || false,

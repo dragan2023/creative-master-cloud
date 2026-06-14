@@ -36,9 +36,52 @@ class MonitoringCharacterMixin:
         project_id: int,
         character_profiles: List[Dict[str, Any]],
         world_settings: Optional[Dict[str, Any]] = None,
-        persist_dir: Optional[str] = None
+        persist_dir: Optional[str] = None,
+        narrative_mode: str = "serialized"
     ) -> None:
-        """初始化人物状态追踪器"""
+        """初始化人物状态追踪器
+
+        Args:
+            project_id: 项目ID
+            character_profiles: 角色设定列表
+            world_settings: 世界观设定
+            persist_dir: 持久化目录
+            narrative_mode: 叙事模式（serialized=连续剧，episodic=纯单元剧，episodic_with_arc=主线串联单元剧）
+        """
+        _is_pure_episodic = narrative_mode == "episodic"
+
+        # 纯单元剧模式：轻量初始化，仅记录角色基础设定，不追踪状态变化
+        if _is_pure_episodic:
+            try:
+                from app.agents.writing.character_state_tracker import CharacterStateTracker
+
+                if persist_dir is None:
+                    from app.core.config import get_settings
+                    settings = get_settings()
+                    persist_dir = os.path.join(
+                        settings.CHROMA_PERSIST_DIR.replace("/chroma", ""),
+                        "character_states"
+                    )
+                    os.makedirs(persist_dir, exist_ok=True)
+
+                self._character_tracker = CharacterStateTracker(
+                    project_id=project_id,
+                    persist_dir=persist_dir
+                )
+                # 轻量初始化：仅注册角色名称和基础身份，不启动状态追踪
+                await self._character_tracker.initialize(
+                    character_profiles=character_profiles,
+                    world_settings=world_settings
+                )
+                self.logger.info(
+                    f"[纯单元剧] 人物追踪器轻量初始化完成（仅记录角色设定，不追踪状态变化），"
+                    f"项目ID: {project_id}，角色数: {len(character_profiles)}"
+                )
+            except Exception as e:
+                self.logger.warning(f"[纯单元剧] 轻量初始化人物追踪器失败: {e}")
+                self._character_tracker = None
+            return
+
         try:
             from app.core.config import get_settings
             from app.agents.writing.character_state_tracker import CharacterStateTracker
@@ -75,6 +118,13 @@ class MonitoringCharacterMixin:
                     character_profiles=character_profiles,
                     world_settings=world_settings
                 )
+
+                # 主线串联单元剧模式：标记"仅追踪常驻角色"
+                if narrative_mode == "episodic_with_arc":
+                    self.logger.info(
+                        f"[主线串联单元剧] 完整初始化人物追踪器，仅追踪常驻角色，"
+                        f"项目ID: {project_id}，角色数: {len(character_profiles)}"
+                    )
 
             self._project_knowledge_base = ProjectKnowledgeBase(db=self.db)
 
@@ -118,10 +168,20 @@ class MonitoringCharacterMixin:
         character_updates: Optional[List[Dict[str, Any]]] = None,
         new_characters: Optional[List[Dict[str, Any]]] = None,
         project_id: Optional[int] = None,
-        llm_provider=None
+        llm_provider=None,
+        narrative_mode: str = "serialized"
     ) -> None:
-        """更新人物状态追踪"""
+        """更新人物状态追踪
+
+        Args:
+            narrative_mode: 叙事模式（纯单元剧时跳过状态更新，防御性二次检查）
+        """
         if not self._character_tracker:
+            return
+
+        # 纯单元剧模式：防御性跳过（上游 _unit_direct.py 已做判断，此处二次保障）
+        if narrative_mode == "episodic":
+            self.logger.debug(f"[纯单元剧] 跳过人物状态更新: 章节{chapter_num}")
             return
 
         # 初始化 extraction_result，避免后续访问未定义变量
@@ -314,7 +374,8 @@ class MonitoringCharacterMixin:
                         chapter_num=chapter_num,
                         content=content,
                         project_id=project_id,
-                        llm_provider=llm_provider
+                        llm_provider=llm_provider,
+                        narrative_mode=narrative_mode
                     )
                     if extended_result.get("success"):
                         self.logger.info(f"扩展实体提取完成: 章节{chapter_num}, 设施={extended_result['facilities']}, 事件={extended_result['events']}, 群体={extended_result['groups']}, 道具={extended_result['items']}, 伏笔={extended_result['foreshadows']}")

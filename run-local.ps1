@@ -189,7 +189,7 @@ function Start-Development {
     $waitCount = 0
     $frontendPort = $null
     while ($waitCount -lt 30) {
-        foreach ($port in @(5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180)) {
+        foreach ($port in @(3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008)) {
             if ((Test-PortInUse $port) -and -not $frontendPort) {
                 $frontendPort = $port
                 Write-Host "[就绪] 前端服务已就绪 (端口 $port, 等待 $waitCount 秒)" -ForegroundColor Green
@@ -203,7 +203,7 @@ function Start-Development {
     
     if (-not $frontendPort) {
         Write-Host "[警告] 前端启动超时" -ForegroundColor Yellow
-        $frontendPort = 5173
+        $frontendPort = 3001
     }
     
     Show-Info $frontendPort
@@ -223,7 +223,7 @@ function Start-Development {
 }
 
 function Show-Info {
-    param([int]$FrontendPort = 5173)
+    param([int]$FrontendPort = 3001)
     
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
@@ -263,7 +263,7 @@ function Stop-Development {
     }
     
     # 停止前端进程
-    foreach ($port in @(5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180)) {
+    foreach ($port in @(3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008)) {
         if (Test-PortInUse $port) {
             Write-Host "[停止] 正在停止前端服务 (端口 $port)..." -ForegroundColor Yellow
             Stop-ProcessOnPort $port
@@ -286,7 +286,7 @@ function Show-Status {
     
     # 检查前端状态
     $frontendRunning = $false
-    foreach ($port in @(5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180)) {
+    foreach ($port in @(3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008)) {
         if (Test-PortInUse $port) {
             Write-Host "[运行中] 前端服务 - http://localhost:$port" -ForegroundColor Green
             $frontendRunning = $true

@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   多Agent协作文学作品生成系统 - 写作工作台
   
   模块: writing-engine
@@ -119,15 +119,13 @@
             v-model:active-units="activeUnits"
             :display-units="displayUnits"
             :unit-label="unitLabel"
-            :loading-scenes="loadingScenes"
-            :scenes="writingStore.scenes"
-            @expand-unit="handleUnitExpand"
+            :content-type="actualContentType"
             @export-unit="handleExportUnit"
-            @scene-click="handleSceneClick"
             @show-knowledge-graph="knowledgeGraphVisible = true"
             @show-consistency-report="consistencyReportVisible = true"
             @show-quality-control="showQualityControlVisualization = true"
             @show-unit-qc="handleShowUnitQC"
+            @unit-content-updated="handleUnitContentUpdated"
           />
         </el-col>
 
@@ -223,7 +221,9 @@
     />
 
     <!-- 实时质控仪表盘弹窗(v2.2重构 - 正文质控组件) -->
+    <!-- v4.0优化: 仅小说类型显示质控仪表盘，剧集/电影类型使用对话修正替代 -->
     <ContentQualityControl
+      v-if="isNovelType"
       v-model:visible="showQualityControlVisualization"
       :project-id="projectId"
       :task-id="writingStore.currentTask?.id"
@@ -488,6 +488,7 @@ const wbTask = useWorkbenchTask({
   emit,
   loadProjectData,
   actualContentType,
+  projectData,
 })
 const {
   taskForm,
@@ -587,11 +588,16 @@ async function handleThinkingModeChange(enabled) {
 }
 
 // ==================== 质控相关处理 ====================
+// v4.0优化: 质控仪表盘仅对小说类型生效，剧集/电影类型已禁用
 
 /**
  * 显示指定单元的质控报告
  */
 function handleShowUnitQC(unitIndex) {
+  if (!isNovelType.value) {
+    console.log('[WritingWorkbench] 剧本类型，跳过质控报告展示')
+    return
+  }
   showQualityControlVisualization.value = true
   // 新的ContentQualityControl组件会自动处理单元选择
 }
@@ -600,6 +606,7 @@ function handleShowUnitQC(unitIndex) {
  * 批量质控完成处理
  */
 function handleQCComplete(result) {
+  if (!isNovelType.value) return
   console.log('[WritingWorkbench] 批量质控完成:', result)
   // 刷新项目数据以获取最新质控状态
   if (result && result.completed > 0) {
@@ -611,8 +618,34 @@ function handleQCComplete(result) {
  * 单元质控更新处理
  */
 function handleQCUnitUpdated(data) {
+  if (!isNovelType.value) return
   console.log('[WritingWorkbench] 单元质控更新:', data.unitIndex)
   // 单元数据已通过WebSocket实时更新，无需额外处理
+}
+
+/**
+ * 单元内容更新处理（来自 ContentPreviewDialog 的保存操作）
+ * v4.0: 刷新 store 中的单元数据确保 UI 一致性
+ */
+function handleUnitContentUpdated(data) {
+  console.log('[WritingWorkbench] 单元内容更新:', data?.unit_index, data?.version)
+  // store 中的单元数据已通过 ContentPreviewDialog 通过 store 直接更新
+  // 如果 displayUnits 未自动刷新，手动更新 store 中的单元引用触发反应
+  if (data?.unit_index != null) {
+    const unitIdx = writingStore.units.findIndex(u => u.unit_index === data.unit_index)
+    if (unitIdx !== -1 && data.content) {
+      const storeUnit = writingStore.units[unitIdx]
+      const qc = storeUnit.quality_control || {}
+      if (data.version === 'self_revise') {
+        storeUnit.quality_control = { ...qc, content_after_self_revise: data.content }
+      } else if (data.version === 'qc_fix' && isNovelType.value) {
+        // v4.0优化: qc_fix版本仅小说类型使用，剧本类型移除该路径
+        storeUnit.quality_control = { ...qc, content_after_qc_fix: data.content, fixed_content: data.content }
+      }
+      storeUnit.final_content = data.content
+      storeUnit.word_count = data.content ? data.content.length : 0
+    }
+  }
 }
 
 // 生成任务AI文风消除开关变更

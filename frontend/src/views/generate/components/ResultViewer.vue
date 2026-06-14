@@ -98,6 +98,15 @@
           <el-icon><Download /></el-icon>
           下载完整大纲
         </el-button>
+        <!-- 单元概述对话修订按钮（阶段3-4，有单元概述时可用） -->
+        <el-button
+          v-if="unitSummaries && Object.keys(unitSummaries).length > 0 && (outlineStage === 3 || outlineStage === 4) && !unitSummariesGenerating"
+          type="warning"
+          @click="$emit('start-unit-summaries-revision')"
+        >
+          <el-icon><ChatDotRound /></el-icon>
+          对话修订单元概述
+        </el-button>
         <!-- 一键创建写作项目按钮 - P0改造新增 -->
         <el-button
           v-if="outlineStage === 4 && contentType === 'novel'"
@@ -760,7 +769,8 @@ const emit = defineEmits([
   'resume-unit-summaries',  // 续生成剩余章节
   'resume-unit-summaries-from-backend',  // 从后端断点信息续生成
   'create-writing-project',  // P0改造新增: 一键创建写作项目
-  'open-unit-diff'  // v3.1新增: 打开单元概述版本对比
+  'open-unit-diff',  // v3.1新增: 打开单元概述版本对比
+  'start-unit-summaries-revision'  // 单元概述对话修订
 ])
 
 // ==================== 提取到 composables ====================

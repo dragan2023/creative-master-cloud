@@ -372,16 +372,36 @@ export const useOutlineStore = defineStore('outline', () => {
     if (generatedContents.length === 0) { ElMessage.warning('暂无已生成的正文可下载'); return }
     try {
       ElMessage.info('正在获取正文内容...')
-      const res = await novelWriterApi.getAllEpisodeContent(projectId.value)
-      if (!res.success || !res.data?.contents?.length) { ElMessage.warning('暂无正文内容可下载'); return }
-      const contents = res.data.contents
-      const projectTitle = res.data.project_title || '剧本'
-      let mergedContent = `# ${projectTitle} - 分集正文\n\n> 共 ${contents.length} 集\n\n---\n\n`
-      contents.forEach(item => {
-        mergedContent += `## 第${item.episode_number}集 ${item.chapter_title}\n\n${item.content}\n\n---\n\n`
-      })
-      downloadBlob(mergedContent, `${projectTitle}_分集正文_全集.md`, 'text/markdown;charset=utf-8')
-      ElMessage.success(`已下载 ${contents.length} 集正文`)
+      const res = await novelWriterApi.getAllScriptContent(projectId.value)
+      if (!res?.success || !res?.data) { ElMessage.warning('暂无内容可下载'); return }
+
+      const { project_title, contents, ai_resources, total_count } = res.data
+      const safeTitle = (project_title || '剧本').replace(/[\\/:*?"<>|]/g, '_')
+
+      // 文件1: 剧本正文
+      let scriptMd = `\uFEFF# ${project_title || '剧本'} - 分集正文\n\n> 共 ${contents?.length || 0} 集\n\n---\n\n`
+      if (contents && contents.length > 0) {
+        contents.forEach(item => {
+          scriptMd += `## 第${item.unit_index}集 ${item.unit_title}\n\n${item.content}\n\n---\n\n`
+        })
+      } else {
+        scriptMd += `*暂无正文内容*\n\n`
+      }
+      downloadBlob(scriptMd, `${safeTitle}_剧本正文_全集.md`, 'text/markdown;charset=utf-8')
+
+      // 文件2: AI资源提示词
+      let aiMd = `\uFEFF# ${project_title || '剧本'} - AI资源提示词\n\n> 共 ${total_count || 0} 集\n\n---\n\n`
+      if (ai_resources && ai_resources.length > 0) {
+        ai_resources.forEach(item => {
+          aiMd += `## 第${item.unit_index}集 ${item.unit_title}\n\n${item.content}\n\n---\n\n`
+        })
+      } else {
+        aiMd += `*暂无AI资源内容*\n\n`
+      }
+      setTimeout(() => {
+        downloadBlob(aiMd, `${safeTitle}_AI资源提示词_全集.md`, 'text/markdown;charset=utf-8')
+        ElMessage.success(`已下载 ${contents?.length || 0} 集正文 + AI资源`)
+      }, 200)
     } catch (error) { console.error('下载全部正文失败', error); ElMessage.error('下载失败') }
   }
 
@@ -902,16 +922,36 @@ export const useOutlineStore = defineStore('outline', () => {
     if (generatedContents.length === 0) { ElMessage.warning('暂无已生成的正文可下载'); return }
     try {
       ElMessage.info('正在获取正文内容...')
-      const res = await novelWriterApi.getAllSceneContent(projectId.value)
-      if (!res.success || !res.data?.contents?.length) { ElMessage.warning('暂无正文内容可下载'); return }
-      const contents = res.data.contents
-      const projectTitle = res.data.project_title || '电影剧本'
-      let mergedContent = `# ${projectTitle} - 场景正文\n\n> 共 ${contents.length} 场\n\n---\n\n`
-      contents.forEach(item => {
-        mergedContent += `## 第${item.scene_number}场 ${item.chapter_title}\n\n${item.content}\n\n---\n\n`
-      })
-      downloadBlob(mergedContent, `${projectTitle}_场景正文_全场.md`, 'text/markdown;charset=utf-8')
-      ElMessage.success(`已下载 ${contents.length} 场正文`)
+      const res = await novelWriterApi.getAllScriptContent(projectId.value)
+      if (!res?.success || !res?.data) { ElMessage.warning('暂无内容可下载'); return }
+
+      const { project_title, contents, ai_resources, total_count } = res.data
+      const safeTitle = (project_title || '电影剧本').replace(/[\\/:*?"<>|]/g, '_')
+
+      // 文件1: 场景正文
+      let scriptMd = `\uFEFF# ${project_title || '电影剧本'} - 场景正文\n\n> 共 ${contents?.length || 0} 场\n\n---\n\n`
+      if (contents && contents.length > 0) {
+        contents.forEach(item => {
+          scriptMd += `## 第${item.unit_index}场 ${item.unit_title}\n\n${item.content}\n\n---\n\n`
+        })
+      } else {
+        scriptMd += `*暂无正文内容*\n\n`
+      }
+      downloadBlob(scriptMd, `${safeTitle}_剧本正文_全集.md`, 'text/markdown;charset=utf-8')
+
+      // 文件2: AI资源提示词
+      let aiMd = `\uFEFF# ${project_title || '电影剧本'} - AI资源提示词\n\n> 共 ${total_count || 0} 场\n\n---\n\n`
+      if (ai_resources && ai_resources.length > 0) {
+        ai_resources.forEach(item => {
+          aiMd += `## 第${item.unit_index}场 ${item.unit_title}\n\n${item.content}\n\n---\n\n`
+        })
+      } else {
+        aiMd += `*暂无AI资源内容*\n\n`
+      }
+      setTimeout(() => {
+        downloadBlob(aiMd, `${safeTitle}_AI资源提示词_全集.md`, 'text/markdown;charset=utf-8')
+        ElMessage.success(`已下载 ${contents?.length || 0} 场正文 + AI资源`)
+      }, 200)
     } catch (error) { console.error('下载全部场景正文失败', error); ElMessage.error('下载失败') }
   }
 

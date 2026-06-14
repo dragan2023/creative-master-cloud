@@ -32,6 +32,7 @@ export function useWorkbenchTask(options) {
     emit,
     loadProjectData,
     actualContentType,
+    projectData,
   } = options
 
   // ==================== 知识库状态（P1改造新增） ====================
@@ -224,6 +225,7 @@ export function useWorkbenchTask(options) {
         series_style_intensity: styleMgmt?.scriptStyleData?.value?.intensity || 0.7,
         series_style_type: styleMgmt?.scriptStyleData?.value?.seriesSubType || 'long',
         script_mode: taskForm.value.script_mode || 'real',
+        narrative_mode: projectData?.value?.series_script_config?.narrative_mode || 'serialized',
       }
     }
 
@@ -240,6 +242,7 @@ export function useWorkbenchTask(options) {
         movie_style_names: styleMgmt?.scriptStyleData?.value?.selectedNames || [],
         movie_style_intensity: styleMgmt?.scriptStyleData?.value?.intensity || 0.7,
         script_mode: taskForm.value.script_mode || 'real',
+        narrative_mode: projectData?.value?.movie_script_config?.narrative_mode || 'serialized',
       }
     }
 
@@ -249,6 +252,7 @@ export function useWorkbenchTask(options) {
 
   // 创建任务
   async function handleCreateTask() {
+    try {
     // 校验配置完整性
     const configurableAgentsList = agentConfigs.filter((a) => a.configurable);
     const unconfigured = configurableAgentsList.filter((a) => {
@@ -351,6 +355,10 @@ export function useWorkbenchTask(options) {
       // 清空表单
       taskForm.value.start_from = 1;
       taskForm.value.unit_count = null;
+    }
+    } catch (error) {
+      console.error('[创建任务] 任务创建失败:', error);
+      ElMessage.error(`任务创建失败: ${error?.message || '未知错误'}`);
     }
   }
 
@@ -656,8 +664,20 @@ export function useWorkbenchTask(options) {
   async function handleExport() {
     try {
       const taskId = writingStore.currentTask?.id;
-      if (!taskId) return;
+      if (!taskId) {
+        ElMessage.warning("暂无任务可导出");
+        return;
+      }
 
+      const ct = actualContentType?.value || 'novel';
+
+      // 剧集/电影类型：下载两个MD文件（剧本正文 + AI资源提示词）
+      if (ct === 'series_script' || ct === 'movie_script') {
+        await _exportScriptContent();
+        return;
+      }
+
+      // 小说类型：保持原有导出逻辑
       const response = await writingTaskApi.exportTask(taskId, "md");
       const blob = new Blob([response.data || response], {
         type: "text/markdown;charset=utf-8",
@@ -676,6 +696,71 @@ export function useWorkbenchTask(options) {
       console.error("导出失败:", error);
       ElMessage.error("导出失败: " + (error.message || "未知错误"));
     }
+  }
+
+  /**
+   * 导出剧本正文+AI资源（两个独立MD文件）
+   * - 文件1: {项目标题}_剧本正文_全集.md（UTF-8 BOM）
+   * - 文件2: {项目标题}_AI资源提示词_全集.md（UTF-8 BOM）
+   */
+  async function _exportScriptContent() {
+    const pid = projectId.value;
+    if (!pid) {
+      ElMessage.warning("项目ID不存在");
+      return;
+    }
+
+    ElMessage.info("正在获取全部内容...");
+    const res = await novelWriterApi.getAllScriptContent(pid);
+    if (!res?.success || !res?.data) {
+      ElMessage.error(res?.message || "获取内容失败");
+      return;
+    }
+
+    const { project_title, contents, ai_resources, total_count } = res.data;
+    const contentLabel = actualContentType?.value === 'series_script' ? '集' : '场';
+    const safeTitle = (project_title || '剧本').replace(/[\\/:*?"<>|]/g, '_');
+
+    // 文件1: 剧本正文
+    let scriptMd = `\uFEFF# ${project_title || '剧本'} - 剧本正文\n\n> 共 ${total_count || 0} ${contentLabel}\n\n---\n\n`;
+    if (contents && contents.length > 0) {
+      contents.forEach(item => {
+        scriptMd += `## ${item.unit_title}\n\n${item.content}\n\n---\n\n`;
+      });
+    } else {
+      scriptMd += `*暂无正文内容*\n\n`;
+    }
+    _downloadTextFile(scriptMd, `${safeTitle}_剧本正文_全集.md`);
+
+    // 文件2: AI资源提示词
+    let aiMd = `\uFEFF# ${project_title || '剧本'} - AI资源提示词\n\n> 共 ${total_count || 0} ${contentLabel}\n\n---\n\n`;
+    if (ai_resources && ai_resources.length > 0) {
+      ai_resources.forEach(item => {
+        aiMd += `## ${item.unit_title}\n\n${item.content}\n\n---\n\n`;
+      });
+    } else {
+      aiMd += `*暂无AI资源内容*\n\n`;
+    }
+    // 短暂延迟确保浏览器能处理连续两次下载
+    setTimeout(() => {
+      _downloadTextFile(aiMd, `${safeTitle}_AI资源提示词_全集.md`);
+      ElMessage.success("两个文件已开始下载");
+    }, 200);
+  }
+
+  /**
+   * 下载文本文件（UTF-8 BOM，确保Windows记事本正确显示中文）
+   */
+  function _downloadTextFile(content, fileName) {
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   return {

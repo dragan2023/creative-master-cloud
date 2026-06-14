@@ -27,6 +27,7 @@ from .quality_control_v2._common import _sync_writing_unit_to_novel_chapter
 class UpdateUnitContentRequest(BaseModel):
     """单元内容更新请求"""
     content: str
+    save_as: Optional[str] = "qc_fix"  # "qc_fix" 或 "self_revise"
 
 
 # ==================== 端点 ====================
@@ -92,15 +93,23 @@ async def update_unit_content(
                 message=f"未找到单元 {unit_index}"
             )
 
-        # 3. 保存内容
+        # 3. 确定保存目标字段
+        save_as = request.save_as or "qc_fix"
+        
+        # 4. 保存内容
         original_content = unit.final_content
         unit.final_content = request.content
         unit.word_count = len(request.content)
 
-        # 4. v3.0：用户手动编辑等同于最终修正稿
-        unit.content_after_qc_fix = request.content
+        # 5. 根据 save_as 参数决定保存到哪个版本字段
+        if save_as == "self_revise":
+            # 用户自主修订稿：存入 content_after_self_revise
+            unit.content_after_self_revise = request.content
+        else:
+            # 默认：手动编辑等同于质控修正稿
+            unit.content_after_qc_fix = request.content
 
-        # 5. 如果从未设置过初稿，将当前内容作为初稿保留
+        # 6. 如果从未设置过初稿，将当前内容作为初稿保留
         if not unit.content_after_generation:
             unit.content_after_generation = original_content or request.content
 
@@ -109,10 +118,10 @@ async def update_unit_content(
 
         logger.info(
             f"[单元内容更新] WritingUnit 已更新: unit={unit_index}, "
-            f"word_count={unit.word_count}"
+            f"save_as={save_as}, word_count={unit.word_count}"
         )
 
-        # 6. 同步到 NovelChapter
+        # 7. 同步到 NovelChapter
         try:
             await _sync_writing_unit_to_novel_chapter(
                 db=db,

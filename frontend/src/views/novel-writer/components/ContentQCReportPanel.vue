@@ -58,6 +58,7 @@
     <div class="issues-summary">
       <el-statistic title="总问题数" :value="statValue(totalIssues)" />
       <el-statistic title="严重问题" :value="statValue(criticalCount)" class="critical-stat" />
+      <el-statistic title="合规提醒" :value="statValue(complianceCount)" class="compliance-stat" />
       <el-statistic title="已修正" :value="statValue(fixedCount)" class="fixed-stat" />
       <el-statistic title="待处理" :value="statValue(pendingCount)" class="pending-stat" />
     </div>
@@ -73,6 +74,7 @@
           <el-radio-button value="critical">严重</el-radio-button>
           <el-radio-button value="warning">中等</el-radio-button>
           <el-radio-button value="info">轻微</el-radio-button>
+          <el-radio-button value="compliance">提醒</el-radio-button>
         </el-radio-group>
       </div>
 
@@ -84,12 +86,21 @@
         >
           <template #title>
             <div class="issue-title">
-              <el-tag :type="getSeverityType(issue.severity)" size="small">
+              <el-tag
+                v-if="isComplianceIssue(issue)"
+                type="info"
+                size="small"
+                effect="plain"
+              >
+                合规提醒
+              </el-tag>
+              <el-tag v-else :type="getSeverityType(issue.severity)" size="small">
                 {{ issue.severity || 'info' }}
               </el-tag>
               <span class="issue-dimension">{{ getDimensionName(issue.dimension) }}</span>
               <span class="issue-category">{{ issue.category }}</span>
               <el-icon v-if="isIssueFixed(issue)" color="#67c23a"><CircleCheckFilled /></el-icon>
+              <el-icon v-if="isComplianceIssue(issue)" color="#409eff" class="compliance-icon"><InfoFilled /></el-icon>
             </div>
           </template>
 
@@ -113,7 +124,11 @@
             </p>
 
             <!-- 修正操作 -->
-            <div v-if="issue.auto_fix" class="issue-fix-actions">
+            <div v-if="isComplianceIssue(issue)" class="compliance-notice">
+              <el-icon color="#409eff"><InfoFilled /></el-icon>
+              <span>此为合规提醒，不会自动修正。请根据创作需要自行判断是否修改。</span>
+            </div>
+            <div v-else-if="issue.auto_fix" class="issue-fix-actions">
               <el-button
                 type="primary"
                 size="small"
@@ -137,7 +152,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { CircleCheckFilled, View } from '@element-plus/icons-vue'
+import { CircleCheckFilled, View, InfoFilled } from '@element-plus/icons-vue'
 
 import { QC_DIMENSIONS, getSeverityType, getDimensionName, getScoreColor } from '../composables/useContentQualityControl'
 
@@ -178,6 +193,9 @@ const filteredIssues = computed(() => {
   if (filterSeverity.value === 'all') {
     return issues.value
   }
+  if (filterSeverity.value === 'compliance') {
+    return issues.value.filter(issue => isComplianceIssue(issue))
+  }
   return issues.value.filter(issue => {
     const sev = issue.severity?.toLowerCase() || 'info'
     return sev === filterSeverity.value
@@ -187,7 +205,10 @@ const filteredIssues = computed(() => {
 // 问题统计
 const totalIssues = computed(() => issues.value.length)
 const criticalCount = computed(() => 
-  issues.value.filter(i => i.severity === 'critical' || i.severity === '严重').length
+  issues.value.filter(i => (i.severity === 'critical' || i.severity === '严重') && !i.is_compliance).length
+)
+const complianceCount = computed(() =>
+  issues.value.filter(i => isComplianceIssue(i)).length
 )
 const warningCount = computed(() => 
   issues.value.filter(i => i.severity === 'warning' || i.severity === '中等').length
@@ -203,6 +224,11 @@ const pendingCount = computed(() =>
 function isIssueFixed(issue) {
   const fixes = props.report?.fixes_applied || []
   return fixes.some(f => f.issue_id === issue.id)
+}
+
+// 判断是否为合规提醒问题（敏感实体检测，仅提醒不自动修正）
+function isComplianceIssue(issue) {
+  return issue?.is_compliance === true
 }
 
 // 获取得分Tag类型
@@ -295,6 +321,7 @@ function getDimColor(score) {
     }
 
     .critical-stat :deep(.el-statistic-number) { color: #f56c6c; }
+    .compliance-stat :deep(.el-statistic-number) { color: #409eff; }
     .fixed-stat :deep(.el-statistic-number) { color: #67c23a; }
     .pending-stat :deep(.el-statistic-number) { color: #e6a23c; }
   }
@@ -338,6 +365,27 @@ function getDimColor(score) {
         padding: 4px 8px;
         border-radius: 4px;
         color: #f56c6c;
+      }
+
+      .compliance-icon {
+        margin-left: 4px;
+      }
+
+      .compliance-notice {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding: 10px 12px;
+        background: #ecf5ff;
+        border: 1px solid #d9ecff;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #409eff;
+
+        .el-icon {
+          flex-shrink: 0;
+        }
       }
 
       .issue-fix-actions {

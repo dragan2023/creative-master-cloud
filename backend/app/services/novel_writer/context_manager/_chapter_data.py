@@ -91,6 +91,30 @@ class ChapterDataMixin:
         for chapter in chapters:
             content = chapter.final_content or chapter.draft_content or ""
             if content:
+                # v4.0: 尝试从 WritingUnit 获取最新版本内容
+                try:
+                    from app.models.writing_unit import WritingUnit
+                    from app.models.writing_task import WritingTask
+                    task_query = select(WritingTask).where(WritingTask.project_id == project.id)
+                    task_result = await self.db.execute(task_query)
+                    tasks = task_result.scalars().all()
+                    if tasks:
+                        task_ids = [t.id for t in tasks]
+                        unit_q = select(WritingUnit).where(
+                            WritingUnit.unit_index == chapter.chapter_number,
+                            WritingUnit.task_id.in_(task_ids)
+                        ).order_by(WritingUnit.id.desc()).limit(1)
+                        unit_r = await self.db.execute(unit_q)
+                        matched_unit = unit_r.scalars().first()
+                        if matched_unit:
+                            if matched_unit.content_after_self_revise:
+                                content = matched_unit.content_after_self_revise
+                            elif matched_unit.content_after_qc_fix:
+                                content = matched_unit.content_after_qc_fix
+                            elif matched_unit.content_after_generation:
+                                content = matched_unit.content_after_generation
+                except Exception:
+                    pass  # 查询失败时使用 NovelChapter 中的内容
                 # 只取章节结尾部分（约800字）
                 excerpt = content[-800:] if len(content) > 800 else content
                 endings.append(f"第{chapter.chapter_number}章结尾：\n{excerpt}")
@@ -290,8 +314,7 @@ class ChapterDataMixin:
             for chapter in chapters:
                 content = chapter.final_content or ""
 
-                # v3.1: 优先使用QC修正稿内容（增强上下文质量）
-                # 尝试从 WritingUnit 获取 content_after_qc_fix
+                # v4.0: 版本优先级：自主修订稿 > 质控修正稿 > NovelChapter.final_content
                 if content:
                     chapter_num = chapter.chapter_number or chapter.episode_number or chapter.scene_number or 0
                     try:
@@ -306,18 +329,24 @@ class ChapterDataMixin:
                             task_ids = [t.id for t in tasks]
                             unit_q = select(WritingUnit).where(
                                 WritingUnit.unit_index == chapter_num,
-                                WritingUnit.task_id.in_(task_ids),
-                                WritingUnit.content_after_qc_fix.isnot(None),
-                                WritingUnit.content_after_qc_fix != ''
+                                WritingUnit.task_id.in_(task_ids)
                             ).order_by(WritingUnit.id.desc()).limit(1)
                             unit_r = await self.db.execute(unit_q)
                             matched_unit = unit_r.scalars().first()
-                            if matched_unit and matched_unit.content_after_qc_fix:
-                                content = matched_unit.content_after_qc_fix
-                                self.logger.debug(
-                                    f"[前文摘要] 单元{chapter_num}使用修正稿: "
-                                    f"{len(content)}字符"
-                                )
+                            if matched_unit:
+                                # 优先使用自主修订稿
+                                if matched_unit.content_after_self_revise:
+                                    content = matched_unit.content_after_self_revise
+                                    self.logger.debug(
+                                        f"[前文摘要] 单元{chapter_num}使用自主修订稿: "
+                                        f"{len(content)}字符"
+                                    )
+                                elif matched_unit.content_after_qc_fix:
+                                    content = matched_unit.content_after_qc_fix
+                                    self.logger.debug(
+                                        f"[前文摘要] 单元{chapter_num}使用修正稿: "
+                                        f"{len(content)}字符"
+                                    )
                     except Exception as lookup_err:
                         self.logger.debug(
                             f"[前文摘要] 查询修正稿跳过: unit={chapter_num}, "

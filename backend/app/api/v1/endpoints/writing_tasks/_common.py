@@ -61,6 +61,8 @@ def _build_unit_response(unit: WritingUnit) -> WritingUnitResponse:
         final_content=unit.final_content,
         content_after_generation=unit.content_after_generation,
         content_after_qc_fix=unit.content_after_qc_fix,
+        content_after_self_revise=unit.content_after_self_revise,
+        ai_resource_content=unit.ai_resource_content,
         created_at=unit.created_at,
         updated_at=unit.updated_at
     )

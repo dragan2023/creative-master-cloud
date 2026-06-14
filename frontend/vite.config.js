@@ -79,7 +79,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: '0.0.0.0',  // 监听所有网络接口
-      port: parseInt(env.VITE_FRONTEND_PORT || '5173'),
+      port: parseInt(env.VITE_FRONTEND_PORT || '3001'),
       strictPort: true,  // 端口被占用时报错，不自动切换端口
       proxy: {
         '/api': {

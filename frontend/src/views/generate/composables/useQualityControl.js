@@ -231,13 +231,21 @@ export function useQualityControl(deps) {
       })
 
       if (result.success) {
-        const { quality_report, revised_content, revised_parsed, original_content, original_parsed, has_issues, issues_count, changes, auto_revised } = result.data
+        const { quality_report, revised_content, revised_parsed, original_content, original_parsed, has_issues, issues_count, changes, auto_revised, skipped, skip_reason } = result.data
 
         qcReportData.value = quality_report
         qcApplied.value = true
         issuesFixed.value = issues_count || 0
 
-        if (auto_revised && revised_content) {
+        // v4.0: 剧本类型后端已跳过自动质控修正
+        if (skipped) {
+          const issueCount = quality_report?.issues?.length || 0
+          if (issueCount > 0) {
+            ElMessage.warning(`质控检测完成，发现 ${issueCount} 个问题。${skip_reason || '剧本类型已禁用自动修正，请使用对话修正功能。'}`)
+          } else {
+            ElMessage.success('质控检测完成，未发现任何问题')
+          }
+        } else if (auto_revised && revised_content) {
           ElMessage.success(`质控检测完成，发现 ${quality_report?.issues?.length || 0} 个问题，已修正 ${changes?.length || 0} 个问题`)
 
           // v3.1修复: 优先使用后端返回的original_content（精确的修正前版本）
@@ -337,16 +345,22 @@ export function useQualityControl(deps) {
         await new Promise(resolve => setTimeout(resolve, 100))
 
         const issuesCount = response.data.issues?.length || 0
-        ElMessage.success(
-          `质量检测完成！综合得分: ${response.data.overall_score?.toFixed(1) || 0}分, ` +
-          `发现 ${issuesCount} 个问题`
-        )
+        const score = response.data.overall_score?.toFixed(1) || 0
 
         if (issuesCount > 0) {
-          console.log('[全局大纲质控] 发现问题，开始自动修正...')
-          ElMessage.info(`检测到 ${issuesCount} 个问题，正在自动进行全局辩证修正...`)
-
-          await handleAutoGlobalOutlineRevise(response.data, outlineContent)
+          ElMessage.success(
+            `质量检测完成！综合得分: ${score}分, 发现 ${issuesCount} 个问题。` +
+            (type.value === 'novel' ? ' 正在自动修正...' : ' 请查看报告后手动调整内容。')
+          )
+          // v4.0优化: 仅小说类型自动触发修正，剧集/电影类型仅展示报告
+          if (type.value === 'novel') {
+            console.log('[全局大纲质控] 小说类型，开始自动修正...')
+            await handleAutoGlobalOutlineRevise(response.data, outlineContent)
+          } else {
+            console.log('[全局大纲质控] 剧本类型，跳过自动修正，仅展示质量报告')
+          }
+        } else {
+          ElMessage.success(`质量检测完成！综合得分: ${score}分, 未发现问题`)
         }
       } else {
         ElMessage.error(response?.message || '质量检测失败')
@@ -460,6 +474,10 @@ export function useQualityControl(deps) {
     try {
       globalOutlineQCLoading.value = true
 
+      // v4.0优化: 剧集/电影类型跳过自动修正，仅小说类型启用
+      const isNovel = type.value === 'novel'
+      const enableAutoRevise = isNovel
+
       const token = getToken()
       const response = await fetch(
         `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/novel-writer/quality-control/imported-outline/auto-revise`,
@@ -472,7 +490,7 @@ export function useQualityControl(deps) {
           body: JSON.stringify({
             outline_content: generatedContent.value,
             content_type: type.value === 'novel' ? 'novel' : (type.value === 'movie-outline' ? 'movie_outline' : 'series_outline'),
-            enable_auto_revise: true
+            enable_auto_revise: enableAutoRevise
           })
         }
       )
@@ -484,7 +502,8 @@ export function useQualityControl(deps) {
         qcApplied.value = true
         issuesFixed.value = result.data.issues_fixed || 0
 
-        if (result.data.revised_content) {
+        if (result.data.revised_content && enableAutoRevise) {
+          // 小说类型：弹出修正对比对话框
           globalOutlineReviseData.value = {
             originalContent: generatedContent.value,
             revisedContent: result.data.revised_content,
@@ -496,6 +515,10 @@ export function useQualityControl(deps) {
           }
           showGlobalOutlineReviseDialog.value = true
           ElMessage.success(`导入大纲自动质控完成，修正 ${result.data.issues_fixed || 0} 个问题`)
+        } else if (result.data.revised_content && !enableAutoRevise) {
+          // 剧本类型：仅展示检测报告，不弹出修正对话框
+          const issueCount = result.data.qc_report?.issues?.length || 0
+          ElMessage.success(`导入大纲质控完成，发现 ${issueCount} 个问题。请查看报告后手动调整。`)
         } else {
           const issueCount = result.data.qc_report?.issues?.length || 0
           ElMessage.success(`质控检测完成，发现 ${issueCount} 个问题`)

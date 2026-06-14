@@ -23,6 +23,7 @@ export const DEFAULT_NOVEL_CONFIG = {
 // 注意：剧本以"时长"为核心指标，字数仅供参考
 export const DEFAULT_SERIES_SCRIPT_CONFIG = {
   series_type: '电视剧',
+  narrative_mode: 'serialized',     // 叙事模式: serialized=连续剧, episodic_with_arc=主线串联单元剧, episodic=纯单元剧
   episode_duration_range: null,
   scenes_per_episode_range: null,
   format_standard: '标准格式',
@@ -39,6 +40,7 @@ export const DEFAULT_SERIES_SCRIPT_CONFIG = {
 // 注意：电影剧本以"时长"为核心指标
 export const DEFAULT_MOVIE_SCRIPT_CONFIG = {
   movie_type: '院线电影',
+  narrative_mode: 'serialized',     // 叙事模式: serialized=连续叙事, episodic_with_arc=主线串联单元电影, episodic=纯单元电影
   total_duration: null,
   format_standard: '标准格式',
   dialogue_narration_ratio: '均衡',

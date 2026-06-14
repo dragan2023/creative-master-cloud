@@ -25,6 +25,14 @@ class TechnicalAnalyzer:
             logger.warning("SensitiveChecker 模块不可用，跳过敏感词检测")
             return {"score": 100, "issues": [], "tokens": 0}
 
+        # 敏感实体类型中文标签
+        compliance_type_labels = {
+            "sensitive_location": "敏感地名",
+            "sensitive_person": "名人姓名",
+            "sensitive_event": "历史事件",
+            "sensitive_word": "敏感词",
+        }
+
         all_issues = []
         checker = SensitiveChecker(compliance_level="normal")
         checker.initialize()
@@ -34,17 +42,39 @@ class TechnicalAnalyzer:
             sensitive_issues = checker.check(content)
 
             for issue in sensitive_issues[:5]:  # 每章最多5个
+                issue_type = issue.issue_type if hasattr(issue, 'issue_type') else "sensitive_word"
+                type_label = compliance_type_labels.get(issue_type, "敏感内容")
+                entity_name = issue.text
+
+                # 构建更有信息量的描述
+                if issue_type == "sensitive_location":
+                    description = f"检测到中国地名「{entity_name}」，请确认是否需要使用虚构地名替代"
+                elif issue_type == "sensitive_person":
+                    description = f"检测到知名人物「{entity_name}」，请确认为虚构人物或已获得授权"
+                elif issue_type == "sensitive_event":
+                    description = f"检测到历史事件「{entity_name}」，请确认内容表述是否恰当"
+                else:
+                    description = f"检测到敏感内容「{entity_name}」"
+
+                suggestion = issue.suggestion if hasattr(issue, 'suggestion') else f"此为合规提醒（{type_label}），不会自动修正，请根据创作需要自行判断是否修改"
+
                 all_issues.append({
                     "id": f"SENS-{len(all_issues)+1}",
                     "dimension": "technical",
-                    "category": "敏感内容",
-                    "severity": "critical",
+                    "category": f"合规提醒 - {type_label}",
+                    "severity": "warning",
+                    "is_compliance": True,
                     "location": {"chapter": ch["chapter_number"]},
-                    "description": f"检测到敏感词: {issue.text}",
-                    "evidence": issue.text,
-                    "suggestion": issue.suggestion if hasattr(issue, 'suggestion') else "建议修改",
-                    "metadata": {}
+                    "description": description,
+                    "evidence": entity_name,
+                    "suggestion": suggestion,
+                    "metadata": {
+                        "compliance_type": issue_type,
+                        "entity_name": entity_name,
+                        "entity_category": getattr(issue, 'metadata', {}).get('category', '') if hasattr(issue, 'metadata') else '',
+                    }
                 })
 
-        score = 100 if not all_issues else max(0, 100 - len(all_issues) * 20)
-        return {"score": score, "issues": all_issues, "tokens": 0}
+        # 敏感实体不扣分（仅提醒，不计入质量评分）
+        score = 100
+        return {"score": score, "issues": all_issues, "tokens": 0, "compliance_only": True}

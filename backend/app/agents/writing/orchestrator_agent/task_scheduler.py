@@ -120,17 +120,24 @@ class TaskSchedulerMixin:
         self._max_concurrent_writers = _cfg.get("max_concurrent_writers", 3)
         self._semaphore = asyncio.Semaphore(self._max_concurrent_writers)
 
-        # 初始化人物状态追踪器
+        # 初始化人物状态追踪器（根据叙事模式差异化初始化）
+        _narrative_mode = _cfg.get("narrative_mode", "serialized")
+        _is_pure_episodic = _narrative_mode == "episodic"
+        _is_episodic_with_arc = _narrative_mode == "episodic_with_arc"
+        _skip_previous_accumulation = _is_pure_episodic or _is_episodic_with_arc
+
         await self._initialize_character_tracker(
             project_id=context.project_id,
             character_profiles=context.character_profiles,
             world_settings=context.world_settings,
-            persist_dir=_cfg.get("persist_dir")
+            persist_dir=_cfg.get("persist_dir"),
+            narrative_mode=_narrative_mode
         )
 
         # [修复] 继续生成时：从 DB 加载上一单元的结尾内容
         # 确保后续单元的 previous_content 不为空
-        if start_from > 1 and not context.previous_content:
+        # 单元剧模式跳过：每集独立故事，不应加载上集内容
+        if start_from > 1 and not context.previous_content and not _skip_previous_accumulation:
             try:
                 from app.models.writing_unit import WritingUnit as _WritingUnit
                 prev_unit_query = select(_WritingUnit).where(
@@ -155,6 +162,19 @@ class TaskSchedulerMixin:
 
         # 计算结束单元
         end_unit = start_from + unit_count - 1
+
+        # [防护] 硬性边界校验：end_unit 不得超过单元概述的实际数量
+        unit_summaries = _cfg.get("unit_summaries", {})
+        if unit_summaries and isinstance(unit_summaries, dict) and len(unit_summaries) > 0:
+            max_unit_in_summaries = max(int(k) for k in unit_summaries.keys() if str(k).isdigit())
+            if end_unit > max_unit_in_summaries:
+                original_end = end_unit
+                end_unit = max_unit_in_summaries
+                unit_count = end_unit - start_from + 1
+                task.total_units = task.completed_units + unit_count
+                self.logger.warning(
+                    f"[continue_from] 硬性边界保护: end_unit 从 {original_end} 截断为 "
+                    f"{end_unit}（单元概述最大编号={max_unit_in_summaries}）")
 
         # 更新任务状态
         task.status = TaskStatus.RUNNING
@@ -199,30 +219,38 @@ class TaskSchedulerMixin:
                 await self.db.commit()
 
                 # [修复] 累积前文结尾内容到 context.previous_content
-                try:
-                    from app.models.writing_unit import WritingUnit as _WritingUnit
-                    unit_query = select(_WritingUnit).where(
-                        _WritingUnit.task_id == task.id,
-                        _WritingUnit.unit_index == unit_index
+                # 单元剧模式跳过：清空 previous_content，不累积跨集上下文
+                if _skip_previous_accumulation:
+                    context.previous_content = ""
+                    mode_label = "纯单元剧" if _is_pure_episodic else "主线串联单元剧"
+                    self.logger.info(
+                        f"[上下文累积] {mode_label}模式：单元 {unit_index} 完成，清空 previous_content"
                     )
-                    db_unit_result = await self.db.execute(unit_query)
-                    db_unit = db_unit_result.scalar_one_or_none()
-                    if db_unit and db_unit.final_content:
-                        unit_content = db_unit.final_content
-                        if context.previous_content:
-                            context.previous_content += "\n\n" + unit_content
-                        else:
-                            context.previous_content = unit_content
-                        if len(context.previous_content) > 5000:
-                            context.previous_content = context.previous_content[-5000:]
-                        self.logger.info(
-                            f"[上下文累积] 单元 {unit_index} 完成，"
-                            f"previous_content 长度: {len(context.previous_content)} 字符"
+                else:
+                    try:
+                        from app.models.writing_unit import WritingUnit as _WritingUnit
+                        unit_query = select(_WritingUnit).where(
+                            _WritingUnit.task_id == task.id,
+                            _WritingUnit.unit_index == unit_index
                         )
-                except Exception as accumulate_error:
-                    self.logger.warning(
-                        f"[上下文累积] 更新 previous_content 失败: {accumulate_error}"
-                    )
+                        db_unit_result = await self.db.execute(unit_query)
+                        db_unit = db_unit_result.scalar_one_or_none()
+                        if db_unit and db_unit.final_content:
+                            unit_content = db_unit.final_content
+                            if context.previous_content:
+                                context.previous_content += "\n\n" + unit_content
+                            else:
+                                context.previous_content = unit_content
+                            if len(context.previous_content) > 5000:
+                                context.previous_content = context.previous_content[-5000:]
+                            self.logger.info(
+                                f"[上下文累积] 单元 {unit_index} 完成，"
+                                f"previous_content 长度: {len(context.previous_content)} 字符"
+                            )
+                    except Exception as accumulate_error:
+                        self.logger.warning(
+                            f"[上下文累积] 更新 previous_content 失败: {accumulate_error}"
+                        )
             else:
                 self.logger.error(f"单元 {unit_index} 处理失败: {unit_result.errors}")
                 if _cfg.get("stop_on_error", True):

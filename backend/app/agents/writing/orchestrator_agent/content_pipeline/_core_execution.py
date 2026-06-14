@@ -84,18 +84,28 @@ class CoreExecutionMixin:
                 "max_concurrent_writers", 3)
             self._semaphore = asyncio.Semaphore(self._max_concurrent_writers)
 
-            # 2.5 初始化人物状态追踪器
+            # 🔴 [v3.2] 叙事模式检测：根据 narrative_mode 配置决定跨集连续性策略
+            _narrative_mode = _cfg.get("narrative_mode", "serialized")
+            _is_pure_episodic = _narrative_mode == "episodic"  # 纯单元剧：各单元完全独立
+            _is_episodic_with_arc = _narrative_mode == "episodic_with_arc"  # 主线串联单元剧
+            # 连续剧 = serialized 或未设置（默认）；等价于 not (_is_pure_episodic or _is_episodic_with_arc)
+            # 兼容旧代码：纯单元剧模式跳过前文内容累积，主线串联模式保留前文上下文
+            _skip_previous_accumulation = _is_pure_episodic
+
+            # 2.5 初始化人物状态追踪器（根据叙事模式差异化初始化）
             await self._initialize_character_tracker(
                 project_id=context.project_id,
                 character_profiles=context.character_profiles,
                 world_settings=context.world_settings,
-                persist_dir=_cfg.get("persist_dir")
+                persist_dir=_cfg.get("persist_dir"),
+                narrative_mode=_narrative_mode
             )
 
             # [修复] 续传/继续生成时：从 DB 加载已完成的上一单元的结尾内容
             # 填补 previous_content 为空的断层，确保后续单元能获取前文结尾
+            # 单元剧模式跳过：每集独立故事，不应加载上集内容
             start_unit = _cfg.get("start_from", 1)
-            if start_unit > 1 and not context.previous_content:
+            if start_unit > 1 and not context.previous_content and not _skip_previous_accumulation:
                 try:
                     from app.models.writing_unit import WritingUnit as _WritingUnit
                     prev_unit_query = select(_WritingUnit).where(
@@ -118,6 +128,12 @@ class CoreExecutionMixin:
                     self.logger.warning(
                         f"[上下文初始化] 加载前文内容失败: {init_error}"
                     )
+            elif _skip_previous_accumulation and start_unit > 1:
+                mode_name = "纯单元剧" if _is_pure_episodic else "主线串联单元剧"
+                self.logger.info(
+                    f"[上下文初始化] {mode_name}模式：跳过加载上集内容，"
+                    f"每集为独立故事"
+                )
 
             # 3. 确定要处理的单元范围
             unit_count = _cfg.get("unit_count")
@@ -131,6 +147,25 @@ class CoreExecutionMixin:
             # 原逻辑 range(start_unit, total_units+1) 当 start_unit>1 时会出错
             total_units_count = task.total_units
             end_unit = start_unit + total_units_count - 1
+
+            # [防护] 硬性边界校验：end_unit 不得超过单元概述的实际数量
+            # 防止生成超出单元概述范围的内容（如20集单元概述却生成24集正文）
+            unit_summaries = _cfg.get("unit_summaries", {})
+            if unit_summaries and isinstance(unit_summaries, dict) and len(unit_summaries) > 0:
+                max_unit_in_summaries = max(int(k) for k in unit_summaries.keys() if str(k).isdigit())
+                if end_unit > max_unit_in_summaries:
+                    original_end = end_unit
+                    end_unit = max_unit_in_summaries
+                    total_units_count = end_unit - start_unit + 1
+                    # 同步更新 task.total_units，防止前端显示不一致
+                    task.total_units = total_units_count
+                    await self.db.commit()
+                    self.logger.warning(
+                        f"[单元循环] 硬性边界保护: end_unit 从 {original_end} 截断为 "
+                        f"{end_unit}（单元概述最大编号={max_unit_in_summaries}），"
+                        f"total_units 校准为 {total_units_count}"
+                    )
+
             completed_units = task.completed_units or 0
 
             self.logger.info(
@@ -183,7 +218,16 @@ class CoreExecutionMixin:
 
                     # [修复] 累积前文结尾内容到 context.previous_content
                     # 从 DB 读取 QC 修正后的最终内容，确保下一单元获得正确的上下文
-                    try:
+                    # 🔴 [v3.2] 单元剧/主线串联模式：每集结束后清空 previous_content
+                    if _skip_previous_accumulation:
+                        context.previous_content = ""
+                        mode_name = "纯单元剧" if _is_pure_episodic else "主线串联单元剧"
+                        self.logger.info(
+                            f"[上下文累积] {mode_name}模式：单元 {unit_index} 完成，"
+                            f"清空 previous_content（每集独立）"
+                        )
+                    else:
+                      try:
                         from app.models.writing_unit import WritingUnit as _WritingUnit
                         unit_query = select(_WritingUnit).where(
                             _WritingUnit.task_id == task.id,
@@ -208,7 +252,7 @@ class CoreExecutionMixin:
                             self.logger.warning(
                                 f"[上下文累积] 单元 {unit_index} 未在 DB 中找到内容记录"
                             )
-                    except Exception as accumulate_error:
+                      except Exception as accumulate_error:
                         self.logger.warning(
                             f"[上下文累积] 更新 previous_content 失败: {accumulate_error}"
                         )

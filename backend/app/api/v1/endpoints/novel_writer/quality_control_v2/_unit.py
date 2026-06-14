@@ -171,9 +171,15 @@ async def analyze_single_unit_quality(
         fixed_content = content     # 初始化为原始内容
 
         if request and request.auto_fix and issues:
-            logger.info(f"[实时质控] 开始自动修正: {len(issues)}个问题")
+            # v3.2: 统计合规提醒问题，仅提醒不自动修正
+            compliance_count = sum(1 for i in issues if i.get('is_compliance'))
+            fixable_count = len(issues) - compliance_count
+            logger.info(
+                f"[实时质控] 开始自动修正: {len(issues)}个问题"
+                f"（{fixable_count}个可修正, {compliance_count}个合规提醒仅标记）"
+            )
 
-            # 为每个问题生成修正建议
+            # 为每个问题生成修正建议（合规类问题在_generate_fixes_for_issues中已过滤）
             issues_with_fixes = await _generate_fixes_for_issues(
                 issues=issues,
                 chapters_data=chapters_data,
@@ -471,8 +477,8 @@ async def download_unit_content(
     from app.models.writing_task import WritingTask
     from sqlalchemy import select
 
-    if version not in ("draft", "revised"):
-        return PlainTextResponse("无效的版本参数，请使用 draft 或 revised", status_code=400)
+    if version not in ("draft", "revised", "self_revise"):
+        return PlainTextResponse("无效的版本参数，请使用 draft、revised 或 self_revise", status_code=400)
 
     try:
         # 查找任务（必须校验 user_id 权限）
@@ -500,6 +506,8 @@ async def download_unit_content(
         # 获取对应版本的内容
         if version == "draft":
             content = getattr(unit, 'content_after_generation', None) or unit.final_content or ""
+        elif version == "self_revise":
+            content = getattr(unit, 'content_after_self_revise', None) or unit.final_content or ""
         else:
             content = getattr(unit, 'content_after_qc_fix', None) or unit.final_content or ""
 
@@ -509,7 +517,7 @@ async def download_unit_content(
         # 生成文件名
         unit_title = getattr(unit, 'unit_title', '') or f"第{unit_index}章"
         safe_title = unit_title.replace('/', '_').replace('\\', '_')
-        version_label = "初稿" if version == "draft" else "修正稿"
+        version_label = "初稿" if version == "draft" else ("自主修订稿" if version == "self_revise" else "修正稿")
         filename = f"{safe_title}_{version_label}.txt"
 
         # 返回 BOM + UTF-8 编码的文本，确保 Windows 记事本正确显示中文

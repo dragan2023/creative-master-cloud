@@ -95,22 +95,41 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
   }
 
   // 从内容中解析单元概述
-  const parseUnitSummariesFromContent = (content) => {
+  // [2026-06-03] 修复：接收contentType参数，支持**第N集：标题**格式
+  // 剧集内容同时含"集"(标题)和"场"(场景划分)，需精确检测
+  const parseUnitSummariesFromContent = (content, contentType) => {
     const result = {}
-    const isMovie = content.includes('场') && !content.includes('集')
     
-    const pattern = isMovie
-      ? /\*\*第(\d+)场[：:]\s*(.+?)(?:\n|$)/g
-      : /###\s*第(\d+)(?:章|集)[：:]\s*(.+?)(?:\n|$)/g
+    // 内容类型检测
+    const _detectType = () => {
+      if (contentType) {
+        if (contentType.includes('movie')) return 'movie'
+        if (contentType.includes('series')) return 'series'
+        return 'novel'
+      }
+      const epCount = (content.match(/第\d+集/g) || []).length
+      const scCount = (content.match(/第\d+场/g) || []).length
+      if (scCount > 0 && epCount === 0) return 'movie'
+      if (epCount > scCount) return 'series'
+      if (scCount > epCount) return 'movie'
+      return 'novel'
+    }
+    const detectedType = _detectType()
+
+    // [2026-06-03] 修复：统一支持###和**两种标题前缀（剧集+小说均适用）
+    const unitLabel = detectedType === 'movie' ? '场' : (detectedType === 'series' ? '集' : '章')
+    const pattern = new RegExp(
+      `(?:###\\s*|\\*\\*)\\s*第(\\d+)(?:${detectedType === 'movie' ? '场' : '(?:章|集)'})(?:\\*\\*)?[：:]\\s*(.+?)(?:\\n|$)`,
+      'g'
+    )
     
     let match
     while ((match = pattern.exec(content)) !== null) {
       const unitNum = parseInt(match[1])
-      const title = match[2].trim()
+      let title = match[2].trim().replace(/\*\*$/, '').trim()
       
-      const summaryPattern = isMovie
-        ? new RegExp(`\\*\\*本场梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`, 's')
-        : new RegExp(`\\*\\*本(?:章|集)梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`, 's')
+      const summaryLabel = detectedType === 'movie' ? '本场' : (detectedType === 'series' ? '本集' : '本章')
+      const summaryPattern = new RegExp(`\\*\\*${summaryLabel}梗概\\*\\*[：:]\\s*(.+?)(?:\\n\\n|\\n\\*\\*|$)`, 's')
       
       const summaryMatch = content.slice(match.index, match.index + 500).match(summaryPattern)
       const summary = summaryMatch ? summaryMatch[1].trim() : ''
@@ -327,14 +346,14 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
       )
       
       if (result && !result.cancelled) {
-        unitSummaries.value = parseUnitSummariesFromContent(result.content)
+        unitSummaries.value = parseUnitSummariesFromContent(result.content, type.value)
         // 质量管控已在流式生成过程中自动执行，无需再次调用
         outlineStage.value = 4
         ElMessage.success('单元概述生成完成')
       } else if (result && result.cancelled) {
         ElMessage.info('生成已取消')
         if (result.content) {
-          unitSummaries.value = parseUnitSummariesFromContent(result.content)
+          unitSummaries.value = parseUnitSummariesFromContent(result.content, type.value)
           outlineStage.value = 4
         } else {
           outlineStage.value = 2
@@ -539,7 +558,7 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
       ElMessage.success('全局大纲已导入，您可以编辑后继续生成单元概述')
     } else {
       try {
-        const parsed = parseUnitSummariesFromContent(importContent.value)
+        const parsed = parseUnitSummariesFromContent(importContent.value, type.value)
         if (Object.keys(parsed).length > 0) {
           unitSummaries.value = parsed
           // v2.4: 兼容加粗标记的章节标题
@@ -662,7 +681,7 @@ export function useStreamHandler(type, form, globalOutlineContent, generatedCont
       )
       
       if (result && !result.cancelled) {
-        const newUnits = parseUnitSummariesFromContent(result.content)
+        const newUnits = parseUnitSummariesFromContent(result.content, type.value)
         for (const [num, unit] of Object.entries(newUnits)) {
           const actualNum = parseInt(num) + startFromUnit.value - 1
           unitSummaries.value[actualNum.toString()] = {

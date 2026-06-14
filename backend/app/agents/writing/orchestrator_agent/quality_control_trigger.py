@@ -161,6 +161,9 @@ async def _execute_quality_control(
             )
 
             # 发送质控完成消息 (v3.0: 新增六维度分数、变更列表、版本内容字段)
+            # v3.2: 新增合规提醒数量
+            all_issues = qc_data.get('issues', []) or []
+            compliance_issue_count = sum(1 for i in all_issues if i.get('is_compliance'))
             if ws_send_func:
                 try:
                     await ws_send_func("unit_quality_control", {
@@ -169,9 +172,10 @@ async def _execute_quality_control(
                         "score": qc_data.get('score', 0),
                         "issues_count": qc_data.get('issues_count', 0),
                         "fixed_count": qc_data.get('fixed_count', 0),
+                        "compliance_issue_count": compliance_issue_count,
                         "message": f"质控完成: 得分{qc_data.get('score', 0):.1f}, 发现{qc_data.get('issues_count', 0)}个问题, 修正{qc_data.get('fixed_count', 0)}个",
                         "report": qc_data.get('report'),
-                        "issues": qc_data.get('issues'),
+                        "issues": all_issues,
                         "fixes_applied": qc_data.get('fixes_applied'),
                         "original_content": qc_data.get('original_content'),
                         "fixed_content": qc_data.get('fixed_content'),

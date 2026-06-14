@@ -446,9 +446,18 @@ export function useContentQualityControl(props) {
     if (unitIdx === -1) return
 
     const oldUnit = units.value[unitIdx]
+    // [修复] 过滤掉 undefined 值，避免覆盖 oldUnit.quality_control 中已有的有效字段
+    // 场景：WS消息到达时 content_after_generation 为 undefined，不能覆盖已有的初稿内容
+    const filteredQCData = {}
+    Object.keys(qcData).forEach(key => {
+      if (qcData[key] !== undefined) {
+        filteredQCData[key] = qcData[key]
+      }
+    })
+
     const newQC = {
       ...oldUnit.quality_control,
-      ...qcData,
+      ...filteredQCData,
       updated_at: Date.now()
     }
 
@@ -551,10 +560,10 @@ export function useContentQualityControl(props) {
     const unitTitle = (unit.unit_title || `第${unitIndex}章`).replace(/[\\/:*?"<>|]/g, '_')
 
     if (version === 'draft') {
-      content = qc.content_after_generation || unit.final_content || ''
+      content = qc.content_after_generation || unit.content_after_generation || unit.final_content || ''
       filename = `${unitTitle}_初稿.txt`
     } else {
-      content = qc.content_after_qc_fix || unit.final_content || ''
+      content = qc.content_after_qc_fix || unit.content_after_qc_fix || unit.final_content || ''
       filename = `${unitTitle}_修正稿.txt`
     }
 

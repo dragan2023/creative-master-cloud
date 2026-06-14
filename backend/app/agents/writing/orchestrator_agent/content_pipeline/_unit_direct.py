@@ -8,7 +8,9 @@ content_pipeline - 直接生成模式模块
 @version: v3.0.0
 """
 import os as _os
+import re
 import time
+from collections import Counter
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select as _select
@@ -18,6 +20,78 @@ from app.models.writing_scene import WritingScene, SceneStatus
 from app.models.writing_unit import UnitStatus
 from app.agents.writing.orchestrator_agent.content_pipeline._outline_alignment import check_outline_alignment
 from app.utils.type_adapter import safe_json_dict, safe_json_list
+
+
+def _rule_based_hints(content: str, unit_index: int, content_type: str) -> list:
+    """轻量级规则引擎实时提示（v4.0新增）
+
+    替代传统自动质控，为剧本类型提供非阻塞的写作提示。
+    仅检测客观格式问题，不涉及内容质量判断。
+
+    Args:
+        content: 生成的内容
+        unit_index: 单元序号
+        content_type: 内容类型 (series_script / movie_script)
+
+    Returns:
+        list: 提示列表，每个元素为 {"type": "warning"|"info", "message": str}
+    """
+    hints = []
+
+    if not content:
+        return hints
+
+    word_count = len(content)
+
+    # 1. 字数范围检测
+    if word_count < 500:
+        hints.append({
+            "type": "warning",
+            "message": f"单元{unit_index}字数较少（{word_count}字），可能内容不完整，建议检查或使用对话修正补充"
+        })
+    elif word_count > 20000:
+        hints.append({
+            "type": "info",
+            "message": f"单元{unit_index}字数较多（{word_count}字），如需精简可使用对话修正"
+        })
+
+    # 2. 场景分隔标记检测（剧本类型特有）
+    if content_type in ("series_script", "movie_script", "script"):
+        has_scene_markers = False
+        # 常见的场景分隔标记
+        scene_patterns = [
+            r'场景\s*[\d一二三四五六七八九十]+',  # 场景一、场景1
+            r'第[\d一二三四五六七八九十]+\s*场',  # 第1场
+            r'\[场景[\d一二三四五六七八九十]*\]',  # [场景1]
+            r'\*\*场景',  # **场景
+            r'Scene\s+\d+',  # Scene 1
+            r'INT\.|EXT\.',  # INT./EXT. (影视剧本格式)
+        ]
+        for pattern in scene_patterns:
+            if re.search(pattern, content):
+                has_scene_markers = True
+                break
+
+        if not has_scene_markers and word_count > 1000:
+            hints.append({
+                "type": "info",
+                "message": f"单元{unit_index}未检测到明显的场景分隔标记，建议使用场景标记使内容结构更清晰"
+            })
+
+    # 3. 格式异常检测
+    # 检测连续重复段落（可能是LLM生成异常）
+    paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
+    if len(paragraphs) > 10:
+        para_counts = Counter(paragraphs)
+        for para, count in para_counts.items():
+            if count > 3 and len(para) > 50:
+                hints.append({
+                    "type": "warning",
+                    "message": f"单元{unit_index}检测到重复段落（重复{count}次），可能存在生成异常，建议检查"
+                })
+                break
+
+    return hints
 
 
 class UnitDirectMixin:
@@ -76,6 +150,12 @@ class UnitDirectMixin:
         content_type = _ocfg.get("content_type", "novel")
         _unit_label_map = {"novel": "章", "series_script": "集", "movie_script": "场", "script": "场"}
         unit_label = _unit_label_map.get(content_type, "章")
+        # 叙事模式检测：三态判断
+        _narrative_mode = _ocfg.get("narrative_mode", "serialized")
+        _is_pure_episodic = _narrative_mode == "episodic"  # 纯单元剧
+        _is_episodic_with_arc = _narrative_mode == "episodic_with_arc"  # 主线串联单元剧
+        # 向后兼容：_is_episodic 对两种单元剧模式均返回 True（用于禁用跨集连续性）
+        _is_episodic = _is_pure_episodic or _is_episodic_with_arc
 
         self.logger.info(f"[整{unit_label}生成] 开始处理单元 {unit_index}")
         unit = None
@@ -153,8 +233,9 @@ class UnitDirectMixin:
                     self.logger.warning(f"提取人物状态映射失败: {e}")
 
             # 🆕 [知识图谱优化 v3.1] 获取单元图谱的完整一致性报告
+            # 纯单元剧模式：跳过扩展实体一致性上下文获取（各单元独立，无需跨集一致性）
             structured_consistency = {}
-            if self._project_knowledge_base and context.project_id:
+            if not _is_pure_episodic and self._project_knowledge_base and context.project_id:
                 try:
                     from app.tools.novel_graph_rag import NovelKnowledgeGraph
                     graph_path = self._project_knowledge_base.get_graph_path(
@@ -238,11 +319,18 @@ class UnitDirectMixin:
                     # 移除 extended_consistency_context (已合并到 knowledge_graph_context)
                     "style_document_features": style_document_features,
                     # 🆕 累积式情节摘要（前文所有单元的关键剧情概览）
-                    "cumulative_summary": "\n".join(getattr(self, '_cumulative_summary_parts', [])) if hasattr(self, '_cumulative_summary_parts') and len(self._cumulative_summary_parts) > 1 else "",
+                    # 纯单元剧模式下传空字符串；主线串联模式下正常传递
+                    "cumulative_summary": "" if _is_pure_episodic else (
+                        "\n".join(getattr(self, '_cumulative_summary_parts', [])) if hasattr(self, '_cumulative_summary_parts') and len(self._cumulative_summary_parts) > 1 else ""
+                    ),
                     # 🆕 全局大纲对齐报告（每5单元更新一次，注入后续单元写作上下文）
-                    "alignment_report": getattr(self, '_alignment_report', ""),
+                    # 纯单元剧模式下传空字符串，主线串联和连续剧模式正常传递
+                    "alignment_report": "" if _is_pure_episodic else getattr(self, '_alignment_report', ""),
                     # 🆕 待回收伏笔清单（从追踪器获取，注入写手提词）
-                    "pending_foreshadowing": self._character_tracker.get_pending_foreshadowing_for_prompt() if self._character_tracker and hasattr(self._character_tracker, 'get_pending_foreshadowing_for_prompt') else "",
+                    # 纯单元剧模式下传空字符串；主线串联模式下正常传递
+                    "pending_foreshadowing": "" if _is_pure_episodic else (
+                        self._character_tracker.get_pending_foreshadowing_for_prompt() if self._character_tracker and hasattr(self._character_tracker, 'get_pending_foreshadowing_for_prompt') else ""
+                    ),
                     # 🆕 全维度扩展一致性上下文（设施/事件/群体/道具/规则/时间线，供prompt步骤6.8-6.14使用）
                     "extended_consistency": structured_consistency,
                 },
@@ -339,37 +427,64 @@ class UnitDirectMixin:
                     f"[整{unit_label}生成-单元{unit_index}] 摘要生成调度失败（不影响主流程）: {summary_error}"
                 )
 
-            # 同步触发实时质控
-            import asyncio as _asyncio
-            from app.agents.writing.orchestrator_agent.quality_control_trigger import trigger_unit_quality_control
-
-            project_id = None
-            user_id = None
-            if self._current_task:
-                project_id = self._current_task.project_id
-                user_id = self._current_task.user_id
-
+            # v4.0优化：实时质控仅对小说类型生效，剧集/电影类型跳过
+            # 剧集/电影类型的质量反馈由用户通过对话修正功能完成
             qc_completed = False
-            if project_id and final_content:
-                try:
-                    if not hasattr(self, '_qc_semaphore'):
-                        self._qc_semaphore = _asyncio.Semaphore(2)
+            if _ocfg.get("content_type", "novel") == "novel":
+                import asyncio as _asyncio
+                from app.agents.writing.orchestrator_agent.quality_control_trigger import trigger_unit_quality_control
 
-                    async with self._qc_semaphore:
-                        self.logger.info(f"[整{unit_label}生成-质控] 开始质控: unit={unit_index}, 等待完成后再提取知识图谱")
-                        await trigger_unit_quality_control(
-                            project_id=project_id,
-                            unit_index=unit_index,
-                            content=final_content,
-                            user_id=user_id,
-                            ws_send_func=self._send_ws_message,
-                            content_type=_ocfg.get("content_type", "novel")
+                project_id = None
+                user_id = None
+                if self._current_task:
+                    project_id = self._current_task.project_id
+                    user_id = self._current_task.user_id
+
+                if project_id and final_content:
+                    try:
+                        if not hasattr(self, '_qc_semaphore'):
+                            self._qc_semaphore = _asyncio.Semaphore(2)
+
+                        async with self._qc_semaphore:
+                            self.logger.info(f"[整{unit_label}生成-质控] 开始质控: unit={unit_index}, 等待完成后再提取知识图谱")
+                            await trigger_unit_quality_control(
+                                project_id=project_id,
+                                unit_index=unit_index,
+                                content=final_content,
+                                user_id=user_id,
+                                ws_send_func=self._send_ws_message,
+                                content_type=_ocfg.get("content_type", "novel")
+                            )
+                            qc_completed = True
+                            self.logger.info(f"[整{unit_label}生成-质控] 质控完成: unit={unit_index}")
+                    except Exception as qc_error:
+                        self.logger.warning(f"[整{unit_label}生成-质控] 质控失败: unit={unit_index}, error={qc_error}，继续执行知识图谱提取")
+                        qc_completed = False
+            else:
+                self.logger.info(
+                    f"[整{unit_label}生成] 剧本类型({_ocfg.get('content_type')})跳过实时质控，"
+                    f"unit={unit_index}，由用户对话修正功能替代")
+
+                # v4.0新增: 轻量级规则引擎实时提示（替代传统自动质控）
+                try:
+                    hints = _rule_based_hints(
+                        content=final_content,
+                        unit_index=unit_index,
+                        content_type=content_type
+                    )
+                    if hints:
+                        self.logger.info(
+                            f"[整{unit_label}生成-规则提示] unit={unit_index}, "
+                            f"发现{len(hints)}条提示"
                         )
-                        qc_completed = True
-                        self.logger.info(f"[整{unit_label}生成-质控] 质控完成: unit={unit_index}")
-                except Exception as qc_error:
-                    self.logger.warning(f"[整{unit_label}生成-质控] 质控失败: unit={unit_index}, error={qc_error}，继续执行知识图谱提取")
-                    qc_completed = False
+                        await self._send_ws_message("writing_hints", {
+                            "unit_index": unit_index,
+                            "hints": hints
+                        })
+                except Exception as hint_error:
+                    self.logger.warning(
+                        f"[整{unit_label}生成-规则提示] 规则引擎检测失败（不影响主流程）: {hint_error}"
+                    )
 
             await self._send_ws_message("unit_progress", {
                 "unit_index": unit_index,
@@ -422,8 +537,8 @@ class UnitDirectMixin:
             self.logger.debug(f"[整{unit_label}生成] 累积摘要已更新，当前{len(self._cumulative_summary_parts)}个单元")
 
             # 4.6 🆕 全局大纲对齐验证
-            # 每5个单元触发一次，检测已生成内容与全局大纲的偏离
-            if unit_index % 5 == 0 and self._cumulative_summary_parts:
+            # 纯单元剧模式：跳过大纲对齐检查
+            if not _is_pure_episodic and unit_index % 5 == 0 and self._cumulative_summary_parts:
                 try:
                     # 尝试获取LLM provider（优先从context.extra，回退到提取专用provider）
                     alignment_llm = None
@@ -454,7 +569,8 @@ class UnitDirectMixin:
                     self.logger.warning(f"[整{unit_label}生成] 大纲对齐检查失败: {e}")
 
             # 5. 更新人物状态追踪
-            if self._character_tracker and final_content:
+            # 纯单元剧模式：跳过人物状态追踪（各单元完全独立）
+            if not _is_pure_episodic and self._character_tracker and final_content:
                 try:
                     content_for_kg = final_content
                     if qc_completed:
@@ -489,14 +605,15 @@ class UnitDirectMixin:
                         chapter_title=unit.unit_title,
                         content=content_for_kg,
                         project_id=context.project_id,
-                        llm_provider=llm_provider
+                        llm_provider=llm_provider,
+                        narrative_mode=_narrative_mode
                     )
                 except Exception as e:
                     self.logger.warning(f"更新人物状态失败: {e}")
 
             # 5.5 🆕 伏笔追踪同步
-            # 从知识图谱同步伏笔数据，并检测当前章节是否回收了pending伏笔
-            if self._character_tracker and final_content and hasattr(self._character_tracker, 'sync_foreshadowing_from_knowledge_graph'):
+            # 纯单元剧模式：跳过伏笔追踪（各单元独立，无跨集伏笔）
+            if not _is_pure_episodic and self._character_tracker and final_content and hasattr(self._character_tracker, 'sync_foreshadowing_from_knowledge_graph'):
                 try:
                     # 尝试获取知识图谱实例
                     knowledge_graph = None
@@ -524,7 +641,8 @@ class UnitDirectMixin:
                     self.logger.warning(f"[伏笔追踪] 同步失败: {e}")
 
             # 5.6 🆕 扩展实体交叉一致性检查
-            if self._character_tracker and final_content and hasattr(self._character_tracker, 'check_extended_consistency'):
+            # 纯单元剧模式：跳过交叉一致性检查（各单元独立）
+            if not _is_pure_episodic and self._character_tracker and final_content and hasattr(self._character_tracker, 'check_extended_consistency'):
                 try:
                     # 加载一致性状态（consistency_state.json）
                     consistency_state = {}
@@ -534,7 +652,7 @@ class UnitDirectMixin:
                         if graph_path:
                             graph_dir = _os.path.dirname(graph_path)
                             from app.agents.writing.orchestrator_agent.monitoring._knowledge_graph import MonitoringKnowledgeGraphMixin
-                            consistency_state = MonitoringKnowledgeGraphMixin.load_unified_state(graph_dir)
+                            consistency_state = MonitoringKnowledgeGraphMixin.load_unified_state(graph_dir, context.project_id)
 
                     cross_result = self._character_tracker.check_extended_consistency(
                         chapter_num=unit_index,

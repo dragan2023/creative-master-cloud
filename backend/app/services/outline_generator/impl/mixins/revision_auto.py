@@ -167,7 +167,10 @@ class RevisionAutoMixin:
         temperature: float = 0.7
     ) -> Dict[str, Any]:
         """
-        单元概述自动质控检测+修正一体化流程（v3.0重构）
+        单元概述自动质控检测+修正一体化流程（v3.0重构 → v4.0弃用）
+
+        @deprecated v4.0: 剧集/电影类型已禁用自动质控修正。
+        小说类型仍保留此方法。剧集/电影类型应使用对话修正功能。
 
         替代原有的 analyze_unit_summaries_quality_manual + revise_unit_summaries_quality
         两步手动流程，改为一步完成的自动流程。
@@ -197,6 +200,29 @@ class RevisionAutoMixin:
                 "auto_revised": bool
             }
         """
+        # v4.0: 剧集/电影类型跳过自动质控修正
+        _is_script = content_type in (
+            "series_outline", "movie_outline", "series_script", "movie_script", "script"
+        )
+        if _is_script:
+            self.logger.info(
+                f"[单元概述自动质控] 剧本类型({content_type})已禁用自动质控修正，"
+                "请使用对话修正功能")
+            return {
+                "success": True,
+                "quality_report": None,
+                "revised_content": None,
+                "revised_parsed": None,
+                "original_content": None,
+                "original_parsed": None,
+                "changes": [],
+                "has_issues": False,
+                "issues_count": 0,
+                "auto_revised": False,
+                "skipped": True,
+                "skip_reason": f"剧本类型({content_type})已禁用自动质控修正"
+            }
+
         result = {
             "success": False,
             "quality_report": None,

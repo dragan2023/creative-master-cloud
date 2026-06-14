@@ -45,7 +45,7 @@ class BatchQCRequest(BaseModel):
     project_id: int
     dimensions: Optional[List[str]] = None  # 分析维度
     depth: str = "standard"  # 分析深度
-    auto_fix: bool = True  # 是否自动修正
+    auto_fix: bool = False  # 是否自动修正（v4.0优化：默认关闭，剧集/电影类型通过对话修正替代）
     auto_fix_threshold: float = 0.8  # 自动修正置信度阈值
 
 
@@ -332,6 +332,7 @@ async def _execute_batch_qc_task(
                     fixed_content = content
                     
                     if request.auto_fix and issues:
+                        # v3.2: 合规提醒问题已在_generate_fixes_for_issues中过滤，仅提醒不自动修正
                         issues_with_fixes = await _generate_fixes_for_issues(
                             issues=issues,
                             chapters_data=chapters_data,
@@ -389,6 +390,29 @@ async def _execute_batch_qc_task(
                                 )
                             except Exception as sync_err:
                                 logger.warning(f"[视觉同步] 单元{unit_index}同步失败(非致命): {sync_err}")
+                                sync_result = {}  # 兜底值，防止后续 NameError
+
+                        # ========== v2.7: AI资源重新生成建议 ==========
+                        if auto_fix_applied and fixed_content != content:
+                            ai_resource_suggestion = None
+                            try:
+                                # 仅在视觉同步成功时执行 AI 资源分析
+                                if sync_result and not sync_result.get("fallback"):
+                                    from app.services.quality_control.fix_generator import QualityFixGenerator
+                                    fix_gen = QualityFixGenerator()
+                                    ai_resource_suggestion = fix_gen.sync_ai_resource_after_body_fix(
+                                        has_ai_resource=bool(getattr(unit, 'ai_resource_content', None)),
+                                        body_changes_detected=sync_result.get("body_changes_detected", []),
+                                        unit_index=unit_index
+                                    )
+                                    if ai_resource_suggestion.get("suggest_regenerate"):
+                                        logger.info(
+                                            f"[AI资源同步] 单元{unit_index}建议重新生成AI资源: "
+                                            f"{ai_resource_suggestion.get('reason')}"
+                                        )
+                            except Exception as ai_sync_err:
+                                logger.warning(f"[AI资源同步] 单元{unit_index}分析失败(非致命): {ai_sync_err}")
+
                     # 更新单元质控结果
                     unit.quality_control_status = 'completed'
                     unit.quality_control_report = qc_report

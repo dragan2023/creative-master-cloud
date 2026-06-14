@@ -101,13 +101,29 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
         unit_title = _extra.get("unit_title", default_title)
         unit_summary = _extra.get("unit_summary", "")
 
-        # 字数配置
+        # 字数/时长配置（根据内容类型区分）
+        is_script = content_type in ("script", "series_script", "movie_script")
         target_words = _config.get("words_per_scene", 3000)
-
-        self.logger.info(
-            f"[整{unit_label}生成] 开始生成{unit_label}节内容 - 标题: {unit_title}, "
-            f"目标字数: {target_words}, 模式: 全局大纲+单元概述"
-        )
+        if is_script:
+            duration_minutes = _config.get("duration_minutes")
+            if not duration_minutes:
+                if content_type == "series_script":
+                    er = _config.get("episode_duration_range", [30, 45])
+                    duration_minutes = int((er[0] + er[1]) / 2) if isinstance(er, (list, tuple)) and len(er) == 2 else 40
+                elif content_type == "movie_script":
+                    dr = _config.get("duration_range", [10, 15])
+                    duration_minutes = int((dr[0] + dr[1]) / 2) if isinstance(dr, (list, tuple)) and len(dr) == 2 else 12
+                else:
+                    duration_minutes = 5
+            self.logger.info(
+                f"[整{unit_label}生成] 开始生成{unit_label}节内容 - 标题: {unit_title}, "
+                f"预计时长: {duration_minutes}分钟, 模式: 全局大纲+单元概述"
+            )
+        else:
+            self.logger.info(
+                f"[整{unit_label}生成] 开始生成{unit_label}节内容 - 标题: {unit_title}, "
+                f"目标字数: {target_words}, 模式: 全局大纲+单元概述"
+            )
 
         # 阶段1: 构建系统提示词
         try:
@@ -140,7 +156,8 @@ class WriterAgent(BaseWritingAgent, WriterPromptsMixin, WriterUtilsMixin):
                     {"role": "user", "content": user_prompt}
                 ],
                 task_id=context.task_id,
-                scene_id=f"{context.unit_index}_direct"
+                scene_id=f"{context.unit_index}_direct",
+                user_id=context.user_id
             )
         except Exception as e:
             self.logger.error(f"[整{unit_label}生成] LLM调用失败: {e!r}", exc_info=True)

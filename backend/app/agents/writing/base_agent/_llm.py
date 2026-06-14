@@ -16,6 +16,7 @@ from app.utils.llm_retry import should_retry, is_rate_limit_error, is_network_er
 from app.agents.llm_manager import get_llm_manager
 from app.agents.base_provider import BaseLLMProvider, LLMResponse
 from ._types import AgentRole
+from app.core.config import get_settings
 
 logger = get_logger("agent.base.llm")
 
@@ -87,10 +88,72 @@ class AgentLLMMixin:
 
         return "deepseek"
 
+    async def _read_thinking_config(self, user_id: int = 0) -> dict:
+        """读取DeepSeek思考模式配置
+
+        优先级：用户级DB配置 > 系统级环境变量
+        参照 llm_manager._get_thinking_config 的实现模式。
+
+        Args:
+            user_id: 用户ID，为0时仅读取环境变量配置
+
+        Returns:
+            包含 enable_thinking, reasoning_effort, thinking_save_dir 的字典
+        """
+        settings = get_settings()
+        result = {
+            "enable_thinking": settings.DEEPSEEK_ENABLE_THINKING,
+            "reasoning_effort": settings.DEEPSEEK_REASONING_EFFORT,
+            "thinking_save_dir": settings.DEEPSEEK_THINKING_SAVE_DIR,
+        }
+
+        # 如果有user_id，尝试从DB读取用户级配置覆盖
+        if user_id > 0:
+            try:
+                import json
+                from app.core.database import get_db
+                from app.models.system_config import SystemConfig
+                from sqlalchemy import select
+
+                config_key = f"user_thinking_mode_config_{user_id}"
+                async for session in get_db():
+                    stmt = select(SystemConfig).where(SystemConfig.id == config_key)
+                    db_result = await session.execute(stmt)
+                    config = db_result.scalar_one_or_none()
+                    if config and config.config_value:
+                        data = json.loads(config.config_value)
+                        result["enable_thinking"] = data.get("enable_thinking", result["enable_thinking"])
+                        result["reasoning_effort"] = data.get("reasoning_effort", result["reasoning_effort"])
+                        result["thinking_save_dir"] = data.get("thinking_save_dir", result["thinking_save_dir"])
+                    break
+            except Exception as e:
+                logger.warning(f"读取用户思考模式配置失败，使用系统默认: {e}")
+
+        return result
+
     async def _get_provider(self, provider_name: str, model_id: str,
-                            api_base: Optional[str] = None, api_key: Optional[str] = None) -> BaseLLMProvider:
-        """获取LLM Provider实例"""
+                            api_base: Optional[str] = None, api_key: Optional[str] = None,
+                            user_id: int = 0) -> BaseLLMProvider:
+        """获取LLM Provider实例
+
+        Args:
+            provider_name: 提供者名称
+            model_id: 模型ID
+            api_base: 自定义API端点
+            api_key: 自定义API密钥
+            user_id: 用户ID（用于读取思考模式DB配置）
+        """
         llm_manager = self._get_llm_manager()
+
+        # 🔧 修复：读取思考模式配置（用户级DB > 系统级env）
+        thinking_kwargs = {}
+        if provider_name == "deepseek":
+            thinking_kwargs = await self._read_thinking_config(user_id)
+            if thinking_kwargs.get("enable_thinking"):
+                logger.info(
+                    f"思考模式已启用 - provider={provider_name}, "
+                    f"effort={thinking_kwargs.get('reasoning_effort')}, "
+                    f"save_dir={thinking_kwargs.get('thinking_save_dir')}")
 
         if api_key:
             final_api_base = api_base
@@ -101,7 +164,8 @@ class AgentLLMMixin:
                 f"使用自定义API配置创建provider: provider={provider_name}, api_base={final_api_base}")
             return llm_manager.create_provider(
                 provider_name=provider_name, api_key=api_key,
-                model_name=model_id, api_base=final_api_base)
+                model_name=model_id, api_base=final_api_base,
+                **thinking_kwargs)
 
         if api_base:
             db_api_key = await self._get_api_key_from_db(provider_name)
@@ -110,7 +174,8 @@ class AgentLLMMixin:
                     f"使用自定义api_base + DB中的api_key: provider={provider_name}, api_base={api_base}")
                 return llm_manager.create_provider(
                     provider_name=provider_name, api_key=db_api_key,
-                    model_name=model_id, api_base=api_base)
+                    model_name=model_id, api_base=api_base,
+                    **thinking_kwargs)
 
             settings = get_settings()
             env_key_name = f"{provider_name.upper().replace('-', '_')}_API_KEY"
@@ -120,7 +185,8 @@ class AgentLLMMixin:
                     f"使用自定义api_base + 环境变量api_key: provider={provider_name}, api_base={api_base}")
                 return llm_manager.create_provider(
                     provider_name=provider_name, api_key=env_api_key,
-                    model_name=model_id, api_base=api_base)
+                    model_name=model_id, api_base=api_base,
+                    **thinking_kwargs)
             raise ValueError(f"未配置 {provider_name} 的 API Key")
 
         try:
@@ -141,7 +207,8 @@ class AgentLLMMixin:
                         f"未配置 {provider_name} 的 API Key，请在环境变量中设置")
             return llm_manager.create_provider(
                 provider_name=provider_name, api_key=api_key,
-                model_name=model_id, api_base=preset.get("api_base"))
+                model_name=model_id, api_base=preset.get("api_base"),
+                **thinking_kwargs)
 
     async def _get_api_key_from_db(self, provider_name: str) -> Optional[str]:
         """从数据库获取API Key"""
@@ -170,9 +237,13 @@ class AgentLLMMixin:
         model: Optional[str] = None, temperature: Optional[float] = None,
         max_tokens: Optional[int] = None, task_id: Optional[str] = None,
         scene_id: Optional[str] = None, max_retries: int = 3,
-        retry_delay: float = 5.0
+        retry_delay: float = 5.0, user_id: int = 0
     ) -> Dict[str, Any]:
-        """统一LLM调用接口（通过StatsInterceptor包装）"""
+        """统一LLM调用接口（通过StatsInterceptor包装）
+
+        Args:
+            user_id: 用户ID，用于读取思考模式DB配置（默认0=仅使用环境变量）
+        """
         if not self.requires_llm:
             raise RuntimeError(
                 f"Agent '{self.agent_name}' (role={self.agent_role.value}) 不需要LLM调用。")
@@ -190,7 +261,7 @@ class AgentLLMMixin:
         last_error = None
         for attempt in range(max_retries + 1):
             try:
-                provider = await self._get_provider(provider_name, model_id, api_base, api_key)
+                provider = await self._get_provider(provider_name, model_id, api_base, api_key, user_id)
                 system_prompt = None
                 user_prompt = ""
                 for msg in messages:
@@ -267,9 +338,13 @@ class AgentLLMMixin:
         model: Optional[str] = None, temperature: Optional[float] = None,
         max_tokens: Optional[int] = None, task_id: Optional[str] = None,
         scene_id: Optional[str] = None, max_retries: int = 3,
-        retry_delay: float = 5.0
+        retry_delay: float = 5.0, user_id: int = 0
     ):
-        """统一LLM流式调用接口"""
+        """统一LLM流式调用接口
+
+        Args:
+            user_id: 用户ID，用于读取思考模式DB配置（默认0=仅使用环境变量）
+        """
         if not self.requires_llm:
             raise RuntimeError(
                 f"Agent '{self.agent_name}' (role={self.agent_role.value}) 不需要LLM流式调用。")
@@ -289,7 +364,7 @@ class AgentLLMMixin:
 
         for attempt in range(max_retries + 1):
             try:
-                provider = await self._get_provider(provider_name, model_id, api_base, api_key)
+                provider = await self._get_provider(provider_name, model_id, api_base, api_key, user_id)
                 system_prompt = None
                 user_prompt = ""
                 for msg in messages:

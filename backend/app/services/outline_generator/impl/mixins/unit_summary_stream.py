@@ -38,6 +38,8 @@ class UnitSummaryStreamMixin:
         atomic_mode: bool = None,
         # GraphRAG知识库增强（v4.1新增）
         project_id: int = None,
+        # 叙事模式（serialized=连续剧，episodic=单元剧）
+        narrative_mode: str = "serialized",
     ) -> AsyncGenerator[str, None]:
         """
         流式生成单元简要概述（第二阶段）
@@ -69,6 +71,14 @@ class UnitSummaryStreamMixin:
             SSE 事件字符串
         """
         try:
+            # v4.0优化：剧集/电影类型禁用自动质控，由对话修正功能替代
+            _script_types = ("series_outline", "movie_outline", "series_script", "movie_script", "script")
+            if content_type in _script_types and enable_quality_control:
+                self.logger.info(
+                    f"[单元概述流式] 剧本类型({content_type})禁用自动质控，"
+                    "质量反馈由用户对话修正功能提供")
+                enable_quality_control = False
+
             # 判断是否使用原子化模式
             use_atomic = atomic_mode if atomic_mode is not None else _ENABLE_ATOMIC_MODE
 
@@ -98,6 +108,7 @@ class UnitSummaryStreamMixin:
                     existing_parsed=existing_parsed,
                     cancel_event=cancel_event,
                     project_id=project_id,
+                    narrative_mode=narrative_mode,
                 ):
                     yield event
                 return
@@ -130,7 +141,8 @@ class UnitSummaryStreamMixin:
                 context_prefix = self._build_resume_context(
                     existing_parsed=existing_parsed,
                     start_from_unit=start_from_unit,
-                    content_type=content_type
+                    content_type=content_type,
+                    narrative_mode=narrative_mode
                 )
 
                 # 添加unit_label到续生成模式
@@ -149,7 +161,8 @@ class UnitSummaryStreamMixin:
                     episode_duration_range=episode_duration_range,
                     title_style=title_style,  # 传递标题风格参数
                     title_style_name=title_style_name,  # 传递标题风格名称
-                    unit_label=unit_label_resume  # 新增：传递单元标签
+                    unit_label=unit_label_resume,  # 新增：传递单元标签
+                    narrative_mode=narrative_mode  # 传递叙事模式
                 )
 
                 # 续生成模式也需要追加章节边界识别机制（v2.3）
@@ -504,7 +517,8 @@ class UnitSummaryStreamMixin:
                         workflow_yield=lambda event: event,
                         replace_content_yield=lambda content, msg: (
                             content, msg),
-                        user_id=user_id
+                        user_id=user_id,
+                        narrative_mode=narrative_mode
                     ):
                         # 处理质量管控产生的事件
                         if isinstance(qc_event, tuple):

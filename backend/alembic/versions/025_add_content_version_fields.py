@@ -5,7 +5,7 @@
 - content_after_qc_fix: 质控修正后的内容(质控完成后存储)
 
 Revision ID: 025_add_content_version_fields
-Revises: 023_add_character_profiles
+Revises: 024_merge_heads
 Create Date: 2026-05-13
 
 """

@@ -32,7 +32,8 @@ class StyleEditorDetectionMixin:
                 messages=messages,
                 task_id=context.task_id,
                 scene_id=str(
-                    context.scene_index) if context.scene_index else None
+                    context.scene_index) if context.scene_index else None,
+                user_id=context.user_id
             )
 
             if not llm_result:
@@ -67,7 +68,8 @@ class StyleEditorDetectionMixin:
                 messages=messages,
                 task_id=context.task_id,
                 scene_id=str(
-                    context.scene_index) if context.scene_index else None
+                    context.scene_index) if context.scene_index else None,
+                user_id=context.user_id
             )
 
             if not llm_result:

@@ -73,6 +73,12 @@ class WritingUnit(BaseModel):
         Text, nullable=True, comment="LLM生成的初稿内容(生成完成后存储，永不覆盖)")
     content_after_qc_fix = Column(
         Text, nullable=True, comment="质控修正后的内容(质控完成后存储)")
+    content_after_self_revise = Column(
+        Text, nullable=True, comment="用户自主修订后的内容(通过UnitRevisionDialog确认保存)")
+
+    # v4.0: AI视觉资源内容字段（独立于剧本正文存储）
+    ai_resource_content = Column(
+        Text, nullable=True, comment="AI视觉资源生成内容(独立于剧本正文存储,包含人物/场景/物品参考图及视频生成提示词)")
 
     # 关联关系
     task = relationship("WritingTask", back_populates="units")

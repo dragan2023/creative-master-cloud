@@ -56,13 +56,19 @@ def register_export_routes(router: APIRouter):
         # 构建内容
         content_parts = []
         for unit in units:
-            if unit.final_content:
+            # 版本优先级：自主修订稿 > 质控修正稿 > 最终内容
+            effective_content = (
+                unit.content_after_self_revise
+                or unit.content_after_qc_fix
+                or unit.final_content
+            )
+            if effective_content:
                 title = unit.unit_title or f"第{unit.unit_index}章"
                 if format == "md":
-                    content_parts.append(f"\n\n# {title}\n\n{unit.final_content}")
+                    content_parts.append(f"\n\n# {title}\n\n{effective_content}")
                 else:
                     content_parts.append(
-                        f"\n\n{'='*50}\n{title}\n{'='*50}\n\n{unit.final_content}")
+                        f"\n\n{'='*50}\n{title}\n{'='*50}\n\n{effective_content}")
 
         full_content = "\n".join(content_parts).strip()
 
@@ -113,15 +119,21 @@ def register_export_routes(router: APIRouter):
         if not unit:
             raise HTTPException(status_code=404, detail="单元不存在")
 
-        if not unit.final_content:
+        # 版本优先级：自主修订稿 > 质控修正稿 > 最终内容
+        effective_content = (
+            unit.content_after_self_revise
+            or unit.content_after_qc_fix
+            or unit.final_content
+        )
+        if not effective_content:
             raise HTTPException(status_code=404, detail="该单元暂无生成内容")
 
         # 构建内容
         title = unit.unit_title or f"第{unit.unit_index}章"
         if format == "md":
-            content = f"# {title}\n\n{unit.final_content}"
+            content = f"# {title}\n\n{effective_content}"
         else:
-            content = f"{'='*50}\n{title}\n{'='*50}\n\n{unit.final_content}"
+            content = f"{'='*50}\n{title}\n{'='*50}\n\n{effective_content}"
 
         # 文件名
         filename = f"unit_{unit_index}.{format}"

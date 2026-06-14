@@ -28,11 +28,15 @@ from ._common import (
 # 视觉内容段落标记关键词（用于识别拍摄脚本和AI视觉资源部分）
 _VISUAL_SECTION_MARKERS = [
     "拍摄脚本参考", "运镜设计", "光影方案", "演出指导", "剪辑思路", "连续性衔接",
+    "分镜脚本设计", "分镜设计表", "分镜说明", "场景切换规划", "情感曲线",
     "AI视觉资源生成", "Seedance", "人物参考图生成提示词", "场景参考图生成提示词",
     "物品参考图生成提示词", "视频生成提示词", "参考模式", "人物参考图",
     "场景参考图", "物品参考图", "镜头类型", "主体动作", "环境描述",
     "运镜方式", "风格要求", "首帧描述", "尾帧描述", "负面提示词",
     "AI生成提示词", "六要素", "主视觉提示词", "备选方案提示词",
+    # v3.0: 配乐参考模块标记
+    "Suno音乐生成提示词", "配乐参考", "场景配乐方案", "版权音乐引用",
+    "原创BGM", "音乐类型", "情绪基调", "乐器配置", "节奏特点",
 ]
 
 
@@ -312,7 +316,7 @@ async def apply_quality_fix(
                     "location": {"chapter_number": request.chapter_number}
                 },
                 chapter_content=old_content,
-                global_outline=getattr(
+                knowledge_graph_context=getattr(
                     project, 'global_outline_content', '') or "",
                 character_profiles=getattr(
                     project, 'character_profiles', []) or [],
@@ -528,7 +532,7 @@ async def generate_quality_fix(
                 "location": {"chapter_number": request.chapter_number}
             },
             chapter_content=chapter_content or "",
-            global_outline=global_outline or "",
+            knowledge_graph_context=global_outline or "",
             db=db,
             user_id=current_user.id
         )

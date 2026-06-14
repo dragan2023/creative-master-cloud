@@ -58,7 +58,7 @@ export function useImportLogic(deps) {
       ElMessage.success('全局大纲已导入，您可以编辑后继续生成单元概述')
     } else {
       try {
-        const parsed = parseUnitSummariesFromContent(importContent.value)
+        const parsed = parseUnitSummariesFromContent(importContent.value, type.value)
         if (Object.keys(parsed).length > 0) {
           unitSummaries.value = parsed
           // v2.4: 兼容加粗标记的章节标题
@@ -200,9 +200,10 @@ export function useImportLogic(deps) {
           return
         }
 
-        const parsed = parseUnitSummariesFromContent(content)
+        const parsed = parseUnitSummariesFromContent(content, type.value)
 
         console.log('[单元概述导入调试] 原始内容长度:', content.length)
+        console.log('[单元概述导入调试] contentType:', type.value)
         console.log('[单元概述导入调试] 解析到的单元数:', Object.keys(parsed).length)
         console.log('[单元概述导入调试] 解析到的单元key:', Object.keys(parsed))
 

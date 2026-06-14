@@ -35,6 +35,136 @@ from app.services.task_manager import (
 from ..utils import router, logger
 
 
+# ==================== 辅助函数 ====================
+
+def _get_priority_content(unit) -> str:
+    """按优先级获取WritingUnit的正文内容
+
+    优先级: content_after_self_revise > content_after_qc_fix > content_after_generation
+    """
+    return (
+        getattr(unit, 'content_after_self_revise', None)
+        or getattr(unit, 'content_after_qc_fix', None)
+        or getattr(unit, 'content_after_generation', None)
+        or ''
+    )
+
+
+# ==================== 批量获取剧本正文+AI资源内容 API ====================
+
+@router.get("/projects/{project_id}/all-script-content")
+async def get_all_script_content(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取全部剧本正文+AI资源内容（剧集/电影类型专用）
+
+    正文内容优先级: content_after_self_revise > content_after_qc_fix > content_after_generation
+    AI资源内容: 从 ai_resource_content 字段获取
+
+    返回数据供前端生成两个独立的MD文件：
+    - 剧本正文文件
+    - AI资源提示词文件
+    """
+    try:
+        from app.models.writing_unit import WritingUnit
+        from app.models.writing_task import WritingTask
+
+        # 验证项目权限
+        query = select(NovelProject).where(
+            NovelProject.id == project_id,
+            NovelProject.user_id == current_user.id
+        )
+        result = await db.execute(query)
+        project = result.scalar_one_or_none()
+
+        if not project:
+            raise ResourceNotFoundException("项目不存在")
+
+        content_type = project.content_type
+        if content_type not in ('series_script', 'movie_script'):
+            return ResponseModel(
+                success=False,
+                message="此接口仅支持剧集(series_script)和电影(movie_script)类型"
+            )
+
+        # 获取该项目的所有WritingTask
+        task_query = select(WritingTask).where(
+            WritingTask.project_id == project_id,
+            WritingTask.user_id == current_user.id
+        )
+        task_result = await db.execute(task_query)
+        tasks = task_result.scalars().all()
+
+        if not tasks:
+            return ResponseModel(
+                success=False,
+                message="未找到项目的写作任务"
+            )
+
+        task_ids = [task.id for task in tasks]
+
+        # 获取所有WritingUnit，按unit_index排序
+        unit_query = select(WritingUnit).where(
+            WritingUnit.task_id.in_(task_ids)
+        ).order_by(WritingUnit.unit_index)
+        unit_result = await db.execute(unit_query)
+        units = unit_result.scalars().all()
+
+        if not units:
+            return ResponseModel(
+                success=False,
+                message="未找到任何写作单元"
+            )
+
+        # 构建返回数据
+        contents = []
+        ai_resources = []
+        unit_label = "集" if content_type == 'series_script' else "场"
+
+        for unit in units:
+            # 正文内容优先级: self_revise > qc_fix > generation
+            script_content = _get_priority_content(unit)
+            unit_title = unit.unit_title or f"第{unit.unit_index}{unit_label}"
+
+            if script_content:
+                contents.append({
+                    "unit_index": unit.unit_index,
+                    "unit_title": unit_title,
+                    "content": script_content,
+                    "word_count": len(script_content)
+                })
+
+            # AI资源内容
+            ai_content = getattr(unit, 'ai_resource_content', None) or ''
+            ai_resources.append({
+                "unit_index": unit.unit_index,
+                "unit_title": unit_title,
+                "content": ai_content if ai_content else "暂无AI资源内容",
+                "has_content": bool(ai_content)
+            })
+
+        return ResponseModel(
+            success=True,
+            data={
+                "project_title": project.title,
+                "content_type": content_type,
+                "total_count": len(units),
+                "contents": contents,
+                "ai_resources": ai_resources,
+                "has_any_ai_resource": any(r["has_content"] for r in ai_resources)
+            }
+        )
+
+    except AppException:
+        raise
+    except Exception as e:
+        logger.error(f"获取全部剧本正文+AI资源失败: {str(e)}", exc_info=True)
+        raise AppException(ErrorCode.INTERNAL_ERROR, str(e))
+
+
 # ==================== SSE Ticket API ====================
 
 @router.post("/projects/{project_id}/sse-ticket")
@@ -89,9 +219,13 @@ async def get_all_episode_content(
     """
     获取全部剧集正文内容
 
-    返回所有已生成的剧集正文，用于批量下载
+    返回所有已生成的剧集正文，用于批量下载。
+    正文内容优先级: content_after_self_revise > content_after_qc_fix > content_after_generation
     """
     try:
+        from app.models.writing_unit import WritingUnit
+        from app.models.writing_task import WritingTask
+
         # 获取项目
         query = select(NovelProject).where(
             NovelProject.id == project_id,
@@ -103,24 +237,41 @@ async def get_all_episode_content(
         if not project:
             raise ResourceNotFoundException("项目不存在")
 
-        # 获取所有有正文的章节记录（按 episode_number 筛选）
-        chapter_query = select(NovelChapter).where(
-            NovelChapter.project_id == project_id,
-            NovelChapter.episode_number != None,
-            NovelChapter.final_content != None
-        ).order_by(NovelChapter.episode_number)
+        # 获取该项目的所有WritingTask
+        task_query = select(WritingTask).where(
+            WritingTask.project_id == project_id,
+            WritingTask.user_id == current_user.id
+        )
+        task_result = await db.execute(task_query)
+        tasks = task_result.scalars().all()
 
-        chapter_result = await db.execute(chapter_query)
-        chapters = chapter_result.scalars().all()
+        if not tasks:
+            return ResponseModel(
+                success=True,
+                data={"project_title": project.title, "content_type": "episode",
+                      "total_count": 0, "contents": []}
+            )
 
-        # 构建返回数据
+        task_ids = [task.id for task in tasks]
+
+        # 获取所有WritingUnit，按unit_index排序
+        unit_query = select(WritingUnit).where(
+            WritingUnit.task_id.in_(task_ids)
+        ).order_by(WritingUnit.unit_index)
+        unit_result = await db.execute(unit_query)
+        units = unit_result.scalars().all()
+
+        # 构建返回数据（使用优先级逻辑获取内容）
         contents = []
-        for chapter in chapters:
+        for unit in units:
+            script_content = _get_priority_content(unit)
+            if not script_content:
+                continue
             contents.append({
-                "episode_number": chapter.episode_number,
-                "chapter_title": chapter.chapter_title or f"第{chapter.episode_number}集",
-                "content": chapter.final_content,
-                "word_count": chapter.word_count
+                "episode_number": unit.unit_index,
+                "chapter_title": unit.unit_title or f"第{unit.unit_index}集",
+                "content": script_content,
+                "word_count": len(script_content)
             })
 
         return ResponseModel(
@@ -210,9 +361,13 @@ async def get_all_scene_content(
     """
     获取全部电影场景正文内容
 
-    返回所有已生成的场景正文，用于批量下载
+    返回所有已生成的场景正文，用于批量下载。
+    正文内容优先级: content_after_self_revise > content_after_qc_fix > content_after_generation
     """
     try:
+        from app.models.writing_unit import WritingUnit
+        from app.models.writing_task import WritingTask
+
         # 获取项目
         query = select(NovelProject).where(
             NovelProject.id == project_id,
@@ -224,24 +379,41 @@ async def get_all_scene_content(
         if not project:
             raise ResourceNotFoundException("项目不存在")
 
-        # 获取所有有正文的章节记录（电影类型：scene_number 不为空）
-        chapter_query = select(NovelChapter).where(
-            NovelChapter.project_id == project_id,
-            NovelChapter.scene_number != None,
-            NovelChapter.final_content != None
-        ).order_by(NovelChapter.scene_number)
+        # 获取该项目的所有WritingTask
+        task_query = select(WritingTask).where(
+            WritingTask.project_id == project_id,
+            WritingTask.user_id == current_user.id
+        )
+        task_result = await db.execute(task_query)
+        tasks = task_result.scalars().all()
 
-        chapter_result = await db.execute(chapter_query)
-        chapters = chapter_result.scalars().all()
+        if not tasks:
+            return ResponseModel(
+                success=True,
+                data={"project_title": project.title, "content_type": "scene",
+                      "total_count": 0, "contents": []}
+            )
 
-        # 构建返回数据
+        task_ids = [task.id for task in tasks]
+
+        # 获取所有WritingUnit，按unit_index排序
+        unit_query = select(WritingUnit).where(
+            WritingUnit.task_id.in_(task_ids)
+        ).order_by(WritingUnit.unit_index)
+        unit_result = await db.execute(unit_query)
+        units = unit_result.scalars().all()
+
+        # 构建返回数据（使用优先级逻辑获取内容）
         contents = []
-        for chapter in chapters:
+        for unit in units:
+            script_content = _get_priority_content(unit)
+            if not script_content:
+                continue
             contents.append({
-                "scene_number": chapter.scene_number,
-                "chapter_title": chapter.chapter_title or f"第{chapter.scene_number}场",
-                "content": chapter.final_content,
-                "word_count": chapter.word_count
+                "scene_number": unit.unit_index,
+                "chapter_title": unit.unit_title or f"第{unit.unit_index}场",
+                "content": script_content,
+                "word_count": len(script_content)
             })
 
         return ResponseModel(

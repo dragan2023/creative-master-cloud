@@ -126,23 +126,24 @@ def register_crud_routes(router: APIRouter):
                 task_config["unit_summaries"] = project.unit_summaries
 
             # 注入每章字数配置（按内容类型差异化）
-            if not task_config.get("words_per_chapter"):
-                content_type = project.content_type or "novel"
-                if content_type in ("series_script", "movie_script"):
-                    # 剧本类型包含大量视觉方案内容（分镜设计、拍摄指导、运镜设计、
-                    # 光影方案、演出指导、剪辑思路、AI视觉资源生成提示词），
-                    # 字数需求远超纯文本小说，设置为较大的宽松值
-                    words_per_chapter = 20000
-                else:
-                    words_per_chapter = 3000  # 小说默认值
-                    # 优先从 novel_config 获取
-                    if project.novel_config and isinstance(project.novel_config, dict):
-                        words_per_chapter = project.novel_config.get(
-                            "words_per_chapter", 3000)
-                    # 其次从 generation_config 获取
-                    elif project.generation_config and isinstance(project.generation_config, dict):
-                        words_per_chapter = project.generation_config.get(
-                            "words_per_chapter", 3000)
+            content_type = project.content_type or "novel"
+            if content_type in ("series_script", "movie_script"):
+                # 剧本类型包含大量视觉方案内容（分镜设计、拍摄指导、运镜设计、
+                # 光影方案、演出指导、剪辑思路、AI视觉资源生成提示词），
+                # 字数需求远超纯文本小说，强制设置为较大的宽松值
+                # 无论前端传了什么值都覆盖，因为剧本不应受字数约束
+                words_per_chapter = 20000
+                task_config["words_per_chapter"] = words_per_chapter
+            elif not task_config.get("words_per_chapter"):
+                words_per_chapter = 3000  # 小说默认值
+                # 优先从 novel_config 获取
+                if project.novel_config and isinstance(project.novel_config, dict):
+                    words_per_chapter = project.novel_config.get(
+                        "words_per_chapter", 3000)
+                # 其次从 generation_config 获取
+                elif project.generation_config and isinstance(project.generation_config, dict):
+                    words_per_chapter = project.generation_config.get(
+                        "words_per_chapter", 3000)
                 task_config["words_per_chapter"] = words_per_chapter
 
             # 注入项目类型和生成模式
@@ -158,9 +159,11 @@ def register_crud_routes(router: APIRouter):
                     task_config["episode_duration_range"] = task_config.get("episode_duration_range") or sc.get("episode_duration_range", [30, 45])
                     task_config["script_mode"] = task_config.get("script_mode") or sc.get("script_mode", "real")
                     task_config["scenes_per_episode_range"] = task_config.get("scenes_per_episode_range") or sc.get("scenes_per_episode_range")
+                    task_config["narrative_mode"] = task_config.get("narrative_mode") or sc.get("narrative_mode", "serialized")
                     logger.info(f"[任务配置注入] 剧集类型专属配置: series_type={task_config['series_type']}, "
                                 f"episode_duration_range={task_config['episode_duration_range']}, "
-                                f"script_mode={task_config['script_mode']}")
+                                f"script_mode={task_config['script_mode']}, "
+                                f"narrative_mode={task_config.get('narrative_mode', 'unknown')}")
             elif content_type == "movie_script":
                 if project.movie_script_config and isinstance(project.movie_script_config, dict):
                     mc = project.movie_script_config
@@ -168,9 +171,11 @@ def register_crud_routes(router: APIRouter):
                     task_config["duration_range"] = task_config.get("duration_range") or mc.get("duration_range", [10, 15])
                     task_config["script_mode"] = task_config.get("script_mode") or mc.get("script_mode", "real")
                     task_config["total_scenes"] = task_config.get("total_scenes") or mc.get("total_scenes", 0)
+                    task_config["narrative_mode"] = task_config.get("narrative_mode") or mc.get("narrative_mode", "serialized")
                     logger.info(f"[任务配置注入] 电影类型专属配置: movie_type={task_config['movie_type']}, "
                                 f"duration_range={task_config['duration_range']}, "
-                                f"script_mode={task_config['script_mode']}")
+                                f"script_mode={task_config['script_mode']}, "
+                                f"narrative_mode={task_config.get('narrative_mode', 'unknown')}")
 
             # 注入文风知识库配置（style_guide → style_library_guide）
             # 前端传入的 config.style_guide 会被合并到 task_config 中

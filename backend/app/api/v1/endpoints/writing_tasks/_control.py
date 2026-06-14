@@ -240,7 +240,7 @@ def register_control_routes(router: APIRouter):
             start_from = (task.start_from or 1) + task.completed_units
             unit_count = request.unit_count
 
-            # 计算项目的实际单元数
+            # 计算项目的实际单元数（优先从 unit_summaries 获取）
             actual_unit_count = 0
             if project.unit_summaries and isinstance(project.unit_summaries, dict):
                 actual_unit_count = len(project.unit_summaries)
@@ -260,17 +260,35 @@ def register_control_routes(router: APIRouter):
                     detail=f"已到达项目最后单元（{actual_unit_count}），无法继续生成"
                 )
 
-            # 计算实际可生成的单元数
+            # 计算实际可生成的单元数（硬性上限：不超过单元概述总数）
             if actual_unit_count > 0:
                 available_units = actual_unit_count - start_from + 1
                 if unit_count > available_units:
                     unit_count = available_units
+                    logger.info(
+                        f"[continue_task] unit_count 已截断为可用数量: "
+                        f"start_from={start_from}, actual_units={actual_unit_count}, "
+                        f"available={available_units}")
 
             if unit_count <= 0:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="没有可生成的单元"
                 )
+
+            # [防护] 硬性上限：继续生成后的 total_units 不得超过 actual_unit_count
+            # 防止累计 total_units 超出单元概述范围
+            new_total_units = task.completed_units + unit_count
+            if actual_unit_count > 0 and new_total_units > actual_unit_count:
+                unit_count = actual_unit_count - task.completed_units
+                if unit_count <= 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"已完成 {task.completed_units}/{actual_unit_count} 单元，无法继续生成"
+                    )
+                logger.warning(
+                    f"[continue_task] 硬性上限保护: new_total_units 从 {new_total_units} "
+                    f"截断为 {task.completed_units + unit_count}（实际单元数={actual_unit_count}）")
 
             logger.info(
                 f"继续生成任务: task_id={task_id}, start_from={start_from}, unit_count={unit_count}")
@@ -282,7 +300,11 @@ def register_control_routes(router: APIRouter):
             task.config = task_config
 
             # 更新任务参数
-            task.total_units = task.total_units + unit_count
+            # [修复] 使用绝对值而非累加，防止多次续传导致 total_units 超出实际范围
+            task.total_units = task.completed_units + unit_count
+            # 硬性上限：total_units 不得超过 actual_unit_count
+            if actual_unit_count > 0 and task.total_units > actual_unit_count:
+                task.total_units = actual_unit_count
             task.status = TaskStatus.PENDING  # 重置为pending，让Pipeline启动
             task.end_time = None
             task.error_message = None

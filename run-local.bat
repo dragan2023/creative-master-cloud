@@ -78,9 +78,9 @@ if "%BACKEND_CLEANED%"=="1" (
     timeout /t 1 /nobreak >nul
 )
 
-REM 清理前端端口 3000, 5173-5180
+REM 清理前端端口 3000, 3001-3008
 set FRONTEND_CLEANED=0
-for %%p in (3000 5173 5174 5175 5176 5177 5178 5179 5180) do (
+for %%p in (3000 3001 3002 3003 3004 3005 3006 3007 3008) do (
     for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%p.*LISTENING" 2^>nul') do (
         echo [清理] 终止前端进程 PID: %%a ^(端口 %%p^)
         taskkill /F /PID %%a >nul 2>&1
@@ -227,7 +227,7 @@ echo [前端] 正在启动前端开发服务器...
 cd /d "%FRONTEND_DIR%"
 
 REM 使用npx启动vite并指定端口,添加错误捕获
-start "Creative-Master-Frontend" cmd /k "set BROWSER=none && npx vite --port 3000 --host 0.0.0.0 || (echo [错误] 前端启动失败,按任意键关闭此窗口... && pause)"
+start "Creative-Master-Frontend" cmd /k "set BROWSER=none && npx vite --port 3001 --host 0.0.0.0 || (echo [错误] 前端启动失败,按任意键关闭此窗口... && pause)"
 cd /d "%PROJECT_ROOT%"
 
 REM 等待前端启动并检测实际端口
@@ -238,18 +238,18 @@ set FRONTEND_PORT=
 :wait_frontend
 set /a WAIT_COUNT+=1
 
-REM 检测前端实际监听的端口(优先3000)
+REM 检测前端实际监听的端口(优先3001)
 if "!FRONTEND_PORT!"=="" (
-    netstat -ano | findstr ":3000.*LISTENING" >nul 2>&1
+    netstat -ano | findstr ":3001.*LISTENING" >nul 2>&1
     if not errorlevel 1 (
-        set FRONTEND_PORT=3000
-        echo [就绪] 前端服务已就绪 ^(端口 3000, 等待 %WAIT_COUNT% 秒^)
+        set FRONTEND_PORT=3001
+        echo [就绪] 前端服务已就绪 ^(端口 3001, 等待 %WAIT_COUNT% 秒^)
         goto :verify_frontend
     )
 )
 
-REM 如果3000端口未就绪,尝试其他端口
-for %%p in (5173 5174 5175 5176 5177 5178 5179 5180) do (
+REM 如果3001端口未就绪,尝试其他端口
+for %%p in (3002 3003 3004 3005 3006 3007 3008) do (
     if "!FRONTEND_PORT!"=="" (
         netstat -ano | findstr ":%%p.*LISTENING" >nul 2>&1
         if not errorlevel 1 (
@@ -265,10 +265,10 @@ if %WAIT_COUNT% GEQ 45 (
     echo.
     echo 可能的原因:
     echo   1. Node.js 依赖未正确安装
-    echo   2. 端口 3000, 5173-5180 均被占用
+    echo   2. 端口 3001-3008 均被占用
     echo   3. 查看前端窗口错误信息
     echo.
-    set FRONTEND_PORT=3000
+    set FRONTEND_PORT=3001
     goto :show_info
 )
 timeout /t 1 /nobreak >nul
@@ -370,8 +370,8 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8002.*LISTENING"') do (
     taskkill /F /PID %%a >nul 2>&1
 )
 
-REM 关闭前端进程（查找占用3000, 5173-5180端口的进程）
-for %%p in (3000 5173 5174 5175 5176 5177 5178 5179 5180) do (
+REM 关闭前端进程（查找占用3000, 3001-3008端口的进程）
+for %%p in (3000 3001 3002 3003 3004 3005 3006 3007 3008) do (
     for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%p.*LISTENING"') do (
         echo [停止] 正在停止前端进程 (PID: %%a^)
         taskkill /F /PID %%a >nul 2>&1
@@ -407,16 +407,16 @@ if not errorlevel 1 (
 
 REM 检查前端状态
 set FRONTEND_RUNNING=0
-REM 优先检查3000端口
-netstat -ano | findstr ":3000.*LISTENING" >nul 2>&1
+REM 优先检查3001端口
+netstat -ano | findstr ":3001.*LISTENING" >nul 2>&1
 if not errorlevel 1 (
-    echo [运行中] 前端服务 - http://localhost:3000
+    echo [运行中] 前端服务 - http://localhost:3001
     set FRONTEND_RUNNING=1
     goto :status_end
 )
 
-REM 如果3000未运行,检查其他端口
-for %%p in (5173 5174 5175 5176 5177 5178 5179 5180) do (
+REM 如果3001未运行,检查其他端口
+for %%p in (3002 3003 3004 3005 3006 3007 3008) do (
     netstat -ano | findstr ":%%p.*LISTENING" >nul 2>&1
     if not errorlevel 1 (
         echo [运行中] 前端服务 - http://localhost:%%p
