@@ -120,6 +120,19 @@ MODULE_REGISTRY: Dict[str, ModuleConfig] = {
         supports_images=False,
         supports_videos=False,
     ),
+    # 应用文写作
+    "practical_writing": ModuleConfig(
+        module_id="practical_writing",
+        display_name="应用文写作",
+        api_path="/api/v1/generate/practical-writing/stream",
+        kb_category="practical-writing",
+        supports_knowledge=True,
+        supports_search=True,
+        supports_trending=True,
+        supports_mcp=False,
+        supports_images=False,
+        supports_videos=False,
+    ),
 }
 
 
@@ -221,3 +234,4 @@ MODULE_TVC = "tvc"
 MODULE_ORIGINAL_IP = "original_ip"
 MODULE_MOVIE_OUTLINE = "movie_outline"
 MODULE_SERIES_OUTLINE = "series_outline"
+MODULE_PRACTICAL_WRITING = "practical_writing"

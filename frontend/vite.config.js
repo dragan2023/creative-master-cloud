@@ -83,7 +83,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true,  // 端口被占用时报错，不自动切换端口
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_URL || 'http://localhost:7000',
+          target: env.VITE_BACKEND_URL || 'http://localhost:8002',
           changeOrigin: true,
           ws: true  // 支持 WebSocket 代理（写作任务实时进度）
         }

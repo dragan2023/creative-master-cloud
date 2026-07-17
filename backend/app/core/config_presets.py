@@ -16,6 +16,9 @@ PRESET_MODELS = {
         "notice": "国内服务商，直连即可。支持文本、图像、视频多模态输入。",
         "models": [
             # 文本模型（多模态）
+            {"id": "qwen3.7-plus", "name": "Qwen3.7-Plus", "context": "256K",
+                "vision": True, "type": "text", "max_output_tokens": 32768,
+                "description": "新一代多模态智能体模型，能看、能想、能动手，支持文本/图像输入（原生API走multimodal-generation端点）"},
             {"id": "qwen3.5-plus", "name": "Qwen3.5-Plus", "context": "256K",
                 "vision": True, "type": "text", "max_output_tokens": 32768,
                 "description": "旗舰多模态模型，支持文本/图像/视频输入，擅长语言理解、逻辑推理、代码生成、智能体任务"},

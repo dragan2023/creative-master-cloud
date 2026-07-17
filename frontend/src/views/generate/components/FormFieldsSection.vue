@@ -9,7 +9,7 @@
       />
     </el-form-item>
     
-    <el-form-item v-if="type !== 'print-ad' && type !== 'tvc'" label="目标受众" prop="target_audience">
+    <el-form-item v-if="type !== 'print-ad' && type !== 'tvc' && type !== 'practical-writing'" label="目标受众" prop="target_audience">
       <el-input
         v-model="form.target_audience"
         placeholder="如：18-25岁年轻人"
@@ -165,6 +165,25 @@
         @optimize="$emit('optimize', $event)"
       />
     </template>
+    
+    <!-- ========== 应用文写作模块 ========== -->
+    <template v-if="type === 'practical-writing'">
+      <PracticalWritingFields
+        :form="form"
+        :optimizing="optimizing"
+        :optimize-target="optimizeTarget"
+        :upload-url="uploadUrl"
+        :upload-headers="uploadHeaders"
+        :uploading-ref-doc="uploadingRefDoc"
+        :ref-doc-upload-progress="refDocUploadProgress"
+        @update:form="$emit('update:form', $event)"
+        @optimize="$emit('optimize', $event)"
+        @ref-doc-upload-success="$emit('ref-doc-upload-success', $event)"
+        @ref-doc-upload-error="$emit('ref-doc-upload-error', $event)"
+        @ref-doc-progress="$emit('ref-doc-progress', $event)"
+        @remove-ref-doc="$emit('remove-ref-doc')"
+      />
+    </template>
   </div>
 </template>
 
@@ -178,6 +197,7 @@ import NovelFields from './NovelFields.vue'
 import PrintAdFields from './PrintAdFields.vue'
 import TvcFields from './TvcFields.vue'
 import OriginalIpFields from './OriginalIpFields.vue'
+import PracticalWritingFields from './PracticalWritingFields.vue'
 
 // NovelFields组件引用
 const novelFieldsRef = ref(null)
@@ -198,6 +218,10 @@ const emit = defineEmits([
   'reference-upload-success',
   'reference-upload-error',
   'remove-reference-file',
+  'ref-doc-upload-success',
+  'ref-doc-upload-error',
+  'ref-doc-progress',
+  'remove-ref-doc',
   'image-upload-success',
   'image-upload-error',
   'parse-image-urls'
@@ -248,6 +272,14 @@ const props = defineProps({
     default: false
   },
   referenceMaterialsUploadProgress: {
+    type: Number,
+    default: 0
+  },
+  uploadingRefDoc: {
+    type: Boolean,
+    default: false
+  },
+  refDocUploadProgress: {
     type: Number,
     default: 0
   },

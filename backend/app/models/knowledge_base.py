@@ -39,6 +39,7 @@ class KnowledgeBaseCategory(str, enum.Enum):
     NOVEL_WRITING = "novel-writing"   # 小说写作专业知识库（垂直领域，参与双轨检索）
     PRINT_AD = "print-ad"             # 平面广告（垂直领域，参与双轨检索）
     TVC = "tvc"                       # TVC广告（垂直领域，参与双轨检索）
+    PRACTICAL_WRITING = "practical-writing"  # 应用文写作（垂直领域，参与双轨检索）
     GENERAL = "general"               # 通用知识库（理论知识库，固定调用）
     USER_SPECIFIC = "user-specific"   # 用户专属知识库（支持GraphRAG，用户选择启用）
     MANUAL = "manual"                 # 官方手册（不使用GraphRAG）

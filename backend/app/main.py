@@ -44,7 +44,7 @@ def _start_browser_opener():
     # 前端运行在 Vite 开发服务器上，由前端或启动脚本负责打开
     if settings.DEBUG:
         print("[INFO] 开发环境：跳过自动打开浏览器")
-        print("[INFO] 请访问 Vite 开发服务器: http://localhost:5173")
+        print("[INFO] 请访问 Vite 开发服务器: http://localhost:3001")
         return
 
     # 生产环境：打开后端托管的静态文件

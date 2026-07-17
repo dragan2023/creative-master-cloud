@@ -35,17 +35,19 @@ ALLOWED_IMAGE_TYPES = {
     "image/webp": ".webp"
 }
 
-# 支持的文档格式（大纲文件）
+# 支持的文档格式（大纲文件/参考文档）
 ALLOWED_DOC_TYPES = {
     "text/plain": ".txt",
     "text/markdown": ".md",
     "application/msword": ".doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-    "application/pdf": ".pdf"
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-excel": ".xls"
 }
 
 # 支持的文档扩展名
-ALLOWED_DOC_EXTENSIONS = [".txt", ".md", ".doc", ".docx", ".pdf"]
+ALLOWED_DOC_EXTENSIONS = [".txt", ".md", ".doc", ".docx", ".pdf", ".xlsx", ".xls"]
 
 
 def register_upload_routes(router: APIRouter):

@@ -20,6 +20,7 @@ class KnowledgeRetrievalMixin:
         "print_ad": KnowledgeBaseCategory.PRINT_AD,
         "tvc": KnowledgeBaseCategory.TVC,
         "original_ip": KnowledgeBaseCategory.GENERAL,
+        "practical_writing": KnowledgeBaseCategory.PRACTICAL_WRITING,
     }
 
     def _sort_knowledge_bases_by_priority(
@@ -206,7 +207,8 @@ class KnowledgeRetrievalMixin:
                 # KnowledgeBaseCategory.NOVEL,  # 已移除：项目专属知识库，不参与双轨检索
                 KnowledgeBaseCategory.NOVEL_WRITING,  # 新增：小说写作专业知识库，参与双轨检索
                 KnowledgeBaseCategory.PRINT_AD,
-                KnowledgeBaseCategory.TVC
+                KnowledgeBaseCategory.TVC,
+                KnowledgeBaseCategory.PRACTICAL_WRITING
             ]
 
             # 逐个检索并按类别分类

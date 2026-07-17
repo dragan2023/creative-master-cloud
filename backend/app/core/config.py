@@ -69,14 +69,14 @@ class Settings(BaseSettings):
         description="应用版本号，从 version.json 动态读取"
     )
     APP_BASE_URL: str = Field(
-        default="http://localhost:5173",
+        default="http://localhost:3001",
         description="应用基础URL，用于OpenRouter等服务的HTTP-Referer头"
     )
     DEBUG: bool = True
 
     # 服务配置
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    PORT: int = 8002
 
     # 数据库配置
     DATABASE_URL: str = Field(

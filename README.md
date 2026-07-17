@@ -1,8 +1,8 @@
-# 🎨 全能创意大师 v5.0
+# 🎨 全能创意大师 v5.1
 
 > 基于多模态 AI 的智能创意生成与写作平台，支持小说、剧本、短视频、广告等全品类创意内容的一站式创作。
 
-[![Version](https://img.shields.io/badge/version-5.0-blue)](https://github.com/dragan2023/creative-master)
+[![Version](https://img.shields.io/badge/version-5.1-blue)](https://github.com/dragan2023/creative-master)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
@@ -197,6 +197,14 @@ SECRET_KEY=your-secret-key-here
 ---
 
 ## 📝 更新日志
+
+### v5.1 (2026-07-17)
+
+**功能新增**
+- 📄 应用文写作模块上线：演讲稿、新闻稿、会议纪要、商业计划书等 21 种专业文档生成
+- 📎 参考文档上传解析：支持上传文档作为写作参考，提示词嵌入优先级加权
+- 📏 自定义文档长度：纯文本长度输入，生成篇幅精准可控
+- 🎨 前端模块排版优化：应用文写作入口调整至原创IP计划与小说大纲之间
 
 ### v5.0 (2026-06-15)
 

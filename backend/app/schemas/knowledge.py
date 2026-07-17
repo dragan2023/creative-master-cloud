@@ -27,8 +27,10 @@ class KnowledgeBaseCategory(str, Enum):
     SHORT_VIDEO = "short-video"
     SCRIPT = "script"  # [DEPRECATED] 剧本大纲已移除，保留用于数据库兼容
     NOVEL = "novel"
+    NOVEL_WRITING = "novel-writing"  # 小说写作专业知识库
     PRINT_AD = "print-ad"
     TVC = "tvc"
+    PRACTICAL_WRITING = "practical-writing"
     GENERAL = "general"
     USER_SPECIFIC = "user-specific"
     MANUAL = "manual"

@@ -291,3 +291,10 @@ class StageIdentifiers:
         'revising': '修订计划中',
         'completed': '生成完成'
     }
+
+    # ==================== 应用文写作 ====================
+    PRACTICAL_WRITING = {
+        'generating': '文档生成中',
+        'revising': '修订文档中',
+        'completed': '生成完成'
+    }

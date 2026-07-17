@@ -16,6 +16,7 @@ class GenerationModule(str, Enum):
     ORIGINAL_IP = "original_ip"
     MOVIE_OUTLINE = "movie_outline"  # 电影大纲
     SERIES_OUTLINE = "series_outline"  # 剧集大纲
+    PRACTICAL_WRITING = "practical_writing"  # 应用文写作
 
 
 class GenerationStatus(str, Enum):
@@ -280,6 +281,38 @@ class TVCInput(BaseModel):
         None, description="参考视频URL（仅Gemini 1.5 Pro/Flash支持）")
 
 
+# ==================== 应用文写作 ====================
+
+class PracticalWritingInput(BaseModel):
+    """应用文写作输入"""
+    title: Optional[str] = Field(None, description="标题/主题")
+    doc_type: str = Field(
+        ...,
+        description="文案类型（演讲稿/新闻稿/会议纪要/商业计划书/财务报表/标书/求职信简历/工作总结/述职报告/市场调研报告/可行性分析报告/合同协议/通知公告/邀请函/感谢信道歉信/产品说明书/培训方案/活动策划方案/规章制度/社交媒体文案/学术白皮书）")
+    industry: str = Field(
+        ...,
+        description="所属行业（金融保险证券/信息技术互联网/教育培训/医疗健康制药/制造业工业/零售电商/房地产建筑/法律咨询/餐饮酒店/交通物流/能源环保/农业食品/文化传媒广告/政府公共事业/汽车出行/游戏娱乐）")
+    description: Optional[str] = Field(None, description="详细描述（具体需求，是生成的核心依据）")
+    doc_length: Optional[str] = Field(
+        default="中篇（1000-3000字）",
+        description="文档长度（支持自由输入，如：5000字、10页、3-5页等）")
+    formality: Optional[str] = Field(
+        default="半正式",
+        description="正式程度（正式/半正式/非正式）")
+    target_audience: Optional[str] = Field(
+        default="上级领导/管理层",
+        description="目标受众（上级领导管理层/客户合作伙伴/下属团队成员/社会公众/特定群体）")
+    language_style: Optional[str] = Field(
+        default="专业严谨",
+        description="语言风格（专业严谨/简洁明了/生动活泼/说服力强/情感共鸣/数据驱动）")
+    additional_requirements: Optional[str] = Field(
+        None, description="附加要求（补充说明）")
+    reference_document: Optional[str] = Field(
+        None, description="参考文档URL（上传的文档文件路径，内容将被解析并嵌入提示词作为核心参考资料）")
+    reference_document_name: Optional[str] = Field(
+        None, description="参考文档文件名")
+
+
 # ==================== 通用请求/响应 ====================
 
 class GenerateRequest(BaseModel):
@@ -392,13 +425,14 @@ class OptimizeModule(str, Enum):
     ORIGINAL_IP = "original_ip"
     MOVIE_OUTLINE = "movie_outline"
     SERIES_OUTLINE = "series_outline"
+    PRACTICAL_WRITING = "practical_writing"
 
 
 class OptimizeRequest(BaseModel):
     """提示词优化请求"""
     module: str = Field(
         ...,
-        description="模块名称（short_video/script/novel/print_ad/tvc/original_ip/movie_outline/series_outline）"
+        description="模块名称（short_video/script/novel/print_ad/tvc/original_ip/practical_writing/movie_outline/series_outline）"
     )
     original_text: str = Field(
         ...,

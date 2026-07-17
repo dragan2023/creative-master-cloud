@@ -97,7 +97,7 @@ def convert_images_to_base64(images: Optional[List[str]]) -> Optional[List[str]]
 
     return result if result else None
 
-async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> Optional[str]:
+async def convert_file_url_to_content(file_url: Optional[str], logger=None, label: str = "用户上传的大纲文件内容") -> Optional[str]:
     """
     将文件URL转换为文件内容文本
 
@@ -107,6 +107,7 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
             - 完整URL（如 http://xxx/yyy.docx）
             - 本地文件路径
         logger: 日志记录器
+        label: 文件内容标记描述（如"用户上传的大纲文件内容"、"用户上传的参考文档内容"）
 
     Returns:
         文件内容文本，如果无法读取则返回原始URL
@@ -192,11 +193,11 @@ async def convert_file_url_to_content(file_url: Optional[str], logger=None) -> O
                 logger.info(f"成功解析文件内容: {file_path}, 字符数: {len(content)}")
 
             return f"""
-【用户上传的大纲文件内容】
+【{label}】
 
 {content}
 
-【以上是大纲文件内容，请在此基础上进行创作】
+【以上是{label}，请在此基础上进行创作】
 """
         else:
             if logger:
@@ -245,6 +246,30 @@ async def extract_input_params_files(
             if logger:
                 logger.warning(
                     f"[文件处理] custom_outline 解析失败，返回内容: {str(content)[:200] if content else 'None'}")
+
+    # 处理 reference_document 字段（应用文写作模块）
+    if input_params.get("reference_document"):
+        original_value = input_params["reference_document"]
+        if logger:
+            logger.info(
+                f"[文件处理] 开始处理 reference_document，原始值: {original_value[:100] if len(str(original_value)) > 100 else original_value}")
+
+        content = await convert_file_url_to_content(
+            input_params["reference_document"],
+            logger,
+            label="用户上传的参考文档内容"
+        )
+
+        # 只有当成功解析到内容时才更新
+        if content and "用户上传的参考文档内容" in content:
+            input_params["reference_document"] = content
+            if logger:
+                logger.info(
+                    f"[文件处理] reference_document 已更新为文件内容，长度: {len(str(content))}")
+        else:
+            if logger:
+                logger.warning(
+                    f"[文件处理] reference_document 解析失败，返回内容: {str(content)[:200] if content else 'None'}")
 
     return input_params
 

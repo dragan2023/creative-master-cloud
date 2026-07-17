@@ -151,7 +151,12 @@ export function useGenerationForm(type, router) {
     ip_description: '',
     reference_ip: '',
     commercial_goal: '',
-    custom_requirements: ''
+    custom_requirements: '',
+    // 应用文写作-参考文档上传
+    reference_document: '',
+    reference_document_name: '',
+    // 应用文写作-自定义文档长度
+    doc_length_custom: ''
   })
 
   // 验证规则
@@ -177,6 +182,10 @@ export function useGenerationForm(type, router) {
   // 参考资料上传状态
   const uploading_reference_materials = ref(false)
   const reference_materials_upload_progress = ref(0)
+
+  // 应用文参考文档上传状态
+  const uploading_reference_doc = ref(false)
+  const reference_doc_upload_progress = ref(0)
 
   // 提示词优化状态
   const optimizing = ref(false)
@@ -314,6 +323,80 @@ export function useGenerationForm(type, router) {
     form.value.custom_outline = ''
     form.value.custom_outline_name = ''
     outline_upload_progress.value = 0
+  }
+
+  // ==================== 应用文参考文档上传 ====================
+
+  // 上传前验证（参考文档 - 支持更多格式）
+  const beforeReferenceDocUpload = (file) => {
+    const allowedExtensions = ['.txt', '.md', '.doc', '.docx', '.pdf', '.xlsx', '.xls']
+    const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+    
+    if (!allowedExtensions.includes(fileExtension)) {
+      ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf, .xlsx, .xls 格式的文件！')
+      return false
+    }
+    if (file.size / 1024 / 1024 > 100) {
+      ElMessage.error('文件大小不能超过100MB！')
+      return false
+    }
+    uploading_reference_doc.value = true
+    reference_doc_upload_progress.value = 0
+    return true
+  }
+
+  // 参考文档上传进度
+  const handleReferenceDocProgress = (event) => {
+    reference_doc_upload_progress.value = Math.round(event.percent)
+  }
+
+  // 参考文档上传成功
+  const handleReferenceDocUploadSuccess = (data, fileOrUndefined) => {
+    uploading_reference_doc.value = false
+    reference_doc_upload_progress.value = 100
+    
+    let response, file
+    if (data && data.response && data.file) {
+      response = data.response
+      file = data.file
+    } else {
+      response = data
+      file = fileOrUndefined
+    }
+    
+    console.log('[Upload] 参考文档上传响应:', JSON.stringify(response, null, 2))
+    
+    if ((response.code === 0 || response.code === 200) && response.data?.url) {
+      form.value.reference_document = response.data.url
+      form.value.reference_document_name = file?.name || '已上传文件'
+      ElMessage.success('参考文档上传成功')
+    } else {
+      console.error('[Upload] 参考文档上传失败，响应:', response)
+      ElMessage.error(response?.message || '上传失败')
+    }
+  }
+
+  // 参考文档上传失败
+  const handleReferenceDocUploadError = (data) => {
+    uploading_reference_doc.value = false
+    reference_doc_upload_progress.value = 0
+    
+    let error
+    if (data && data.error) {
+      error = data.error
+    } else {
+      error = data
+    }
+    
+    console.error('[Upload] 参考文档上传错误:', error)
+    ElMessage.error('参考文档上传失败：' + (error?.message || '未知错误'))
+  }
+
+  // 删除已上传的参考文档
+  const removeReferenceDocFile = () => {
+    form.value.reference_document = ''
+    form.value.reference_document_name = ''
+    reference_doc_upload_progress.value = 0
   }
 
   // 参考资料上传前处理
@@ -535,7 +618,8 @@ export function useGenerationForm(type, router) {
         'novel': 'novel',
         'print-ad': 'print_ad',
         'tvc': 'tvc',
-        'original-ip': 'original_ip'
+        'original-ip': 'original_ip',
+        'practical-writing': 'practical_writing'
       }
       const module = moduleMap[type.value] || type.value
       
@@ -687,6 +771,10 @@ export function useGenerationForm(type, router) {
     uploading_reference_materials,
     reference_materials_upload_progress,
     
+    // 应用文参考文档上传
+    uploading_reference_doc,
+    reference_doc_upload_progress,
+    
     // 优化相关
     optimizing,
     optimizeTarget,
@@ -712,6 +800,14 @@ export function useGenerationForm(type, router) {
     handleUploadSuccess,
     handleUploadError,
     parseImageUrls,
+    
+    // 应用文参考文档上传方法
+    beforeReferenceDocUpload,
+    handleReferenceDocProgress,
+    handleReferenceDocUploadSuccess,
+    handleReferenceDocUploadError,
+    removeReferenceDocFile,
+    
     handleVideoModeChange,
     handleSeriesTypeChange,
     handleMovieTypeChange,

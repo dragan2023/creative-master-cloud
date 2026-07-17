@@ -26,7 +26,7 @@ class FileParser:
         Args:
             use_preprocessor: 是否使用预处理器（None时使用配置文件设置）
         """
-        self.supported_extensions = {".pdf", ".docx", ".doc", ".txt", ".md"}
+        self.supported_extensions = {".pdf", ".docx", ".doc", ".txt", ".md", ".xlsx", ".xls"}
         self.settings = get_settings()
 
         # 决定是否使用预处理器
@@ -85,6 +85,8 @@ class FileParser:
                 return await self._parse_docx(file_path)
             elif ext in [".txt", ".md"]:
                 return await self._parse_txt(file_path)
+            elif ext in [".xlsx", ".xls"]:
+                return await self._parse_xlsx(file_path)
             else:
                 return {"error": f"未实现的解析器: {ext}"}
         except Exception as e:
@@ -158,6 +160,50 @@ class FileParser:
                 "file_type": "docx",
                 "paragraph_count": len(paragraphs),
                 "table_count": len(doc.tables),
+                "char_count": len(full_text)
+            }
+        }
+
+    async def _parse_xlsx(self, file_path: str) -> Dict[str, Any]:
+        """
+        解析 Excel 文件（.xlsx / .xls）
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            解析结果
+        """
+        try:
+            import openpyxl
+        except ImportError:
+            return {"error": "缺少 openpyxl 依赖，无法解析 .xlsx 文件。请执行: pip install openpyxl"}
+
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        all_text_parts = []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            sheet_parts = [f"【工作表: {sheet_name}】"]
+
+            for row in ws.iter_rows(values_only=True):
+                row_values = [str(cell) if cell is not None else "" for cell in row]
+                # 跳过完全为空的行
+                if any(v.strip() for v in row_values):
+                    sheet_parts.append(" | ".join(row_values))
+
+            if len(sheet_parts) > 1:  # 有实际内容
+                all_text_parts.append("\n".join(sheet_parts))
+
+        wb.close()
+        full_text = "\n\n".join(all_text_parts) if all_text_parts else ""
+
+        return {
+            "content": full_text,
+            "metadata": {
+                "file_path": file_path,
+                "file_type": "xlsx",
+                "sheet_count": len(wb.sheetnames),
                 "char_count": len(full_text)
             }
         }

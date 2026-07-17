@@ -138,7 +138,8 @@ async def _create_streaming_endpoint(
         'series_outline': GenerationModule.SERIES_OUTLINE,
         'print_ad': GenerationModule.PRINT_AD,
         'tvc': GenerationModule.TVC,
-        'original_ip': GenerationModule.ORIGINAL_IP
+        'original_ip': GenerationModule.ORIGINAL_IP,
+        'practical_writing': GenerationModule.PRACTICAL_WRITING
     }
 
     module_enum = module_map.get(module, GenerationModule.SHORT_VIDEO)

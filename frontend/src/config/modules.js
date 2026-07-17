@@ -97,6 +97,27 @@ export const MODULE_CONFIGS = {
       videos: false,
     },
   },
+  // 应用文写作
+  'practical-writing': {
+    id: 'practical-writing',
+    name: '应用文写作',
+    title: '应用文写作',
+    description: '演讲稿、新闻稿、会议纪要、商业计划书等21种专业文档生成',
+    apiMethod: 'practicalWriting',
+    apiEndpoint: '/api/v1/generate/practical-writing/stream',
+    icon: 'Document',
+    color: '#2D8CF0',
+    backendModuleId: 'practical_writing',
+    kbCategory: 'practical-writing',
+    features: {
+      knowledge: true,
+      search: true,
+      trending: true,
+      mcp: false,
+      images: false,
+      videos: false,
+    },
+  },
   // 小说大纲
   'novel': {
     id: 'novel',
@@ -312,6 +333,7 @@ export const MODULE_TAG_TYPES = {
   'print-ad': 'warning',
   'tvc': 'info',
   'original-ip': 'purple',
+  'practical-writing': 'primary',
 }
 
 export default MODULE_CONFIGS

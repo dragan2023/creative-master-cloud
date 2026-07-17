@@ -555,7 +555,10 @@ export function useRevisionMode(deps) {
             user_feedback: currentFeedback,
             current_content: revisionContent.value,
             original_params: form.value,
-            module: type.value,
+            module: (() => {
+              const moduleMap = { 'practical-writing': 'practical_writing' }
+              return moduleMap[type.value] || type.value
+            })(),
             round_number: currentRevisionRound.value
           },
           (chunk) => {

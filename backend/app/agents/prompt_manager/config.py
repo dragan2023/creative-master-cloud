@@ -417,5 +417,63 @@ MODULE_VARIABLES_CONFIG = {
                 "front_field": "custom_requirements"
             }
         }
+    },
+    "practical_writing": {
+        "variables": {
+            "title": {
+                "default": "",
+                "description": "文档标题/主题（必填）",
+                "required": True,
+                "front_field": "title"
+            },
+            "doc_type": {
+                "default": "演讲稿",
+                "description": "文案类型：演讲稿/新闻稿/会议纪要/商业计划书/财务报表/标书/求职信简历/工作总结/述职报告/市场调研报告/可行性分析报告/合同协议/通知公告/邀请函/感谢信道歉信/产品说明书/培训方案/活动策划方案/规章制度/社交媒体文案/学术白皮书",
+                "required": True,
+                "front_field": "doc_type"
+            },
+            "industry": {
+                "default": "信息技术/互联网",
+                "description": "所属行业：金融保险证券/信息技术互联网/教育培训/医疗健康制药/制造业工业/零售电商/房地产建筑/法律咨询/餐饮酒店/交通物流/能源环保/农业食品/文化传媒广告/政府公共事业/汽车出行/游戏娱乐",
+                "required": True,
+                "front_field": "industry"
+            },
+            "description": {
+                "default": "",
+                "description": "详细描述，说明具体需求、背景、关键要素等",
+                "required": True,
+                "front_field": "description"
+            },
+            "doc_length": {
+                "default": "中篇（1000-3000字）",
+                "description": "文档长度：短篇（500-1000字）/中篇（1000-3000字）/长篇（3000-8000字）",
+                "required": False,
+                "front_field": "doc_length"
+            },
+            "formality": {
+                "default": "半正式",
+                "description": "正式程度：正式/半正式/非正式",
+                "required": False,
+                "front_field": "formality"
+            },
+            "target_audience": {
+                "default": "上级领导/管理层",
+                "description": "目标受众：上级领导管理层/客户合作伙伴/下属团队成员/社会公众/特定群体",
+                "required": False,
+                "front_field": "target_audience"
+            },
+            "language_style": {
+                "default": "专业严谨",
+                "description": "语言风格：专业严谨/简洁明了/生动活泼/说服力强/情感共鸣/数据驱动",
+                "required": False,
+                "front_field": "language_style"
+            },
+            "additional_requirements": {
+                "default": "",
+                "description": "附加要求，补充其他特殊需求",
+                "required": False,
+                "front_field": "additional_requirements"
+            }
+        }
     }
 }

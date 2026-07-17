@@ -27,6 +27,9 @@ export const generateApi = {
   // 原创IP计划
   originalIp: (data, onMessage, onWorkflow, onStreamStart, sessionId) => streamGenerate('/api/v1/generate/original-ip/stream', data, onMessage, onWorkflow, onStreamStart, sessionId),
   
+  // 应用文写作
+  practicalWriting: (data, onMessage, onWorkflow, onStreamStart, sessionId) => streamGenerate('/api/v1/generate/practical-writing/stream', data, onMessage, onWorkflow, onStreamStart, sessionId),
+  
   // 提示词优化（需要较长超时时间，因为需要调用LLM）
   optimize: (data) => api.post('/api/v1/generate/optimize', data, { timeout: 120000 }),
   

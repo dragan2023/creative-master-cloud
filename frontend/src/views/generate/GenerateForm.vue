@@ -53,11 +53,14 @@
               :outline-upload-progress="outline_upload_progress"
               :uploading-reference-materials="uploading_reference_materials"
               :reference-materials-upload-progress="reference_materials_upload_progress"
+              :uploading-ref-doc="uploading_reference_doc"
+              :ref-doc-upload-progress="reference_doc_upload_progress"
               :series-duration-hint="seriesDurationHint"
               :movie-duration-hint="movieDurationHint"
               :series-episode-duration-hint="seriesEpisodeDurationHint"
               :image-file-list="imageFileList"
               :image-url-input="imageUrlInput"
+              @update:form="handleFormFieldsUpdate"
               @optimize="handleOptimizePrompt"
               @series-type-change="handleSeriesTypeChange"
               @movie-type-change="handleMovieTypeChange"
@@ -69,6 +72,10 @@
               @reference-upload-success="handleReferenceMaterialsUploadSuccess"
               @reference-upload-error="handleReferenceMaterialsUploadError"
               @remove-reference-file="removeReferenceMaterialsFile"
+              @ref-doc-upload-success="handleReferenceDocUploadSuccess"
+              @ref-doc-upload-error="handleReferenceDocUploadError"
+              @ref-doc-progress="handleReferenceDocProgress"
+              @remove-ref-doc="removeReferenceDocFile"
               @image-upload-success="handleUploadSuccess"
               @image-upload-error="handleUploadError"
               @parse-image-urls="parseImageUrls"
@@ -347,6 +354,14 @@ const outlineImportUploadUrl = computed(() =>
 )
 
 /**
+ * 处理子组件字段整体更新（如短视频风格类型、生成模式联动字段）
+ * 子组件通过 update:form 事件传回新表单对象，需合并回响应式 form
+ */
+function handleFormFieldsUpdate(updatedForm) {
+  Object.assign(form.value, updatedForm)
+}
+
+/**
  * 处理文风数据更新
  */
 function handleStyleDataUpdate(data) {
@@ -391,6 +406,8 @@ const {
   outline_upload_progress,
   uploading_reference_materials,
   reference_materials_upload_progress,
+  uploading_reference_doc,
+  reference_doc_upload_progress,
   optimizing,
   optimizeTarget,
   useTwoStageMode,
@@ -411,6 +428,11 @@ const {
   handleUploadSuccess,
   handleUploadError,
   parseImageUrls,
+  beforeReferenceDocUpload,
+  handleReferenceDocProgress,
+  handleReferenceDocUploadSuccess,
+  handleReferenceDocUploadError,
+  removeReferenceDocFile,
   handleVideoModeChange,
   handleSeriesTypeChange,
   handleMovieTypeChange,
@@ -928,7 +950,8 @@ async function handleGenerate() {
       'novel': generateApi.novel,
       'print-ad': generateApi.printAd,
       'tvc': generateApi.tvc,
-      'original-ip': generateApi.originalIp
+      'original-ip': generateApi.originalIp,
+      'practical-writing': generateApi.practicalWriting
     }[type.value]
     
     // 获取知识库参数
@@ -1074,6 +1097,34 @@ async function handleGenerate() {
         reference_ip: form.value.reference_ip || null,
         commercial_goal: form.value.commercial_goal || null,
         custom_requirements: form.value.custom_requirements || null,
+        enable_knowledge: kbParams.enableKnowledge,
+        enable_creative_search: kbParams.enableCreativeSearch,
+        enable_trending: kbParams.enableTrending,
+        ...kbParams
+      }
+    } else if (type.value === 'practical-writing') {
+      if (!form.value.doc_type) {
+        ElMessage.warning('请选择文案类型')
+        generating.value = false
+        return
+      }
+      if (!form.value.industry) {
+        ElMessage.warning('请选择所属行业')
+        generating.value = false
+        return
+      }
+      submitData = {
+        title: form.value.title,
+        doc_type: form.value.doc_type || '演讲稿',
+        industry: form.value.industry || '信息技术/互联网',
+        description: form.value.description,
+        doc_length: form.value.doc_length_custom || '中篇（1000-3000字）',
+        formality: form.value.formality || '半正式',
+        target_audience: form.value.target_audience || '上级领导/管理层',
+        language_style: form.value.language_style || '专业严谨',
+        additional_requirements: form.value.additional_requirements || '',
+        reference_document: form.value.reference_document || null,
+        reference_document_name: form.value.reference_document_name || null,
         enable_knowledge: kbParams.enableKnowledge,
         enable_creative_search: kbParams.enableCreativeSearch,
         enable_trending: kbParams.enableTrending,

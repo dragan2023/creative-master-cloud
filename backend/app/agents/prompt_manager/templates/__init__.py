@@ -16,6 +16,7 @@ from .series_outline_unit_summaries import TEMPLATE as _series_outline_unit_summ
 from .print_ad import TEMPLATE as _print_ad_TEMPLATE
 from .tvc import TEMPLATE as _tvc_TEMPLATE
 from .original_ip import TEMPLATE as _original_ip_TEMPLATE
+from .practical_writing import TEMPLATE as _practical_writing_TEMPLATE
 
 
 DEFAULT_PROMPTS = {
@@ -32,5 +33,6 @@ DEFAULT_PROMPTS = {
     "print_ad": _print_ad_TEMPLATE,
     "tvc": _tvc_TEMPLATE,
     "original_ip": _original_ip_TEMPLATE,
+    "practical_writing": _practical_writing_TEMPLATE,
 }
 

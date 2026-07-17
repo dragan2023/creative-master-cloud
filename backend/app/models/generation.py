@@ -19,6 +19,7 @@ class GenerationModule(str, enum.Enum):
     ORIGINAL_IP = "original_ip"       # 原创IP计划
     MOVIE_OUTLINE = "movie_outline"   # 电影大纲
     SERIES_OUTLINE = "series_outline" # 剧集大纲
+    PRACTICAL_WRITING = "practical_writing"  # 应用文写作
 
 
 class GenerationStatus(str, enum.Enum):

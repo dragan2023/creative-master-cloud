@@ -18,12 +18,14 @@ from app.core.logger import get_logger
 from app.core.module_registry import (
     MODULE_SHORT_VIDEO, MODULE_NOVEL,
     MODULE_PRINT_AD, MODULE_TVC,
-    MODULE_MOVIE_OUTLINE, MODULE_SERIES_OUTLINE
+    MODULE_MOVIE_OUTLINE, MODULE_SERIES_OUTLINE,
+    MODULE_PRACTICAL_WRITING
 )
 from app.models import User
 from app.schemas.generation import (
     ShortVideoInput, NovelInput, PrintAdInput, TVCInput,
     MovieOutlineInput, SeriesOutlineInput,
+    PracticalWritingInput,
     GenerateResponse
 )
 from app.agents.orchestrator import get_agent_orchestrator
@@ -603,4 +605,98 @@ def register_streaming_routes(router: APIRouter):
             kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
             kb_manual_ids=parse_kb_ids(kb_manual_ids),
             videos=videos
+        )
+
+    # ==================== 应用文写作生成 ====================
+
+    @router.post("/practical-writing")
+    async def generate_practical_writing(
+        data: PracticalWritingInput,
+        session_id: Optional[str] = None,
+        enable_search: bool = False,
+        enable_knowledge: bool = False,
+        provider: Optional[str] = None,
+        temperature: float = 0.7,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ) -> GenerateResponse:
+        """生成应用文写作（非流式）"""
+        orchestrator = get_agent_orchestrator()
+
+        input_params = data.model_dump()
+
+        result = await orchestrator.generate(
+            db=db,
+            module=MODULE_PRACTICAL_WRITING,
+            user_id=current_user.id,
+            input_params=input_params,
+            session_id=session_id,
+            enable_search=enable_search,
+            enable_knowledge=enable_knowledge,
+            reference_urls=input_params.get("reference_urls"),
+            provider=provider,
+            temperature=temperature
+        )
+
+        if result.get("success"):
+            return GenerateResponse(
+                success=True,
+                content=result.get("content"),
+                model=result.get("model"),
+                provider=result.get("provider"),
+                usage=result.get("usage"),
+                duration_ms=result.get("duration_ms"),
+                generation_id=result.get("generation_id")
+            )
+        else:
+            raise GenerationException(result.get("error", "生成失败"))
+
+    @router.post("/practical-writing/stream")
+    async def generate_practical_writing_stream(
+        data: PracticalWritingInput,
+        session_id: Optional[str] = None,
+        enable_search: bool = False,
+        enable_knowledge: bool = False,
+        enable_mcp: bool = False,
+        enable_trending: bool = False,
+        provider: Optional[str] = None,
+        temperature: float = 0.7,
+        search_keywords: Optional[List[str]] = Query(default=None),
+        kb_vertical: bool = False,
+        kb_user_specific: bool = False,
+        kb_manual: bool = False,
+        kb_vertical_ids: Optional[str] = None,
+        kb_user_specific_ids: Optional[str] = None,
+        kb_manual_ids: Optional[str] = None,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """生成应用文写作（流式）"""
+        input_params = data.model_dump()
+
+        logger.info(
+            f"应用文写作流式生成请求: enable_knowledge={enable_knowledge}, enable_search={enable_search}, "
+            f"enable_trending={enable_trending}, kb_vertical={kb_vertical}, session_id={session_id}"
+        )
+        logger.debug(f"应用文写作输入参数: {input_params}")
+
+        return await _create_streaming_endpoint(
+            module=MODULE_PRACTICAL_WRITING,
+            input_params=input_params,
+            user_id=current_user.id,
+            db=db,
+            session_id=session_id,
+            enable_search=enable_search,
+            enable_knowledge=enable_knowledge,
+            enable_mcp=enable_mcp,
+            enable_trending=enable_trending,
+            provider=provider,
+            temperature=temperature,
+            search_keywords=search_keywords,
+            kb_vertical=kb_vertical,
+            kb_user_specific=kb_user_specific,
+            kb_manual=kb_manual,
+            kb_vertical_ids=parse_kb_ids(kb_vertical_ids),
+            kb_user_specific_ids=parse_kb_ids(kb_user_specific_ids),
+            kb_manual_ids=parse_kb_ids(kb_manual_ids)
         )
