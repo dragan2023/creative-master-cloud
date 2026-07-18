@@ -160,6 +160,7 @@
 <script setup>
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { QuestionFilled, Upload, Document, InfoFilled } from '@element-plus/icons-vue'
 import StyleSelector from './StyleSelector.vue'
 
 const props = defineProps({

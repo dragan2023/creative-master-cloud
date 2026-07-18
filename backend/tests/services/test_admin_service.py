@@ -1,10 +1,10 @@
 """AdminService 单元测试"""
 import pytest
-from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 from app.services.admin_service import AdminService
 from app.models import User, Tenant, OperationLog, NovelProject, Generation
 from app.models.user import UserRole
+from app.utils.time_utils import utc_now_naive
 
 
 class TestAdminService:
@@ -25,8 +25,8 @@ class TestAdminService:
         user.is_active = is_active
         user.role = role
         user.nickname = username
-        user.created_at = datetime.utcnow()
-        user.last_login_at = datetime.utcnow()
+        user.created_at = utc_now_naive()
+        user.last_login_at = utc_now_naive()
         return user
     
     def _create_mock_tenant(self, tenant_id=1, name="测试租户"):
@@ -40,7 +40,7 @@ class TestAdminService:
         tenant.max_users = 10
         tenant.max_projects = 10
         tenant.max_storage_mb = 1024
-        tenant.created_at = datetime.utcnow()
+        tenant.created_at = utc_now_naive()
         return tenant
     
     # ==================== 用户管理测试 ====================

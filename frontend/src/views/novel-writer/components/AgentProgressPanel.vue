@@ -6,19 +6,27 @@
           <el-icon><DataLine /></el-icon>
           实时进度
         </span>
-        <el-tag
-          v-if="wsConnected"
-          type="success"
-          size="small"
-          effect="plain"
-        >
-          <el-icon><Connection /></el-icon>
-          实时连接
-        </el-tag>
-        <el-tag v-else type="info" size="small" effect="plain">
-          <el-icon><Loading /></el-icon>
-          连接中...
-        </el-tag>
+        <div class="connection-state" aria-live="polite">
+          <el-tag
+            :type="connectionTagType"
+            size="small"
+            effect="plain"
+          >
+            <el-icon v-if="wsStatus === 'connected'"><Connection /></el-icon>
+            <el-icon v-else-if="isConnectionPending" class="is-spinning"><Loading /></el-icon>
+            <el-icon v-else><Warning /></el-icon>
+            {{ connectionStatusLabel }}
+          </el-tag>
+          <span v-if="lastUpdateLabel" class="last-update-time">{{ lastUpdateLabel }}</span>
+          <el-button
+            v-if="wsStatus === 'failed'"
+            size="small"
+            type="primary"
+            @click="$emit('reconnect')"
+          >
+            重新连接
+          </el-button>
+        </div>
       </div>
     </template>
 
@@ -32,7 +40,7 @@
       >
         <div class="pipeline-icon">
           <el-icon :size="24">
-            <component :is="agent.icon" />
+            <component :is="resolveElementIcon(agent.icon)" />
           </el-icon>
           <div v-if="idx < agentPipeline.length - 1" class="pipeline-arrow">
             <el-icon><ArrowRight /></el-icon>
@@ -71,7 +79,7 @@
             <el-icon v-else-if="step.status === 'error'" color="#F56C6C"
               ><CircleClose
             /></el-icon>
-            <el-icon v-else><component :is="step.icon" /></el-icon>
+            <el-icon v-else><component :is="resolveElementIcon(step.icon)" /></el-icon>
           </div>
           <div class="step-content">
             <div class="step-message">{{ step.message }}</div>
@@ -154,13 +162,59 @@ import {
 } from "@element-plus/icons-vue";
 import { formatTime } from "../utils/contentHelpers";
 import { AGENT_ROLE_LABELS, agentConfigs } from "../config/agentConfig";
+import { resolveElementIcon } from "@/utils/elementIcons";
 
 const props = defineProps({
-  wsConnected: { type: Boolean, default: false },
+  /** WebSocket连接状态枚举: idle/connecting/connected/offline/reconnecting/failed/closed */
+  wsStatus: { type: String, default: "idle" },
+  /** 最近一次收到WebSocket消息的时间戳（毫秒） */
+  wsLastMessageAt: { type: Number, default: null },
   agentPipeline: { type: Array, default: () => [] },
   workflowSteps: { type: Array, default: () => [] },
   currentProcessingInfo: { type: String, default: null },
   progressMessages: { type: Array, default: () => [] },
+});
+
+defineEmits(["reconnect"]);
+
+/** 连接状态展示文案（离线/重连提示经aria-live=polite播报，不使用Toast轰炸） */
+const WS_STATUS_LABELS = {
+  idle: "未连接",
+  connecting: "连接中…",
+  connected: "实时连接",
+  offline: "网络离线，恢复后自动重连",
+  reconnecting: "连接中断，正在重连…",
+  failed: "连接失败",
+  closed: "连接已关闭",
+};
+
+const WS_STATUS_TAG_TYPES = {
+  idle: "info",
+  connecting: "info",
+  connected: "success",
+  offline: "warning",
+  reconnecting: "warning",
+  failed: "danger",
+  closed: "info",
+};
+
+const connectionStatusLabel = computed(
+  () => WS_STATUS_LABELS[props.wsStatus] || WS_STATUS_LABELS.idle
+);
+
+const connectionTagType = computed(
+  () => WS_STATUS_TAG_TYPES[props.wsStatus] || "info"
+);
+
+/** 连接中/重连中显示旋转图标 */
+const isConnectionPending = computed(() =>
+  ["connecting", "reconnecting"].includes(props.wsStatus)
+);
+
+/** 最后更新时间标签（无消息时不显示） */
+const lastUpdateLabel = computed(() => {
+  if (!props.wsLastMessageAt) return "";
+  return `最后更新 ${formatTime(props.wsLastMessageAt)}`;
 });
 
 const messagesListRef = ref(null);
@@ -242,6 +296,31 @@ watch(
 
     .el-icon {
       margin-right: 4px;
+    }
+
+    .connection-state {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .last-update-time {
+        font-size: 12px;
+        color: #909399;
+        white-space: nowrap;
+      }
+
+      .is-spinning {
+        animation: spin 1s linear infinite;
+      }
+    }
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
     }
   }
 

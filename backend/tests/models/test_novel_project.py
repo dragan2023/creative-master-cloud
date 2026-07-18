@@ -160,6 +160,29 @@ class TestNovelProjectModel:
         project = NovelProject()
         project.outline_content = ""
         assert project.can_start_writing() is False  # 空字符串被视为无效值
+
+    def test_can_start_writing_whitespace_only(self):
+        """仅空白字符的大纲必须被拒绝"""
+        project = NovelProject()
+        project.outline_content = "   \n\t  "
+        assert project.can_start_writing() is False
+
+    def test_restart_after_failure_then_start_clears_error(self):
+        """失败后允许重启，重新开始后不得遗留上一次失败信息"""
+        project = NovelProject()
+        project.mark_generation_failed("上次失败原因")
+        assert project.can_restart_generation() is True
+        project.mark_generation_started()
+        assert project.generation_task_status == "running"
+        assert project.error_message is None
+
+    def test_completion_clears_previous_error(self):
+        """生成成功后必须清除上一次失败信息"""
+        project = NovelProject()
+        project.mark_generation_failed("上次失败原因")
+        project.mark_generation_completed()
+        assert project.generation_task_status == "completed"
+        assert project.error_message is None
     
     def test_can_restart_generation_pending(self):
         project = NovelProject()

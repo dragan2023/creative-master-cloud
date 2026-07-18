@@ -179,7 +179,9 @@ class UnitSummaryStreamMixin:
                 )
             else:
                 # 全新生成模式
-                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场", "movie_outline": "场", "series_outline": "集"}.get(
+                # 注意: 此变量在下方“章节范围指引”f-string 中以 {unit_label} 引用,
+                # 命名必须保持一致（历史 bug: 曾命名为 unit_label_stream 导致 UnboundLocalError）
+                unit_label = {"novel": "章", "series_script": "集", "movie_script": "场", "movie_outline": "场", "series_outline": "集"}.get(
                     content_type, "章"
                 )
                 input_params = {
@@ -192,7 +194,7 @@ class UnitSummaryStreamMixin:
                     "episode_duration_range": episode_duration_range or "30-45分钟",
                     "duration_range": episode_duration_range or "90-120分钟",
                     "script_mode": "virtual",
-                    "unit_label": unit_label_stream  # 新增：单元标签变量
+                    "unit_label": unit_label  # 新增：单元标签变量
                 }
 
                 # 生成标题风格指导文本（新增）
@@ -218,9 +220,6 @@ class UnitSummaryStreamMixin:
                 )
                 
                 # 章节边界识别机制（v4.0正向版）- 放在全局大纲之前
-                unit_label_stream = {"novel": "章", "series_script": "集", "movie_script": "场", "movie_outline": "场", "series_outline": "集"}.get(
-                    content_type, "章"
-                )
                 boundary_constraint_stream = f"""# 章节边界指引（请首先阅读）
 
 ## 全局大纲中的单元内容规划

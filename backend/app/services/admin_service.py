@@ -8,13 +8,14 @@
 @author: 周金磊
 @contact: QQ：7527149（添加时请说明来意）
 """
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, Tenant, OperationLog, NovelProject, Generation
 from app.core.logger import get_logger
+from app.utils.time_utils import utc_now_naive
 
 logger = get_logger("admin_service")
 
@@ -343,7 +344,7 @@ class AdminService:
         total_tenants = await self.db.scalar(select(func.count(Tenant.id)))
         
         # 统计今日活跃用户
-        today = datetime.utcnow().date()
+        today = utc_now_naive().date()
         active_today = await self.db.scalar(
             select(func.count(User.id)).where(
                 func.date(User.last_login_at) == today
@@ -357,7 +358,7 @@ class AdminService:
         total_generations = await self.db.scalar(select(func.count(Generation.id)))
         
         # 统计本周新用户
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = utc_now_naive() - timedelta(days=7)
         new_users_week = await self.db.scalar(
             select(func.count(User.id)).where(User.created_at >= week_ago)
         )

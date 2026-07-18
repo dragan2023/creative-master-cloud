@@ -1,12 +1,17 @@
 /**
  * useProjectList.js - 项目列表管理组合式函数
  *
- * 处理 Index.vue 中项目列表的加载、筛选、分页和辅助显示函数
+ * 处理 Index.vue 中项目列表的加载、搜索、排序、筛选、分页和辅助显示函数。
+ * 搜索输入 300ms 防抖；筛选/排序变化重置页码后只发一次请求；
+ * 通过请求序号丢弃过期响应，组件卸载后取消待执行防抖并不再请求。
  */
-import { ref } from 'vue'
+import { ref, getCurrentInstance, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { novelWriterApi } from '@/api/novel-writer'
+
+/** 搜索输入防抖时长（毫秒） */
+export const SEARCH_DEBOUNCE_MS = 300
 
 export function useProjectList() {
   const router = useRouter()
@@ -19,30 +24,107 @@ export function useProjectList() {
   const pageSize = ref(12)
   const filterType = ref('')
   const filterStatus = ref('')
+  const searchKeyword = ref('')
+  const sortBy = ref('updated_at')
+  const sortOrder = ref('desc')
 
   // ==================== 数据加载 ====================
 
+  /** 项目列表加载失败的唯一用户提示（含重试建议）；请求以 silent 模式发出，拦截器不重复弹窗 */
+  const LOAD_PROJECTS_FAILED_MESSAGE = '加载项目列表失败，请检查网络后重试'
+
+  /** 请求序号：仅最新序号的响应允许写入状态，旧响应直接丢弃 */
+  let latestRequestId = 0
+  /** 搜索防抖定时器句柄 */
+  let searchDebounceTimer = null
+  /** 组件卸载标记：卸载后不再发起任何请求 */
+  let isDisposed = false
+
   async function loadProjects() {
+    if (isDisposed) return
+    const requestId = ++latestRequestId
     loading.value = true
     try {
       const res = await novelWriterApi.getProjects({
         content_type: filterType.value,
         status: filterStatus.value,
+        search: searchKeyword.value.trim() || undefined,
+        sort_by: sortBy.value,
+        sort_order: sortOrder.value,
         page: currentPage.value,
         page_size: pageSize.value
-      })
+      }, { silent: true })
+
+      if (requestId !== latestRequestId) return
 
       if (res.success) {
         projects.value = res.data.items
         total.value = res.data.total
       } else {
-        ElMessage.error(res.message || '加载项目列表失败')
+        ElMessage.error(res.message || LOAD_PROJECTS_FAILED_MESSAGE)
       }
     } catch (error) {
-      ElMessage.error('加载项目列表失败')
+      if (requestId !== latestRequestId) return
+      // 取消的请求保持静默（路由切换/组件卸载触发），其余失败仅提示一次
+      const isCancelled = error?.cancelled === true || error?.normalized?.cancelled === true
+      if (!isCancelled) {
+        ElMessage.error(LOAD_PROJECTS_FAILED_MESSAGE)
+      }
     } finally {
-      loading.value = false
+      if (requestId === latestRequestId) {
+        loading.value = false
+      }
     }
+  }
+
+  // ==================== 搜索 / 筛选 / 排序 ====================
+
+  /** 取消尚未执行的搜索防抖任务 */
+  function cancelPendingSearch() {
+    if (searchDebounceTimer !== null) {
+      clearTimeout(searchDebounceTimer)
+      searchDebounceTimer = null
+    }
+  }
+
+  /** 重置页码为 1 并发起一次加载 */
+  function resetPageAndReload() {
+    if (isDisposed) return
+    currentPage.value = 1
+    loadProjects()
+  }
+
+  /** 搜索输入：300ms 防抖，仅保留最后一次输入触发的请求 */
+  function onSearchInput() {
+    cancelPendingSearch()
+    searchDebounceTimer = setTimeout(() => {
+      searchDebounceTimer = null
+      resetPageAndReload()
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
+  /** 类型/状态/排序字段变化：取消待执行防抖，立即重置页码并只发一次请求 */
+  function onFilterChange() {
+    cancelPendingSearch()
+    resetPageAndReload()
+  }
+
+  /** 切换升降序并立即刷新 */
+  function toggleSortOrder() {
+    sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc'
+    onFilterChange()
+  }
+
+  /** 清理：取消防抖并使全部在途响应过期（组件卸载或测试收尾调用） */
+  function dispose() {
+    isDisposed = true
+    cancelPendingSearch()
+    latestRequestId++
+  }
+
+  // 组件上下文中自动清理；纯函数环境（单元测试）由调用方显式 dispose
+  if (getCurrentInstance()) {
+    onBeforeUnmount(dispose)
   }
 
   // ==================== 导航 ====================
@@ -149,7 +231,14 @@ export function useProjectList() {
     pageSize,
     filterType,
     filterStatus,
+    searchKeyword,
+    sortBy,
+    sortOrder,
     loadProjects,
+    onSearchInput,
+    onFilterChange,
+    toggleSortOrder,
+    dispose,
     goToProject,
     goToModelConfig,
     handleCommand,

@@ -50,6 +50,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { Edit, Download } from '@element-plus/icons-vue'
 
 defineProps({
     visible: { type: Boolean, default: false },

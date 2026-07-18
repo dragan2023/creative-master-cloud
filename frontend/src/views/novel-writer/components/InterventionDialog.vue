@@ -43,7 +43,7 @@
             @click="$emit('update:userChoice', option.value)"
           >
             <div class="option-icon">
-              <el-icon><component :is="option.icon" /></el-icon>
+              <el-icon><component :is="resolveElementIcon(option.icon)" /></el-icon>
             </div>
             <div class="option-info">
               <div class="option-label">{{ option.label }}</div>
@@ -88,6 +88,7 @@
 
 <script setup>
 import { WarningFilled, Reading, CircleCheckFilled, Edit } from '@element-plus/icons-vue'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 defineProps({
   visible: { type: Boolean, default: false },

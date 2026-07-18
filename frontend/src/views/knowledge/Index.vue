@@ -353,6 +353,7 @@
             :on-change="handleFileChange"
             :on-exceed="handleExceed"
             :file-list="fileList"
+            accept=".pdf,.docx,.doc,.xlsx,.txt,.md"
             drag
             multiple
           >
@@ -443,7 +444,12 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { knowledgeApi } from '@/api'
 import { Graph } from '@antv/g6'
-import { Share, Edit, Delete, Loading } from '@element-plus/icons-vue'
+import {
+  Share, Edit, Delete, Loading,
+  Upload, InfoFilled, CircleCheck, Warning, Guide, Reading, ArrowDown,
+  User, Document, Collection, CircleClose, Check, VideoPlay, Notebook,
+  Picture, Monitor, UploadFilled
+} from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const uploading = ref(false)
@@ -610,6 +616,17 @@ async function stopProcessing() {
 }
 
 function handleFileChange(file, files) {
+  const allowedExtensions = ['.pdf', '.docx', '.doc', '.xlsx', '.txt', '.md']
+  const unsupportedFiles = files.filter((item) => {
+    const name = item.name || item.raw?.name || ''
+    const extension = name.slice(name.lastIndexOf('.')).toLowerCase()
+    return !allowedExtensions.includes(extension)
+  })
+  if (unsupportedFiles.length > 0) {
+    ElMessage.error('仅支持 PDF、DOCX、DOC、XLSX、TXT、Markdown 文件')
+    fileList.value = files.filter((item) => !unsupportedFiles.includes(item))
+    return
+  }
   // 验证文件大小（100MB限制）
   const maxSize = 100 * 1024 * 1024 // 100MB
   const invalidFiles = files.filter(f => f.size > maxSize)

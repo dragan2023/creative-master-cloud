@@ -178,6 +178,8 @@
 </template>
 
 <script setup>
+import { MagicStick } from '@element-plus/icons-vue'
+
 defineProps({
   form: {
     type: Object,

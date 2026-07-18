@@ -27,12 +27,12 @@
         pass
 """
 from typing import Any, Dict, Optional
-from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.generation import Generation, GenerationStatus
 from app.core.logger import get_logger
+from app.utils.time_utils import utc_now_naive
 
 logger = get_logger(__name__)
 
@@ -93,7 +93,7 @@ class GenerationStateManager:
             self.generation.session_context = existing_context
 
         # 更新时间戳
-        self.generation.updated_at = datetime.utcnow()
+        self.generation.updated_at = utc_now_naive()
 
         await self.db.commit()
         await self.db.refresh(self.generation)
@@ -155,7 +155,7 @@ class GenerationStateManager:
 
         self.generation.session_context['revision_messages'].append({
             **message,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': utc_now_naive().isoformat()
         })
 
         # 更新修订计数
@@ -183,7 +183,7 @@ class GenerationStateManager:
         Returns:
             生成状态字典,或None
         """
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         from app.models.generation import GenerationModule
 
         # 转换模块名
@@ -194,7 +194,7 @@ class GenerationStateManager:
             return None
 
         # 查询最近的记录
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = utc_now_naive() - timedelta(days=days)
 
         stmt = (
             select(Generation)

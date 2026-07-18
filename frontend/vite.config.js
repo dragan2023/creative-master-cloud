@@ -1,5 +1,8 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import AutoImport from 'unplugin-auto-import/vite'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import path from 'path'
 import fs from 'fs'
 import { createRequire } from 'module'
@@ -67,7 +70,21 @@ export default defineConfig(({ mode }) => {
 
   // 基础配置
   const config = {
-    plugins: [vue()],
+    plugins: [
+      vue(),
+      // Element Plus 构建时按需导入：模板中的 el-xxx 组件与 v-loading 等指令
+      // 由 resolver 自动注入导入语句和对应样式，取代入口全量注册
+      AutoImport({
+        resolvers: [ElementPlusResolver()],
+        dts: false
+      }),
+      Components({
+        resolvers: [ElementPlusResolver()],
+        // 仅按需解析 Element Plus，不自动注册本地组件（保持显式导入约定）
+        dirs: [],
+        dts: false
+      })
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src')
@@ -77,12 +94,30 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },
+    // Vitest 单元测试配置
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      include: ['src/**/*.spec.js', 'scripts/**/*.spec.mjs'],
+      // 仅测试生效：public 静态资源在无静态服务器环境下按文件解析
+      alias: {
+        '/logo.png': path.resolve(__dirname, 'public/logo.png')
+      },
+      server: {
+        deps: {
+          // element-plus 及其样式由 Vitest 内联转换（Node 原生 ESM 无法加载其 .css 导入）
+          inline: ['element-plus']
+        }
+      }
+    },
     server: {
       host: '0.0.0.0',  // 监听所有网络接口
       port: parseInt(env.VITE_FRONTEND_PORT || '3001'),
       strictPort: true,  // 端口被占用时报错，不自动切换端口
       proxy: {
-        '/api': {
+        // 使用正则边界 ^/api/：仅代理真实 API 请求（均为 /api/v1/... 形式），
+        // 避免前缀误匹配前端页面路由（如 /api-keys 硬刷新被转发到后端返回旧构建 HTML 导致白屏）
+        '^/api/': {
           target: env.VITE_BACKEND_URL || 'http://localhost:8002',
           changeOrigin: true,
           ws: true  // 支持 WebSocket 代理（写作任务实时进度）
@@ -115,11 +150,10 @@ export default defineConfig(({ mode }) => {
 
   // 生产环境配置：代码混淆 + 压缩
   if (isProduction) {
-    // 注意：默认禁用 javascript-obfuscator，因为它会导致构建非常慢
-    // 如果需要代码混淆，可以使用 terser 的压缩功能（已启用）
-    // Terser 会压缩、混淆变量名、移除死代码，提供基础的保护
-    // 如果确实需要更强的混淆保护，可以安装并启用 obfuscator 插件
-    if (obfuscator) {
+    // 混淆为显式开关：仅当 VITE_ENABLE_OBFUSCATION === 'true' 且插件可用时启用。
+    // 普通 npm run build 默认不启用控制流平坦化，避免构建缓慢与运行时开销。
+    const enableObfuscation = env.VITE_ENABLE_OBFUSCATION === 'true'
+    if (enableObfuscation && obfuscator) {
       config.plugins.push(
         obfuscator({
           globalOptions: {

@@ -21,7 +21,7 @@
       </div>
       <div class="header-info">
         <el-icon :size="32" :style="{ color: currentModule?.color }">
-          <component :is="currentModule?.icon" />
+          <component :is="resolveElementIcon(currentModule?.icon)" />
         </el-icon>
         <h1>{{ currentModule?.title }}</h1>
       </div>
@@ -209,6 +209,7 @@
     
     <!-- v2.4新增：全局大纲修正对比对话框 -->
     <GlobalOutlineReviseDialog
+      v-if="globalOutlineReviseDialogMounted"
       v-model="showGlobalOutlineReviseDialog"
       :original-content="globalOutlineReviseData.originalContent"
       :revised-content="globalOutlineReviseData.revisedContent"
@@ -221,6 +222,7 @@
     
     <!-- 单元概述修正对比对话框（手动质控） -->
     <UnitSummariesReviseDialog
+      v-if="unitSummariesReviseDialogMounted"
       v-model="showUnitSummariesReviseDialog"
       :original-content="unitSummariesReviseData.originalContent"
       :revised-content="unitSummariesReviseData.revisedContent"
@@ -239,6 +241,7 @@
 
   <!-- 导入已有大纲对话框 -->
   <ImportOutlineDialog
+    v-if="importOutlineDialogMounted"
     v-model="showImportDialog"
     v-model:import-type="importType"
     :upload-url="outlineImportUploadUrl"
@@ -253,6 +256,7 @@
 
   <!-- 导入单元概述对话框 -->
   <ImportUnitSummariesDialog
+    v-if="importUnitSummariesDialogMounted"
     v-model="showImportUnitSummariesDialog"
     :upload-url="unitSummariesImportUploadUrl"
     :importing="importingUnitSummaries"
@@ -274,12 +278,14 @@
 
   <!-- 逻辑问题详情对话框 -->
   <LogicIssuesDialog
+    v-if="logicIssuesDialogMounted"
     v-model="showLogicIssuesDialog"
     :issues="logicCheckResult?.issues || []"
   />
 
   <!-- 修正详情对话框 -->
   <RevisionDetailDialog
+    v-if="revisionDetailDialogMounted"
     v-model="showRevisionDetailDialog"
     :unit-data="currentRevisionUnitData"
     :unit-number="currentRevisionUnitNumber"
@@ -290,9 +296,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowLeft, Download, Upload, MagicStick, CircleClose } from '@element-plus/icons-vue'
 import { CREATIVE_MODULES } from '@/config'
 import { generateApi, revisionApi, globalOutlineQCApi, unitSummariesQCApi, novelWriterApi } from '@/api'
 import { useApiKeyStore } from '@/stores'
@@ -304,19 +311,23 @@ import { computeDiffHtml } from '@/utils/diffUtils'
 import { parseChapterCountFromOutline, parseUnitSummariesFromContent } from './utils/outlineParser'
 import { buildOutlineInputParams as buildOutlineParams } from './utils/buildRequestParams'
 import { useConfigPersistence } from '@/composables/useConfigPersistence'
+import { useLazyDialogMount } from '@/composables/useLazyDialogMount'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 // 导入子组件
 import FormFieldsSection from './components/FormFieldsSection.vue'
 import KnowledgeBaseSection from './components/KnowledgeBaseSection.vue'
 import WorkflowProgress from './components/WorkflowProgress.vue'
 import ResultViewer from './components/ResultViewer.vue'
-import GlobalOutlineReviseDialog from './components/GlobalOutlineReviseDialog.vue'
-import UnitSummariesReviseDialog from './components/UnitSummariesReviseDialog.vue'
-import ImportOutlineDialog from './components/ImportOutlineDialog.vue'
-import ImportUnitSummariesDialog from './components/ImportUnitSummariesDialog.vue'
 import StartUnitDialog from './components/StartUnitDialog.vue'
-import LogicIssuesDialog from './components/LogicIssuesDialog.vue'
-import RevisionDetailDialog from './components/RevisionDetailDialog.vue'
+
+// 低频弹窗延迟加载：首次打开时才加载对应 chunk（配合模板 v-if 懒挂载）
+const GlobalOutlineReviseDialog = defineAsyncComponent(() => import('./components/GlobalOutlineReviseDialog.vue'))
+const UnitSummariesReviseDialog = defineAsyncComponent(() => import('./components/UnitSummariesReviseDialog.vue'))
+const ImportOutlineDialog = defineAsyncComponent(() => import('./components/ImportOutlineDialog.vue'))
+const ImportUnitSummariesDialog = defineAsyncComponent(() => import('./components/ImportUnitSummariesDialog.vue'))
+const LogicIssuesDialog = defineAsyncComponent(() => import('./components/LogicIssuesDialog.vue'))
+const RevisionDetailDialog = defineAsyncComponent(() => import('./components/RevisionDetailDialog.vue'))
 
 // 导入composables
 import { useGenerationForm } from './composables/useGenerationForm'
@@ -438,7 +449,6 @@ const {
   handleMovieTypeChange,
   handleSeriesOutlineTypeChange,
   handleOptimizePrompt,
-  saveFormData,
   restoreFormData,
   resetForm,
   importInputRef,
@@ -610,6 +620,14 @@ const creatingWritingProject = ref(false)
 
 // 知识库组件引用
 const knowledgeBaseSectionRef = ref(null)
+
+// 低频弹窗懒挂载标记：首次打开前不渲染异步弹窗组件
+const globalOutlineReviseDialogMounted = useLazyDialogMount(showGlobalOutlineReviseDialog)
+const unitSummariesReviseDialogMounted = useLazyDialogMount(showUnitSummariesReviseDialog)
+const importOutlineDialogMounted = useLazyDialogMount(showImportDialog)
+const importUnitSummariesDialogMounted = useLazyDialogMount(showImportUnitSummariesDialog)
+const logicIssuesDialogMounted = useLazyDialogMount(showLogicIssuesDialog)
+const revisionDetailDialogMounted = useLazyDialogMount(showRevisionDetailDialog)
 
 // ==================== 用户配置持久化（风格选择器） ====================
 const { saveConfig, restoreConfig } = useConfigPersistence()
@@ -883,10 +901,7 @@ onBeforeUnmount(() => {
   logicChecking.value = false
 })
 
-// 监听表单变化自动保存
-watch(form, () => {
-  saveFormData()
-}, { deep: true })
+// 表单自动保存由 useGenerationForm 内部的防抖监听器统一处理（停止输入 400ms 后写入一次）
 
 // 监听模块类型变化时恢复对应模块的表单数据和风格配置
 watch(type, () => {

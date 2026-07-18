@@ -2,10 +2,11 @@
  * 表单状态和逻辑 composable
  * 管理所有表单字段、验证规则、上传功能等
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { generateApi } from '@/api'
 import { getAuthHeaders } from '@/utils/authStorage'
+import { debounce } from '@/utils/debounce'
 
 // 风格类型配置（两级，独立选择）
 export const styleTypes = [
@@ -329,11 +330,11 @@ export function useGenerationForm(type, router) {
 
   // 上传前验证（参考文档 - 支持更多格式）
   const beforeReferenceDocUpload = (file) => {
-    const allowedExtensions = ['.txt', '.md', '.doc', '.docx', '.pdf', '.xlsx', '.xls']
+    const allowedExtensions = ['.txt', '.md', '.doc', '.docx', '.pdf', '.xlsx']
     const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
     
     if (!allowedExtensions.includes(fileExtension)) {
-      ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf, .xlsx, .xls 格式的文件！')
+      ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf, .xlsx 格式的文件！')
       return false
     }
     if (file.size / 1024 / 1024 > 100) {
@@ -649,16 +650,30 @@ export function useGenerationForm(type, router) {
   }
 
   // 保存表单数据到 localStorage
+  // 记录最近一次有效的模块类型：路由离开后 type.value 会变为 undefined，
+  // 若直接拼接会写入错误的存储键 generate_form_undefined 导致数据丢失
+  let lastValidModuleType = type.value
+
+  const resolveStorageModuleType = () => {
+    if (type.value) {
+      lastValidModuleType = type.value
+    }
+    return type.value || lastValidModuleType
+  }
+
   const saveFormData = () => {
+    const moduleType = resolveStorageModuleType()
+    if (!moduleType) return
     const dataToSave = {
       form: form.value,
       timestamp: Date.now()
     }
-    localStorage.setItem(`generate_form_${type.value}`, JSON.stringify(dataToSave))
+    localStorage.setItem(`generate_form_${moduleType}`, JSON.stringify(dataToSave))
   }
 
   // 从 localStorage 恢复表单数据
   const restoreFormData = () => {
+    if (!type.value) return
     const saved = localStorage.getItem(`generate_form_${type.value}`)
     if (saved) {
       try {
@@ -677,10 +692,31 @@ export function useGenerationForm(type, router) {
     }
   }
 
-  // 监听表单变化自动保存
-  watch(form, () => {
+  // 监听表单变化自动保存（唯一监听器：停止输入 400ms 后最多写入一次）
+  const debouncedSaveFormData = debounce(saveFormData, 400)
+  const stopAutoSave = watch(form, debouncedSaveFormData, { deep: true })
+
+  // 模块类型切换时（组件复用不卸载）：先用旧类型键落盘当前表单，
+  // 再由页面层的 restoreFormData 加载新模块数据，避免切换前未满 400ms 的输入丢失
+  watch(type, (newType, oldType) => {
+    if (!oldType || newType === oldType) return
+    debouncedSaveFormData.cancel()
+    localStorage.setItem(`generate_form_${oldType}`, JSON.stringify({
+      form: form.value,
+      timestamp: Date.now()
+    }))
+    lastValidModuleType = newType || oldType
+  })
+
+  // 离开页面前将最终表单状态直接落盘。
+  // 注意：不能仅依赖 flush()——Vue 的 pre-flush watcher 在“输入后立即路由跳转”场景下
+  // 会因组件先卸载而被调度器丢弃，此时防抖器内没有待处理调用，最后一批输入会丢失。
+  // 因此卸载时取消待处理定时器并无条件保存当前 form 状态，确保数据完整。
+  onBeforeUnmount(() => {
+    debouncedSaveFormData.cancel()
     saveFormData()
-  }, { deep: true })
+    stopAutoSave()
+  })
 
   // 重置表单
   const resetForm = () => {

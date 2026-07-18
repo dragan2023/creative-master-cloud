@@ -28,7 +28,7 @@ from app.schemas.knowledge import KnowledgeBaseUploadResponse
 from ._state import (
     update_kb_progress, register_kb_task, unregister_kb_task,
     kb_thread_pool, KB_MAX_CONCURRENT, kb_processing_progress,
-    _async_delete_kb_progress, logger as state_logger
+    logger as state_logger
 )
 
 settings = get_settings()
@@ -202,13 +202,14 @@ async def upload_knowledge_base_handler(
 
     # 后台处理知识库
     stop_event = threading.Event()
+    update_kb_progress(kb.id, "任务已接受，等待后台处理", 0, 0)
 
     def run_async_task():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(analyze_knowledge_with_llm(
-                kb.id, file_path, current_user.id, db, stop_event
+                kb.id, file_path, current_user.id, stop_event
             ))
         except RuntimeError as e:
             if "Event loop is closed" not in str(e):
@@ -229,16 +230,18 @@ async def upload_knowledge_base_handler(
                 logger.debug(f"关闭事件循环时出错: {e}")
             loop.close()
             unregister_kb_task(kb.id)
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(_async_delete_kb_progress(kb.id))
-                loop.close()
-            except Exception as e:
-                logger.debug(f"清理进度数据时出错: {e}")
-            kb_processing_progress.pop(kb.id, None)
+            # Terminal progress remains pollable until Redis expiry or
+            # explicit knowledge-base deletion.
 
-    future = kb_thread_pool.submit(run_async_task)
+    try:
+        future = kb_thread_pool.submit(run_async_task)
+    except Exception as error:
+        coded_error = f"KB-QUEUE-001: {error}"
+        kb.status = KnowledgeBaseStatus.FAILED
+        kb.document_count = 0
+        await db.commit()
+        update_kb_progress(kb.id, "后台处理排队失败", 0, 0, error=coded_error)
+        raise
     register_kb_task(kb.id, future, stop_event)
 
     logger.info(f"知识库上传成功: {name}, 开始后台处理")
@@ -247,17 +250,16 @@ async def upload_knowledge_base_handler(
         id=kb.id,
         name=kb.name,
         status=kb.status,
-        message="知识库创建成功，正在处理中...",
+        message="知识库上传任务已接受，正在后台处理...",
         document_count=0
     )
 
 
-async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, db_session, stop_event=None):
+async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, stop_event=None):
     """后台处理知识库（预处理流水线 + 向量化 + LLM知识图谱生成）"""
     import threading
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from app.core.database import SYNC_DATABASE_URL
 
     logger = get_logger(str(user_id))
 
@@ -342,10 +344,12 @@ async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
         )
 
         if "error" in parse_result:
+            coded_error = f"KB-PARSE-001: {parse_result['error']}"
             kb.status = KnowledgeBaseStatus.FAILED
+            kb.document_count = 0
             session.commit()
             update_kb_progress(
-                kb_id, f"预处理失败: {parse_result['error']}", 0, 1, error=parse_result['error'])
+                kb_id, "文档解析失败", 0, 1, error=coded_error)
             logger.error(f"文档预处理失败: {parse_result['error']}")
             return
 
@@ -353,6 +357,13 @@ async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
         update_kb_progress(kb_id, "正在存入向量数据库...", 50, 4)
         retrieval_tool = get_knowledge_retrieval_tool()
         chunks = parse_result["chunks"]
+        if not chunks or not any(chunk.strip() for chunk in chunks):
+            coded_error = "KB-PARSE-EMPTY-001: 文档未生成有效知识块"
+            kb.status = KnowledgeBaseStatus.FAILED
+            kb.document_count = 0
+            session.commit()
+            update_kb_progress(kb_id, "文档内容为空", 0, 3, error=coded_error)
+            return
 
         metadatas = [
             {
@@ -365,11 +376,14 @@ async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
             for i in range(len(chunks))
         ]
 
-        await retrieval_tool.add_documents_batch(
-            collection_name=kb.collection_name,
-            documents=chunks,
-            metadatas=metadatas
-        )
+        try:
+            await retrieval_tool.add_documents_batch(
+                collection_name=kb.collection_name,
+                documents=chunks,
+                metadatas=metadatas
+            )
+        except Exception as error:
+            raise RuntimeError(f"KB-INDEX-001: {error}") from error
         kb.document_count = len(chunks)
 
         # 保存预处理元数据
@@ -438,10 +452,12 @@ async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
                 session.commit()
         except Exception as commit_err:
             logger.warning(f"更新知识库状态失败（终止）: {commit_err}")
-        update_kb_progress(kb_id, "处理已终止", 0, 0, error="用户手动终止")
+        update_kb_progress(kb_id, "处理已终止", 0, 0, error="KB-CANCEL-001: 用户手动终止")
     except Exception as e:
         logger.error(f"知识库处理失败: {str(e)}", exc_info=True)
-        update_kb_progress(kb_id, f"处理失败: {str(e)}", 0, 0, error=str(e))
+        error_text = str(e)
+        coded_error = error_text if error_text.startswith("KB-") else f"KB-PROCESS-001: {error_text}"
+        update_kb_progress(kb_id, "处理失败", 0, 0, error=coded_error)
         try:
             kb = session.query(KnowledgeBase).filter(
                 KnowledgeBase.id == kb_id).first()
@@ -452,3 +468,4 @@ async def analyze_knowledge_with_llm(kb_id: int, file_path: str, user_id: int, d
             logger.warning(f"更新知识库状态失败（异常）: {commit_err}")
     finally:
         session.close()
+        engine.dispose()

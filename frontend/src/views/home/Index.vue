@@ -27,17 +27,17 @@
         创意生成模块
       </h2>
       <div class="module-grid">
-        <div
+        <router-link
           v-for="module in creativeModules"
           :key="module.key"
           class="module-card"
+          :to="`/generate/${module.key}`"
           :style="{ '--module-color': module.color }"
-          @click="goToGenerate(module.key)"
         >
           <div class="card-glow"></div>
           <div class="module-icon">
             <el-icon :size="36">
-              <component :is="module.icon" />
+              <component :is="resolveElementIcon(module.icon)" />
             </el-icon>
           </div>
           <div class="module-info">
@@ -47,7 +47,7 @@
           <div class="module-action">
             <el-icon><ArrowRight /></el-icon>
           </div>
-        </div>
+        </router-link>
       </div>
     </div>
     
@@ -58,49 +58,35 @@
         快捷操作
       </h2>
       <div class="action-grid">
-        <div class="action-card" @click="router.push('/api-keys')">
+        <router-link class="action-card" to="/api-keys">
           <div class="action-icon">
             <el-icon :size="22"><Key /></el-icon>
           </div>
           <span>API Key管理</span>
           <p>配置您的AI模型密钥</p>
-        </div>
-        <div class="action-card" @click="router.push('/knowledge')">
+        </router-link>
+        <router-link class="action-card" to="/knowledge">
           <div class="action-icon">
             <el-icon :size="22"><FolderOpened /></el-icon>
           </div>
           <span>知识库管理</span>
           <p>上传和管理知识文件</p>
-        </div>
-        <div class="action-card" @click="router.push('/history')">
+        </router-link>
+        <router-link class="action-card" to="/history">
           <div class="action-icon">
             <el-icon :size="22"><Clock /></el-icon>
           </div>
           <span>历史记录</span>
           <p>查看创作历史</p>
-        </div>
-        <div class="action-card" @click="router.push('/profile')">
+        </router-link>
+        <router-link class="action-card" to="/profile">
           <div class="action-icon">
             <el-icon :size="22"><User /></el-icon>
           </div>
           <span>个人设置</span>
           <p>管理账户信息</p>
-        </div>
+        </router-link>
       </div>
-    </div>
-    
-    <!-- 退出程序 -->
-    <div class="exit-section">
-      <el-button 
-        type="danger" 
-        size="large"
-        @click="handleExit"
-        :loading="exiting"
-        class="exit-btn"
-      >
-        <el-icon><SwitchButton /></el-icon>
-        <span>退出程序</span>
-      </el-button>
     </div>
     
     <!-- 最近创作 -->
@@ -152,6 +138,7 @@
         <a 
           href="https://github.com/dragan2023/creative-master" 
           target="_blank" 
+          rel="noopener noreferrer"
           class="resource-card github"
         >
           <div class="resource-icon">
@@ -163,6 +150,7 @@
         <a 
           href="https://pan.quark.cn/s/1333d8e42793?pwd=VP5u" 
           target="_blank" 
+          rel="noopener noreferrer"
           class="resource-card quark"
         >
           <div class="resource-icon">
@@ -174,6 +162,7 @@
         <a 
           href="https://pan.baidu.com/s/1zg-BrlctdDMa7jA9VH8Q_g?pwd=wxbv" 
           target="_blank" 
+          rel="noopener noreferrer"
           class="resource-card baidu"
         >
           <div class="resource-icon">
@@ -187,7 +176,7 @@
         <div class="author-item">
           <el-icon :size="16"><User /></el-icon>
           <span>作者 B站：</span>
-          <a href="https://space.bilibili.com/" target="_blank">打卤阳春面</a>
+          <a href="https://space.bilibili.com/" target="_blank" rel="noopener noreferrer">打卤阳春面</a>
         </div>
         <div class="author-item">
           <el-icon :size="16"><ChatDotRound /></el-icon>
@@ -202,11 +191,12 @@
 <script setup>
 import { ref, onMounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
+import { ArrowRight, Key, FolderOpened, Clock, User, Link, ChatDotRound } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores'
-import { historyApi, systemApi } from '@/api'
+import { historyApi } from '@/api'
 import { CREATIVE_MODULES } from '@/config'
-import { ElMessageBox, ElMessage } from 'element-plus'
 import { APP_VERSION } from '@/config/version'
+import { resolveElementIcon } from '@/utils/elementIcons'
 import { useOnboarding } from '@/composables/useOnboarding'
 import OnboardingDialogs from './components/OnboardingDialogs.vue'
 
@@ -220,12 +210,11 @@ const currentVersion = inject('currentVersion', ref(APP_VERSION))
 // 用于首页展示的创意模块
 const creativeModules = CREATIVE_MODULES
 const recentGenerations = ref([])
-const exiting = ref(false)
 
 onMounted(async () => {
   await fetchRecentGenerations()
-  // 初始化新手引导
-  onboarding.initOnboarding()
+  // 初始化新手引导（按用户隔离，判断前先确认 API Key 状态）
+  await onboarding.initOnboarding(userStore.userInfo?.id)
 })
 
 async function fetchRecentGenerations() {
@@ -236,10 +225,6 @@ async function fetchRecentGenerations() {
   } catch (error) {
     console.error('获取历史记录失败:', error)
   }
-}
-
-function goToGenerate(type) {
-  router.push(`/generate/${type}`)
 }
 
 function viewHistory(id) {
@@ -278,76 +263,6 @@ function formatDate(dateStr) {
   if (!dateStr) return ''
   const date = new Date(dateStr)
   return date.toLocaleString('zh-CN')
-}
-
-// 退出程序
-async function handleExit() {
-  try {
-    await ElMessageBox.confirm(
-      '确定要退出程序吗？\n\n退出后将关闭所有服务，请确保已保存所有工作。',
-      '退出确认',
-      {
-        confirmButtonText: '确定退出',
-        cancelButtonText: '取消',
-        type: 'warning',
-        distinguishCancelAndClose: true
-      }
-    )
-    
-    exiting.value = true
-    ElMessage.info('正在关闭程序，请稍候...')
-    
-    try {
-      // 调用后端退出接口
-      const response = await systemApi.exit()
-      
-      if (response.success) {
-        // 后端已开始退出流程
-        ElMessage.success('服务已关闭')
-        
-        // 尝试关闭窗口
-        setTimeout(() => {
-          // 尝试关闭当前窗口
-          if (window.close) {
-            try {
-              window.close()
-            } catch (e) {
-              // 无法通过脚本关闭窗口（浏览器安全限制）
-              showManualCloseTip()
-            }
-          } else {
-            showManualCloseTip()
-          }
-        }, 500)
-      }
-    } catch (apiError) {
-      // API调用失败，可能是后端已经退出导致连接中断
-      console.log('后端已关闭:', apiError)
-      ElMessage.success('服务已关闭')
-      showManualCloseTip()
-    }
-    
-  } catch (error) {
-    // 用户取消或关闭对话框
-    exiting.value = false
-  }
-}
-
-// 显示手动关闭提示
-function showManualCloseTip() {
-  ElMessageBox.alert(
-    '服务已成功关闭。\n\n由于浏览器安全限制，无法自动关闭窗口。\n请手动关闭此浏览器窗口或标签页。',
-    '退出完成',
-    {
-      confirmButtonText: '我知道了',
-      type: 'success',
-      showClose: false,
-      closeOnClickModal: false,
-      closeOnPressEscape: false
-    }
-  ).finally(() => {
-    exiting.value = false
-  })
 }
 </script>
 
@@ -429,6 +344,7 @@ function showManualCloseTip() {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     
     .welcome-logo-img {
       width: 100px;
@@ -497,12 +413,15 @@ function showManualCloseTip() {
     display: flex;
     align-items: center;
     background: #fff;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     padding: 24px;
     cursor: pointer;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     border: 1px solid rgba(64, 158, 255, 0.1);
     overflow: hidden;
+    // router-link 渲染为 a 标签：去除默认链接样式
+    text-decoration: none;
+    color: inherit;
     
     .card-glow {
       position: absolute;
@@ -510,6 +429,11 @@ function showManualCloseTip() {
       background: linear-gradient(135deg, rgba(64, 158, 255, 0.05), rgba(0, 212, 170, 0.05));
       opacity: 0;
       transition: opacity 0.4s;
+    }
+    
+    &:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
     }
     
     &:hover {
@@ -588,12 +512,21 @@ function showManualCloseTip() {
   
   .action-card {
     background: #fff;
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     padding: 24px 20px;
     text-align: center;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border: 1px solid rgba(64, 158, 255, 0.08);
+    // router-link 渲染为 a 标签：去除默认链接样式
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    
+    &:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
+    }
     
     &:hover {
       transform: translateY(-4px);
@@ -645,41 +578,15 @@ function showManualCloseTip() {
 
 .recent-section {
   background: #fff;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 24px;
   margin-bottom: 32px;
   border: 1px solid rgba(64, 158, 255, 0.08);
 }
 
-.exit-section {
-  text-align: center;
-  padding: 20px 0;
-  margin-bottom: 32px;
-  
-  .exit-btn {
-    min-width: 180px;
-    height: 48px;
-    font-size: 15px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #f56c6c, #e6a23c);
-    border: none;
-    box-shadow: 0 4px 16px rgba(245, 108, 108, 0.3);
-    transition: all 0.3s;
-    
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(245, 108, 108, 0.4);
-    }
-    
-    .el-icon {
-      margin-right: 8px;
-    }
-  }
-}
-
 .resources-section {
   background: #fff;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 24px;
   border: 1px solid rgba(64, 158, 255, 0.08);
   
@@ -694,12 +601,17 @@ function showManualCloseTip() {
       flex-direction: column;
       align-items: center;
       padding: 20px;
-      border-radius: 12px;
+      border-radius: var(--radius-md);
       text-decoration: none;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       cursor: pointer;
       position: relative;
       overflow: hidden;
+      
+      &:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+      }
       
       &.github {
         background: linear-gradient(135deg, #24292e 0%, #363d44 100%);
@@ -787,6 +699,56 @@ function showManualCloseTip() {
         color: #409eff;
         font-weight: 600;
       }
+    }
+  }
+}
+
+// ============================================================
+// 响应式适配：390px 单列 / 768px 自适应两列 / 桌面按可用宽度扩展
+// 断点与 styles/responsive.scss 保持一致（768px）
+// ============================================================
+@media (max-width: 768px) {
+  .welcome-section {
+    padding: 24px 20px;
+
+    .welcome-text h1 {
+      font-size: 22px;
+    }
+
+    .welcome-illustration {
+      width: 72px;
+      height: 72px;
+
+      .welcome-logo-img {
+        width: 64px;
+        height: 64px;
+      }
+    }
+
+    .welcome-decoration {
+      left: 20px;
+      right: 20px;
+    }
+  }
+
+  .module-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+  }
+
+  .action-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 12px;
+  }
+
+  .resources-section {
+    .resources-grid {
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    .author-info {
+      flex-wrap: wrap;
+      gap: 12px;
     }
   }
 }

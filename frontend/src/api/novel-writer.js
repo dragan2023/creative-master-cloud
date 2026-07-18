@@ -7,7 +7,9 @@ import { getToken } from '@/utils/authStorage'
 
 export const novelWriterApi = {
   // 项目管理
-  getProjects: (params) => api.get('/api/v1/novel-writer/projects', { params }),
+  // getProjects 透传请求配置（如 { silent: true, signal }），避免把 silent 混入查询参数
+  getProjects: (params, requestConfig = {}) =>
+    api.get('/api/v1/novel-writer/projects', { ...requestConfig, params }),
   getProject: (id) => api.get(`/api/v1/novel-writer/projects/${id}`),
   createProject: (data) => api.post('/api/v1/novel-writer/projects', data),
   updateProject: (id, data) => api.put(`/api/v1/novel-writer/projects/${id}`, data),

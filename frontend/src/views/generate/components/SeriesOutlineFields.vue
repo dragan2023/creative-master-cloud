@@ -188,7 +188,7 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Edit } from '@element-plus/icons-vue'
+import { Edit, Upload, Document, InfoFilled } from '@element-plus/icons-vue'
 import { seriesTypesOnly, genres, platforms } from '../composables/useGenerationForm'
 import SeriesStyleSelectorDialog from './SeriesStyleSelectorDialog.vue'
 import { getSeriesDimensionsByType } from '../composables/seriesStyles'

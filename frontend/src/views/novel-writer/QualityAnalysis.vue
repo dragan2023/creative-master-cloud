@@ -49,7 +49,7 @@
         <el-col :span="8" v-for="dim in dimensions" :key="dim.key">
           <el-card shadow="hover" class="dimension-card">
             <div class="dim-header">
-              <el-icon :size="24" :color="dim.color"><component :is="dim.icon" /></el-icon>
+              <el-icon :size="24" :color="dim.color"><component :is="resolveElementIcon(dim.icon)" /></el-icon>
               <span class="dim-name">{{ dim.name }}</span>
             </div>
             <div class="dim-score">
@@ -140,6 +140,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, DataAnalysis, Connection, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { novelWriterApi, qualityControlApi } from '@/api'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 const route = useRoute()
 const router = useRouter()

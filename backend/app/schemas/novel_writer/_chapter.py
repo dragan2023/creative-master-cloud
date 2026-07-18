@@ -219,9 +219,7 @@ class ChapterContentResponse(BaseModel):
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
+        # Pydantic V2 默认将 datetime 序列化为 ISO 8601，无需已弃用的 json_encoders
     }
 
 

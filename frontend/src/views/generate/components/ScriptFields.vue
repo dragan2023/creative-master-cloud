@@ -141,6 +141,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
+import { Upload, Document, InfoFilled } from '@element-plus/icons-vue'
 import { seriesTypes, genres, platforms } from '../composables/useGenerationForm'
 
 defineProps({

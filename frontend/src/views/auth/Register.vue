@@ -106,7 +106,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { User, Lock, Message } from '@element-plus/icons-vue'
+import { User, Lock, Message, Check } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores'
 import { ElMessage } from 'element-plus'
 import AuthLayout from './AuthLayout.vue'

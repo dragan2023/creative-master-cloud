@@ -662,7 +662,12 @@ import {
   RefreshRight,
   Delete,
   MagicStick,
-  View
+  View,
+  VideoPause,
+  Search,
+  CircleCheckFilled,
+  Timer,
+  CopyDocument
 } from '@element-plus/icons-vue'
 import { qualityControlApi } from '@/api'
 import { useResultViewerQC } from '../composables/useResultViewerQC'

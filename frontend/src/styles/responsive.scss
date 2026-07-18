@@ -1,0 +1,36 @@
+// ============================================================
+// 全局响应式样式 — 统一断点：768px（移动端）/ 1200px（平板）
+// JavaScript 侧断点唯一来源：composables/useResponsiveLayout.js
+// 页面不得自行定义第二套断点
+// ============================================================
+
+@media (max-width: 768px) {
+  .main-content {
+    padding: 12px !important;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+}
+
+// 系统开启"减少动画"时：取消长时过渡与大幅位移，保留必要状态变化
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  // 卡片/按钮 hover 的大幅位移动画在减少动画模式下一律取消
+  .module-card:hover,
+  .action-card:hover,
+  .resource-card:hover,
+  .project-card:hover,
+  .el-button--primary:hover {
+    transform: none !important;
+  }
+}

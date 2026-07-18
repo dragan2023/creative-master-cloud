@@ -7,11 +7,11 @@
 @contact: QQ：7527149（添加时请说明来意）
 """
 import os
-from typing import Optional
+from typing import Literal, Optional
 
-from fastapi import Depends
+from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 from app.core.exceptions import ResourceNotFoundException, ValidationException, AppException, ErrorCode
 
@@ -27,6 +27,56 @@ from app.schemas.novel_writer import (
 from .utils import (
     router, logger, generate_project_code, get_project_data_dir, _build_project_response
 )
+
+
+# ==================== 项目列表查询常量与辅助 ====================
+
+# 搜索关键词最大长度（超长由 FastAPI 校验返回 422）
+PROJECT_SEARCH_MAX_LENGTH = 100
+
+# 排序字段白名单：固定映射，禁止将用户字符串传给 getattr 或 SQL 文本
+PROJECT_SORT_COLUMNS = {
+    "updated_at": NovelProject.updated_at,
+    "created_at": NovelProject.created_at,
+    "title": NovelProject.title,
+}
+
+
+def _escape_like_pattern(keyword: str) -> str:
+    """转义 LIKE 通配符（\\ % _），防止用户输入改变模糊匹配语义"""
+    return (
+        keyword.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def _build_project_list_filters(
+    user_id: int,
+    content_type: Optional[str],
+    project_type: Optional[str],
+    status: Optional[str],
+    search: Optional[str],
+) -> list:
+    """构建项目列表筛选条件；总数查询与分页查询必须复用同一组条件"""
+    conditions = [NovelProject.user_id == user_id]
+
+    # 按内容类型筛选（新版），兼容旧版按 project_type 筛选
+    if content_type:
+        conditions.append(NovelProject.content_type == content_type)
+    elif project_type:
+        conditions.append(NovelProject.project_type == ProjectType(project_type))
+    if status:
+        conditions.append(NovelProject.status == ProjectStatus(status))
+
+    keyword = (search or "").strip()
+    if keyword:
+        pattern = f"%{_escape_like_pattern(keyword)}%"
+        conditions.append(or_(
+            NovelProject.title.ilike(pattern, escape="\\"),
+            NovelProject.genre.ilike(pattern, escape="\\"),
+        ))
+    return conditions
 
 
 # ==================== 项目管理 API ====================
@@ -213,6 +263,17 @@ async def list_projects(
     project_type: Optional[str] = None,
     content_type: Optional[str] = None,  # 新增：按内容类型筛选
     status: Optional[str] = None,
+    search: Optional[str] = Query(
+        default=None,
+        max_length=PROJECT_SEARCH_MAX_LENGTH,
+        description="关键词搜索：匹配项目标题或题材标签（转义后模糊匹配）"
+    ),
+    sort_by: Literal["updated_at", "created_at", "title"] = Query(
+        default="updated_at", description="排序字段（白名单）"
+    ),
+    sort_order: Literal["asc", "desc"] = Query(
+        default="desc", description="排序方向"
+    ),
     page: int = 1,
     page_size: int = 20,
     current_user: User = Depends(get_current_user),
@@ -222,29 +283,36 @@ async def list_projects(
     获取项目列表
 
     支持按content_type筛选：novel, series_script, movie_script
+    支持search关键词搜索（标题/题材标签）与安全排序（sort_by白名单 + sort_order）
     """
     try:
-        # 构建查询
-        query = select(NovelProject).where(
-            NovelProject.user_id == current_user.id)
+        # 总数查询与分页查询复用同一组筛选条件
+        filters = _build_project_list_filters(
+            user_id=current_user.id,
+            content_type=content_type,
+            project_type=project_type,
+            status=status,
+            search=search,
+        )
 
-        # 按内容类型筛选（新版）
-        if content_type:
-            query = query.where(NovelProject.content_type == content_type)
-        # 兼容旧版按project_type筛选
-        elif project_type:
-            query = query.where(NovelProject.project_type ==
-                                ProjectType(project_type))
-        if status:
-            query = query.where(NovelProject.status == ProjectStatus(status))
+        total = await db.scalar(
+            select(func.count()).select_from(NovelProject).where(*filters)
+        )
 
-        # 计算总数
-        count_query = select(func.count()).select_from(query.subquery())
-        total = await db.scalar(count_query)
+        # 排序：白名单固定映射 + 项目 ID 次级排序（防止翻页重复或遗漏）
+        column = PROJECT_SORT_COLUMNS[sort_by]
+        if sort_order == "asc":
+            order_exprs = (column.asc(), NovelProject.id.asc())
+        else:
+            order_exprs = (column.desc(), NovelProject.id.desc())
 
-        # 分页
-        query = query.order_by(NovelProject.updated_at.desc())
-        query = query.offset((page - 1) * page_size).limit(page_size)
+        query = (
+            select(NovelProject)
+            .where(*filters)
+            .order_by(*order_exprs)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
 
         result = await db.execute(query)
         projects = result.scalars().all()

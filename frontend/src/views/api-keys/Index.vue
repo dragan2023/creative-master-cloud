@@ -309,6 +309,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import {
+  Plus, InfoFilled, EditPen, Picture, VideoCamera, Search,
+  CircleCheck, CircleClose, Link, WarningFilled, Connection
+} from '@element-plus/icons-vue'
 import { useApiKeyStore } from '@/stores'
 import { LLM_PROVIDERS } from '@/config'
 import { apiKeyApi } from '@/api'

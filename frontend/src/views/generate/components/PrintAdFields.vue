@@ -191,6 +191,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
+import { MagicStick, Plus } from '@element-plus/icons-vue'
 
 defineProps({
   form: {

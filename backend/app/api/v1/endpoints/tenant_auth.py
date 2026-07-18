@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
+
+from app.utils.time_utils import utc_now_naive
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 
@@ -126,7 +128,7 @@ async def register(
         max_projects=PLAN_LIMITS[TenantPlan.FREE]["max_projects"],
         max_storage_mb=PLAN_LIMITS[TenantPlan.FREE]["max_storage_mb"],
         max_api_calls_per_day=PLAN_LIMITS[TenantPlan.FREE]["max_api_calls_per_day"],
-        trial_ends_at=datetime.utcnow(
+        trial_ends_at=utc_now_naive(
         ) + timedelta(days=PLAN_LIMITS[TenantPlan.FREE]["trial_days"])
     )
     db.add(tenant)
@@ -226,7 +228,7 @@ async def login(
                 raise AuthorizationException(message="租户已被暂停或过期")
 
     # 更新登录信息
-    user.last_login_at = datetime.utcnow().isoformat()
+    user.last_login_at = utc_now_naive().isoformat()
     user.login_count = (user.login_count or 0) + 1
     await db.commit()
 

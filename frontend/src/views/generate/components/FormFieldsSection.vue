@@ -189,6 +189,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { MagicStick } from '@element-plus/icons-vue'
 import ShortVideoFields from './ShortVideoFields.vue'
 import ScriptFields from './ScriptFields.vue'
 import MovieOutlineFields from './MovieOutlineFields.vue'

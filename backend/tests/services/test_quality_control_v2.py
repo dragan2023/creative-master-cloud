@@ -1,303 +1,398 @@
+"""三维质控 v2.0 正式测试
+
+覆盖当前生产接口：
+1. FeedbackLearningManager：反馈记录、误报率、阈值调整、统计与文件持久化（tmp_path 隔离）
+2. CrossValidationEngine.validate_all：问题结构、维度得分、综合得分与元数据
+3. SmartSuggestionEngine.generate_suggestions：问题增强字段
+4. 单元质量分析器（结构/人物/一致性）与可控假 LLM 的集成
 """
-三维质控v2.0功能测试脚本
+import json
 
-测试三大核心功能:
-1. 用户反馈学习
-2. 多维度交叉验证
-3. 智能修正建议
+import pytest
 
-@date: 2026-04-14
-@version: v2.0.0
-"""
-import asyncio
-import sys
-from pathlib import Path
-
-# 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-
-async def test_feedback_learning():
-    """测试用户反馈学习模块"""
-    print("\n" + "="*60)
-    print("测试1: 用户反馈学习模块")
-    print("="*60)
-
-    from app.services.quality_control.analyzers.feedback_learning import get_feedback_manager
-
-    feedback_manager = get_feedback_manager()
-
-    # 测试1: 记录反馈
-    print("\n1.1 记录用户反馈...")
-    feedback = feedback_manager.record_feedback(
-        user_id=999,  # 测试用户ID
-        project_id=1,
-        issue_id="UL-1",
-        dimension="unit_structure",
-        category="单元过短",
-        feedback_type="false_positive",
-        comment="测试反馈"
-    )
-    print(f"✅ 反馈记录成功: {feedback.feedback_id}")
-
-    # 测试2: 获取误报率
-    print("\n1.2 计算误报率...")
-    fp_rate = feedback_manager.get_false_positive_rate(
-        user_id=999,
-        dimension="unit_structure",
-        category="单元过短"
-    )
-    print(f"✅ 误报率: {fp_rate:.2%}")
-
-    # 测试3: 获取调整后阈值
-    print("\n1.3 获取调整后阈值...")
-    threshold = feedback_manager.get_adjusted_threshold(
-        dimension="unit_structure",
-        category="单元过短",
-        base_threshold=0.3
-    )
-    print(f"✅ 调整后阈值: {threshold:.3f}")
-
-    # 测试4: 获取学习统计
-    print("\n1.4 获取学习统计...")
-    stats = feedback_manager.get_learning_statistics(user_id=999)
-    print(f"✅ 总反馈数: {stats['total_feedbacks']}")
-
-    print("\n✅ 用户反馈学习模块测试通过")
+from app.services.quality_control.analyzers.feedback_learning import (
+    FeedbackLearningManager,
+)
+from app.services.quality_control.analyzers.cross_validation import (
+    get_cross_validation_engine,
+)
+from app.services.quality_control.analyzers.smart_suggestions import (
+    get_smart_suggestion_engine,
+)
+from app.services.quality_control.analyzers.unit_quality_analyzer import (
+    UnitCharacterAnalyzer,
+    UnitConsistencyAnalyzer,
+    UnitStructureAnalyzer,
+)
 
 
-async def test_cross_validation():
-    """测试多维度交叉验证引擎"""
-    print("\n" + "="*60)
-    print("测试2: 多维度交叉验证引擎")
-    print("="*60)
+TEST_USER_ID = 999
 
-    from app.services.quality_control.analyzers.cross_validation import get_cross_validation_engine
 
-    cross_engine = get_cross_validation_engine()
+@pytest.fixture
+def isolated_feedback_manager(tmp_path):
+    """使用 tmp_path 隔离反馈数据目录，避免写入项目真实数据目录"""
+    return FeedbackLearningManager(data_dir=str(tmp_path / "feedback_learning"))
 
-    # 准备测试数据
-    chapters_data = [
-        {
-            "chapter_number": i,
-            "content": f"第{i}单元内容，包含一些情节描述"
-        }
-        for i in range(1, 11)
-    ]
 
-    global_outline = "这是一个关于主角成长的故事，包含决战、转折和觉醒"
+class TestFeedbackLearning:
+    """用户反馈学习模块测试（数据目录已隔离）"""
 
-    character_profiles = [
-        {
-            "name": "主角",
-            "abilities": ["火球术", "瞬移"],
-            "personality": ["勇敢", "聪明"]
-        }
-    ]
+    def test_record_feedback_returns_entry_and_persists_file(
+        self, isolated_feedback_manager, tmp_path
+    ):
+        feedback = isolated_feedback_manager.record_feedback(
+            user_id=TEST_USER_ID,
+            project_id=1,
+            issue_id="UL-1",
+            dimension="unit_structure",
+            category="单元过短",
+            feedback_type="false_positive",
+            comment="测试反馈",
+        )
 
-    worldview_settings = {
-        "rules": ["魔法需要吟唱", "瞬移有冷却时间"],
-        "magic_system": {"type": "元素魔法"}
+        assert feedback.feedback_id.startswith("FB-")
+        assert feedback.user_id == TEST_USER_ID
+        assert feedback.feedback_type == "false_positive"
+
+        feedback_file = (
+            tmp_path / "feedback_learning" / f"user_{TEST_USER_ID}_feedback.json"
+        )
+        assert feedback_file.exists(), "反馈必须持久化到隔离目录"
+        persisted = json.loads(feedback_file.read_text(encoding="utf-8"))
+        assert len(persisted) == 1
+        assert persisted[0]["issue_id"] == "UL-1"
+        assert persisted[0]["feedback_type"] == "false_positive"
+
+    def test_false_positive_rate_reflects_recorded_feedback(
+        self, isolated_feedback_manager
+    ):
+        """样本量达到 3 条后，误报率按时间加权比例计算（近期反馈权重几乎相同）"""
+        for feedback_type in (
+            "false_positive",
+            "false_positive",
+            "accepted",
+            "accepted",
+        ):
+            isolated_feedback_manager.record_feedback(
+                user_id=TEST_USER_ID,
+                project_id=1,
+                issue_id=f"UL-{feedback_type}",
+                dimension="unit_structure",
+                category="单元过短",
+                feedback_type=feedback_type,
+            )
+
+        rate = isolated_feedback_manager.get_false_positive_rate(
+            user_id=TEST_USER_ID,
+            dimension="unit_structure",
+            category="单元过短",
+        )
+        assert rate == pytest.approx(0.5, rel=1e-3)
+
+    def test_false_positive_rate_small_sample_returns_conservative_value(
+        self, isolated_feedback_manager
+    ):
+        """生产契约：相关反馈少于 3 条时返回保守值 0.2"""
+        isolated_feedback_manager.record_feedback(
+            user_id=TEST_USER_ID,
+            project_id=1,
+            issue_id="UL-1",
+            dimension="unit_structure",
+            category="单元过短",
+            feedback_type="false_positive",
+        )
+
+        rate = isolated_feedback_manager.get_false_positive_rate(
+            user_id=TEST_USER_ID,
+            dimension="unit_structure",
+            category="单元过短",
+        )
+        assert rate == pytest.approx(0.2)
+
+    def test_false_positive_rate_without_feedback_is_zero(
+        self, isolated_feedback_manager
+    ):
+        rate = isolated_feedback_manager.get_false_positive_rate(
+            user_id=TEST_USER_ID,
+            dimension="unit_structure",
+            category="不存在的分类",
+        )
+        assert rate == 0.0
+
+    def test_false_positive_feedback_raises_threshold(
+        self, isolated_feedback_manager
+    ):
+        base_threshold = 0.3
+        before = isolated_feedback_manager.get_adjusted_threshold(
+            dimension="unit_structure",
+            category="单元过短",
+            base_threshold=base_threshold,
+        )
+        assert before == pytest.approx(base_threshold)
+
+        isolated_feedback_manager.record_feedback(
+            user_id=TEST_USER_ID,
+            project_id=1,
+            issue_id="UL-1",
+            dimension="unit_structure",
+            category="单元过短",
+            feedback_type="false_positive",
+        )
+
+        after = isolated_feedback_manager.get_adjusted_threshold(
+            dimension="unit_structure",
+            category="单元过短",
+            base_threshold=base_threshold,
+        )
+        assert after == pytest.approx(base_threshold + 0.05)
+
+    def test_learning_statistics_counts_all_feedback(
+        self, isolated_feedback_manager
+    ):
+        for index in range(3):
+            isolated_feedback_manager.record_feedback(
+                user_id=TEST_USER_ID,
+                project_id=1,
+                issue_id=f"UL-{index}",
+                dimension="unit_structure",
+                category="单元过短",
+                feedback_type="accepted",
+            )
+
+        stats = isolated_feedback_manager.get_learning_statistics(
+            user_id=TEST_USER_ID
+        )
+        assert stats["total_feedbacks"] == 3
+        assert stats["dimensions"]["unit_structure"]["accepted"] == 3
+
+
+class TestCrossValidation:
+    """多维度交叉验证引擎测试（纯规则，无 LLM 依赖）"""
+
+    @pytest.mark.asyncio
+    async def test_validate_all_returns_scores_issues_and_metadata(self):
+        engine = get_cross_validation_engine()
+        chapters_data = [
+            {"chapter_number": index, "content": f"第{index}单元内容，包含一些情节描述"}
+            for index in range(1, 11)
+        ]
+
+        result = await engine.validate_all(
+            chapters_data=chapters_data,
+            global_outline="这是一个关于主角成长的故事，包含决战、转折和觉醒",
+            character_profiles=[
+                {"name": "主角", "abilities": ["火球术"], "personality": ["勇敢"]}
+            ],
+            worldview_settings={"rules": ["魔法需要吟唱"]},
+            depth="standard",
+            db=None,
+            user_id=TEST_USER_ID,
+        )
+
+        assert isinstance(result["issues"], list)
+        for issue in result["issues"]:
+            assert issue.get("severity"), "每个问题必须带有严重度"
+            assert issue.get("description"), "每个问题必须带有描述"
+        assert result["total_validations"] == 4
+        assert 0.0 <= result["overall_score"] <= 100.0
+        for score in result["validation_scores"].values():
+            assert 0.0 <= score <= 100.0
+        assert result["metadata"]["total_units"] == 10
+        assert result["metadata"]["has_global_outline"] is True
+
+    @pytest.mark.asyncio
+    async def test_validate_all_without_optional_inputs_skips_dimensions(self):
+        engine = get_cross_validation_engine()
+        chapters_data = [
+            {"chapter_number": index, "content": f"第{index}单元内容"}
+            for index in range(1, 4)
+        ]
+
+        result = await engine.validate_all(chapters_data=chapters_data)
+
+        assert "character_worldview_consistency" not in result["validation_scores"]
+        assert "plot_outline_consistency" not in result["validation_scores"]
+        assert result["metadata"]["has_global_outline"] is False
+
+
+class TestSmartSuggestions:
+    """智能修正建议引擎测试"""
+
+    def test_generate_suggestions_enriches_every_issue(self):
+        engine = get_smart_suggestion_engine()
+        issues = [
+            {
+                "id": "UL-1",
+                "dimension": "unit_structure",
+                "category": "单元过短",
+                "severity": "warning",
+                "location": {"chapter_number": 1},
+                "description": "第1单元概述仅30字，内容过于简略",
+                "evidence": "这是很短的内容",
+                "suggestion": "建议补充关键情节要素",
+                "metadata": {"length": 30},
+            },
+            {
+                "id": "UT-1",
+                "dimension": "unit_structure",
+                "category": "单元衔接",
+                "severity": "info",
+                "location": {"chapter_number": 2},
+                "description": "第2单元与第3单元之间的衔接可能不够流畅",
+                "evidence": "两个单元都较短",
+                "suggestion": "建议增加逻辑关联词",
+                "metadata": {},
+            },
+        ]
+        chapters_data = [
+            {"chapter_number": index, "content": f"第{index}单元的内容描述"}
+            for index in range(1, 6)
+        ]
+
+        enhanced = engine.generate_suggestions(
+            issues=issues, chapters_data=chapters_data
+        )
+
+        assert len(enhanced) == 2
+        for issue in enhanced:
+            assert issue.get("priority"), "每个问题必须生成优先级"
+            assert issue.get("fix_difficulty"), "每个问题必须生成修正难度"
+            assert issue.get("suggestion"), "每个问题必须保留修复建议"
+
+
+class FakeLLMResponse:
+    def __init__(self, content: str):
+        self.content = content
+        self.usage = {"total_tokens": 10}
+
+
+class FakeLLMProvider:
+    """返回固定结构化 JSON 的假 LLM 提供者（不访问网络）"""
+
+    def __init__(self, payload: str):
+        self.payload = payload
+        self.call_count = 0
+
+    async def generate(self, prompt: str, **kwargs):
+        self.call_count += 1
+        return FakeLLMResponse(self.payload)
+
+
+class FakeLLMManager:
+    def __init__(self, provider):
+        self.provider = provider
+
+    async def get_provider_from_db(self, db, user_id):
+        return self.provider
+
+
+LENGTH_ISSUE_PAYLOAD = """```json
+{
+  "length_issues": [
+    {
+      "unit_number": 1,
+      "issue_type": "过短",
+      "description": "第1单元概述过短，信息不足",
+      "severity": "warning"
     }
-
-    # 测试交叉验证
-    print("\n2.1 执行交叉验证...")
-    result = await cross_engine.validate_all(
-        chapters_data=chapters_data,
-        global_outline=global_outline,
-        character_profiles=character_profiles,
-        worldview_settings=worldview_settings,
-        depth="standard",
-        db=None,
-        user_id=999
-    )
-
-    print(f"✅ 交叉验证完成")
-    print(f"   - 发现问题数: {len(result['issues'])}")
-    print(f"   - 综合得分: {result['overall_score']:.1f}")
-    print(f"   - 验证维度数: {result['total_validations']}")
-
-    # 显示各维度得分
-    print("\n2.2 各维度得分:")
-    for dim, score in result['validation_scores'].items():
-        print(f"   - {dim}: {score:.1f}")
-
-    print("\n✅ 多维度交叉验证引擎测试通过")
+  ]
+}
+```"""
 
 
-async def test_smart_suggestions():
-    """测试智能修正建议引擎"""
-    print("\n" + "="*60)
-    print("测试3: 智能修正建议引擎")
-    print("="*60)
+class TestUnitAnalyzerIntegration:
+    """单元质量分析器与假 LLM 的集成测试"""
 
-    from app.services.quality_control.analyzers.smart_suggestions import get_smart_suggestion_engine
+    @pytest.fixture
+    def fake_llm(self, monkeypatch):
+        import importlib
 
-    suggestion_engine = get_smart_suggestion_engine()
+        # app.agents 包属性 llm_manager（LLMManager 实例）会遮蔽子模块名，
+        # 必须通过 importlib 拿到真正的模块对象后再打补丁
+        llm_manager_module = importlib.import_module("app.agents.llm_manager")
 
-    # 准备测试问题
-    test_issues = [
-        {
-            "id": "UL-1",
-            "dimension": "unit_structure",
-            "category": "单元过短",
-            "severity": "warning",
-            "location": {"chapter_number": 1},
-            "description": "第1单元概述仅30字，内容过于简略",
-            "evidence": "这是很短的内容",
-            "suggestion": "建议补充关键情节要素",
-            "metadata": {"length": 30}
-        },
-        {
-            "id": "UT-1",
-            "dimension": "unit_structure",
-            "category": "单元衔接",
-            "severity": "info",
-            "location": {"chapter_number": 2},
-            "description": "第2单元与第3单元之间的衔接可能不够流畅",
-            "evidence": "两个单元都较短",
-            "suggestion": "建议增加逻辑关联词",
-            "metadata": {}
-        }
-    ]
+        provider = FakeLLMProvider(LENGTH_ISSUE_PAYLOAD)
+        manager = FakeLLMManager(provider)
+        monkeypatch.setattr(llm_manager_module, "get_llm_manager", lambda: manager)
+        return provider
 
-    chapters_data = [
-        {
-            "chapter_number": i,
-            "content": f"第{i}单元的内容描述"
-        }
-        for i in range(1, 6)
-    ]
+    @pytest.fixture
+    def sample_chapters(self):
+        return [
+            {
+                "id": index,
+                "chapter_number": index,
+                "content": f"第{index}单元的详细内容包括冲突和转折",
+            }
+            for index in range(1, 6)
+        ]
 
-    # 测试建议生成
-    print("\n3.1 生成智能修正建议...")
-    enhanced_issues = suggestion_engine.generate_suggestions(
-        issues=test_issues,
-        chapters_data=chapters_data
-    )
+    @pytest.fixture
+    def sample_project(self):
+        class ProjectStub:
+            id = 1
+            title = "测试项目"
 
-    print(f"✅ 建议生成完成: {len(enhanced_issues)}个问题")
+        return ProjectStub()
 
-    # 显示建议详情
-    print("\n3.2 建议详情:")
-    for issue in enhanced_issues:
-        print(f"\n   问题: {issue['id']} - {issue['category']}")
-        print(f"   优先级: {issue.get('priority', 'N/A')}")
-        print(f"   修正难度: {issue.get('fix_difficulty', 'N/A')}")
-        print(f"   自动修正: {'✅' if issue.get('auto_fix') else '❌'}")
-        if issue.get('auto_fix'):
-            print(f"   置信度: {issue['auto_fix'].get('confidence', 0):.0%}")
+    @pytest.mark.asyncio
+    async def test_structure_analyzer_reports_llm_detected_issue(
+        self, fake_llm, sample_chapters, sample_project
+    ):
+        analyzer = UnitStructureAnalyzer()
+        result = await analyzer.analyze(
+            chapters_data=sample_chapters,
+            project=sample_project,
+            depth="standard",
+            db=None,
+            user_id=TEST_USER_ID,
+        )
 
-    print("\n✅ 智能修正建议引擎测试通过")
+        assert fake_llm.call_count > 0, "分析器必须调用（假）LLM"
+        assert 0.0 <= result["score"] <= 100.0
+        length_issues = [
+            issue
+            for issue in result["issues"]
+            if issue.get("category") == "过短"
+        ]
+        assert len(length_issues) == 1, "假 LLM 注入的问题必须出现在结果中"
+        detected = length_issues[0]
+        assert detected["severity"] == "warning"
+        assert detected["suggestion"], "问题必须携带修复建议"
+        assert detected["location"]["chapter_number"] == 1
 
+    @pytest.mark.asyncio
+    async def test_character_analyzer_returns_score_and_issue_list(
+        self, fake_llm, sample_chapters, sample_project
+    ):
+        analyzer = UnitCharacterAnalyzer()
+        result = await analyzer.analyze(
+            chapters_data=sample_chapters,
+            project=sample_project,
+            depth="standard",
+            db=None,
+            user_id=TEST_USER_ID,
+        )
 
-async def test_integration():
-    """测试集成效果"""
-    print("\n" + "="*60)
-    print("测试4: 集成效果测试")
-    print("="*60)
+        assert 0.0 <= result["score"] <= 100.0
+        assert isinstance(result["issues"], list)
 
-    from app.services.quality_control.analyzers.unit_quality_analyzer import (
-        UnitStructureAnalyzer,
-        UnitCharacterAnalyzer,
-        UnitConsistencyAnalyzer
-    )
+    @pytest.mark.asyncio
+    async def test_consistency_analyzer_returns_score_and_issue_list(
+        self, fake_llm, sample_chapters, sample_project
+    ):
+        analyzer = UnitConsistencyAnalyzer()
+        result = await analyzer.analyze(
+            chapters_data=sample_chapters,
+            project=sample_project,
+            global_outline="这是一个包含主角成长和决战的故事",
+            character_profiles=[{"name": "主角", "abilities": []}],
+            worldview_settings={"rules": []},
+            depth="standard",
+            db=None,
+            user_id=TEST_USER_ID,
+        )
 
-    # 准备测试数据
-    chapters_data = [
-        {
-            "id": i,
-            "chapter_number": i,
-            "content": f"第{i}单元的详细内容包括冲突和转折"
-        }
-        for i in range(1, 21)
-    ]
-
-    class MockProject:
-        def __init__(self):
-            self.id = 1
-            self.title = "测试项目"
-
-    # 测试结构分析器
-    print("\n4.1 测试单元结构分析器(v2.0)...")
-    structure_analyzer = UnitStructureAnalyzer()
-    structure_result = await structure_analyzer.analyze(
-        chapters_data=chapters_data,
-        project=MockProject(),
-        depth="standard",
-        db=None,
-        user_id=999
-    )
-    print(f"✅ 结构分析完成")
-    print(f"   - 得分: {structure_result['score']:.1f}")
-    print(f"   - 问题数: {len(structure_result['issues'])}")
-
-    # 测试人物分析器
-    print("\n4.2 测试人物发展分析器(v2.0)...")
-    character_analyzer = UnitCharacterAnalyzer()
-    character_result = await character_analyzer.analyze(
-        chapters_data=chapters_data,
-        project=MockProject(),
-        depth="standard",
-        db=None,
-        user_id=999
-    )
-    print(f"✅ 人物分析完成")
-    print(f"   - 得分: {character_result['score']:.1f}")
-    print(f"   - 问题数: {len(character_result['issues'])}")
-
-    # 测试一致性分析器
-    print("\n4.3 测试一致性分析器(v2.0)...")
-    consistency_analyzer = UnitConsistencyAnalyzer()
-    consistency_result = await consistency_analyzer.analyze(
-        chapters_data=chapters_data,
-        project=MockProject(),
-        global_outline="这是一个包含主角成长和决战的故事",
-        character_profiles=[{"name": "主角", "abilities": []}],
-        worldview_settings={"rules": []},
-        depth="standard",
-        db=None,
-        user_id=999
-    )
-    print(f"✅ 一致性分析完成")
-    print(f"   - 得分: {consistency_result['score']:.1f}")
-    print(f"   - 问题数: {len(consistency_result['issues'])}")
-
-    print("\n✅ 集成效果测试通过")
-
-
-async def main():
-    """运行所有测试"""
-    print("\n" + "="*60)
-    print("三维质控v2.0功能测试")
-    print("="*60)
-
-    try:
-        # 测试1: 用户反馈学习
-        await test_feedback_learning()
-
-        # 测试2: 交叉验证
-        await test_cross_validation()
-
-        # 测试3: 智能建议
-        await test_smart_suggestions()
-
-        # 测试4: 集成效果
-        await test_integration()
-
-        print("\n" + "="*60)
-        print("✅ 所有测试通过!")
-        print("="*60)
-
-    except Exception as e:
-        print(f"\n❌ 测试失败: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
-
-    return 0
-
-
-if __name__ == "__main__":
-    exit_code = asyncio.run(main())
-    sys.exit(exit_code)
+        assert 0.0 <= result["score"] <= 100.0
+        assert isinstance(result["issues"], list)

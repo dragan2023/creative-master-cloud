@@ -37,6 +37,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
+import { Upload, Document, InfoFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   modelValue: {

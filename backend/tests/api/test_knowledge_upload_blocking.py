@@ -40,12 +40,14 @@ class FakeUploadDB:
         self.commit_started = asyncio.Event()
         self.commit_release = asyncio.Event()
         self.rollback_count = 0
+        self.commit_count = 0
         self.added = []
 
     def add(self, value):
         self.added.append(value)
 
     async def commit(self):
+        self.commit_count += 1
         self.commit_started.set()
         if self.block_commit:
             await self.commit_release.wait()
@@ -333,3 +335,34 @@ async def test_refresh_failure_after_commit_keeps_db_owned_file_without_rollback
     assert list(upload_dir.glob("*.part")) == []
     assert len(final_files) == 1
     assert final_files[0].read_bytes() == b"content"
+
+
+@pytest.mark.asyncio
+async def test_queue_failure_marks_committed_record_failed_with_error_code(
+    monkeypatch,
+    tmp_path,
+):
+    _configure_upload_test(monkeypatch, tmp_path)
+    state_module = importlib.import_module("app.api.v1.endpoints.knowledge._state")
+    progress_store = {}
+    monkeypatch.setattr(upload_module, "kb_processing_progress", progress_store)
+    monkeypatch.setattr(state_module, "kb_processing_progress", progress_store)
+    monkeypatch.setattr(state_module, "_sync_update_kb_progress", lambda *_args: None)
+    db = FakeUploadDB()
+
+    class FailingPool:
+        def submit(self, _function):
+            raise RuntimeError("worker queue unavailable")
+
+    monkeypatch.setattr(upload_module, "kb_thread_pool", FailingPool())
+
+    with pytest.raises(RuntimeError, match="worker queue unavailable"):
+        await _start_upload(db)
+
+    record = db.added[0]
+    progress = upload_module.kb_processing_progress[record.id]
+    assert record.status == upload_module.KnowledgeBaseStatus.FAILED
+    assert record.document_count == 0
+    assert progress["status"] == "failed"
+    assert progress["error"].startswith("KB-QUEUE-001:")
+    assert db.commit_count == 2

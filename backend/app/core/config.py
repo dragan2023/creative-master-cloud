@@ -8,7 +8,7 @@
 @contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from functools import lru_cache
 import os
@@ -68,6 +68,9 @@ class Settings(BaseSettings):
         default_factory=get_version_from_file,
         description="应用版本号，从 version.json 动态读取"
     )
+    # 运行环境标识：local_desktop=本地桌面运行（默认），server=云端部署（环境变量 RUNTIME_ENV 覆盖）
+    # 前端仅在 local_desktop 环境下展示“退出程序”入口
+    RUNTIME_ENV: str = "local_desktop"
     APP_BASE_URL: str = Field(
         default="http://localhost:3001",
         description="应用基础URL，用于OpenRouter等服务的HTTP-Referer头"
@@ -172,7 +175,7 @@ class Settings(BaseSettings):
         default=100 * 1024 * 1024,  # 100MB
         description="文档最大上传大小（字节）"
     )
-    ALLOWED_EXTENSIONS: set = {".pdf", ".docx", ".doc", ".txt", ".md"}
+    ALLOWED_EXTENSIONS: set = {".pdf", ".docx", ".doc", ".xlsx", ".txt", ".md"}
 
     # CORS 配置
     CORS_ORIGINS: str = Field(
@@ -251,11 +254,13 @@ class Settings(BaseSettings):
         description="启用的 MCP 提供者列表，逗号分隔（search_hotnews为基于搜索引擎的热点聚合）"
     )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "ignore"  # 忽略 .env 中未定义的字段
+    # Pydantic V2 配置（原 class Config 已废弃，迁移为 model_config）
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",  # 忽略 .env 中未定义的字段
+    )
 
     def _normalize_path(self, path: str) -> str:
         """规范化路径，移除 ./ 前缀并确保格式正确"""

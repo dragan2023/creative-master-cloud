@@ -118,7 +118,7 @@ import { ref, computed, onMounted } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { View, Delete } from '@element-plus/icons-vue'
+import { View, Delete, Refresh, CopyDocument } from '@element-plus/icons-vue'
 import { historyApi } from '@/api'
 
 const loading = ref(false)

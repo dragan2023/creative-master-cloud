@@ -14,22 +14,84 @@
       </div>
     </div>
 
-    <!-- 筛选栏 -->
-    <div class="filter-bar">
-      <el-select v-model="filterType" placeholder="内容类型" clearable @change="loadProjects">
-        <el-option label="全部" value="" />
-        <el-option label="小说" value="novel" />
-        <el-option label="剧集剧本" value="series_script" />
-        <el-option label="电影剧本" value="movie_script" />
-      </el-select>
-      <el-select v-model="filterStatus" placeholder="项目状态" clearable @change="loadProjects">
-        <el-option label="全部" value="" />
-        <el-option label="初始化" value="init" />
-        <el-option label="生成中" value="generating" />
-        <el-option label="已完成" value="completed" />
-        <el-option label="已暂停" value="paused" />
-        <el-option label="失败" value="failed" />
-      </el-select>
+    <!-- 筛选栏：搜索 / 类型 / 状态 / 排序 -->
+    <div class="filter-bar" role="search">
+      <div class="filter-item search-item">
+        <label class="filter-label" for="project-search-input">搜索</label>
+        <el-input
+          id="project-search-input"
+          v-model="searchKeyword"
+          class="search-input"
+          placeholder="搜索项目标题或题材"
+          clearable
+          aria-label="搜索项目标题或题材"
+          @input="onSearchInput"
+          @clear="onFilterChange"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+      </div>
+      <div class="filter-item">
+        <label class="filter-label" for="project-type-select">类型</label>
+        <el-select
+          id="project-type-select"
+          v-model="filterType"
+          placeholder="内容类型"
+          clearable
+          aria-label="按内容类型筛选"
+          @change="onFilterChange"
+        >
+          <el-option label="全部" value="" />
+          <el-option label="小说" value="novel" />
+          <el-option label="剧集剧本" value="series_script" />
+          <el-option label="电影剧本" value="movie_script" />
+        </el-select>
+      </div>
+      <div class="filter-item">
+        <label class="filter-label" for="project-status-select">状态</label>
+        <el-select
+          id="project-status-select"
+          v-model="filterStatus"
+          placeholder="项目状态"
+          clearable
+          aria-label="按项目状态筛选"
+          @change="onFilterChange"
+        >
+          <el-option label="全部" value="" />
+          <el-option label="初始化" value="init" />
+          <el-option label="生成中" value="generating" />
+          <el-option label="已完成" value="completed" />
+          <el-option label="已暂停" value="paused" />
+          <el-option label="失败" value="failed" />
+        </el-select>
+      </div>
+      <div class="filter-item sort-item">
+        <label class="filter-label" for="project-sort-select">排序</label>
+        <el-select
+          id="project-sort-select"
+          v-model="sortBy"
+          aria-label="排序字段"
+          @change="onFilterChange"
+        >
+          <el-option label="更新时间" value="updated_at" />
+          <el-option label="创建时间" value="created_at" />
+          <el-option label="项目标题" value="title" />
+        </el-select>
+        <el-button
+          class="sort-order-btn"
+          :aria-pressed="sortOrder === 'asc' ? 'true' : 'false'"
+          :aria-label="sortOrder === 'asc' ? '当前升序，点击切换为降序' : '当前降序，点击切换为升序'"
+          @click="toggleSortOrder"
+        >
+          <el-icon>
+            <SortUp v-if="sortOrder === 'asc'" />
+            <SortDown v-else />
+          </el-icon>
+          {{ sortOrder === 'asc' ? '升序' : '降序' }}
+        </el-button>
+      </div>
     </div>
 
     <!-- 项目列表 -->
@@ -42,16 +104,20 @@
         v-for="project in projects"
         :key="project.id"
         class="project-card"
-        @click="goToProject(project.id)"
       >
         <div class="card-header">
           <div class="project-type" :class="getTypeClass(project.content_type || project.project_type)">
             {{ getTypeLabel(project.content_type || project.project_type) }}
           </div>
+          <!-- 更多操作：独立按钮，不嵌入卡片主链接 -->
           <el-dropdown trigger="click" @command="(cmd) => handleCommand(cmd, project)">
-            <div class="more-icon-wrapper" @click.stop>
+            <el-button
+              text
+              class="more-actions-btn"
+              :aria-label="`更多操作：${project.title}`"
+            >
               <el-icon class="more-icon"><MoreFilled /></el-icon>
-            </div>
+            </el-button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="edit">编辑</el-dropdown-item>
@@ -61,24 +127,27 @@
           </el-dropdown>
         </div>
 
-        <h3 class="project-title">{{ project.title }}</h3>
+        <!-- 卡片主链接：标题与进度区域，键盘 Tab 可达、Enter 激活 -->
+        <router-link class="project-card-main" :to="`/novel-writer/${project.id}`">
+          <h3 class="project-title">{{ project.title }}</h3>
 
-        <div class="project-meta">
-          <span v-if="project.genre">{{ project.genre }}</span>
-          <span v-if="project.target_platform">{{ project.target_platform }}</span>
-        </div>
-
-        <div class="project-progress">
-          <div class="progress-info">
-            <span>进度: {{ project.completed_chapters }}/{{ project.total_chapters }}{{ getUnitLabel(project.content_type) }}</span>
-            <span class="progress-percent">{{ project.progress_percentage.toFixed(1) }}%</span>
+          <div class="project-meta">
+            <span v-if="project.genre">{{ project.genre }}</span>
+            <span v-if="project.target_platform">{{ project.target_platform }}</span>
           </div>
-          <el-progress
-            :percentage="project.progress_percentage"
-            :status="getProgressStatus(project.status)"
-            :stroke-width="8"
-          />
-        </div>
+
+          <div class="project-progress">
+            <div class="progress-info">
+              <span>进度: {{ project.completed_chapters }}/{{ project.total_chapters }}{{ getUnitLabel(project.content_type) }}</span>
+              <span class="progress-percent">{{ project.progress_percentage.toFixed(1) }}%</span>
+            </div>
+            <el-progress
+              :percentage="project.progress_percentage"
+              :status="getProgressStatus(project.status)"
+              :stroke-width="8"
+            />
+          </div>
+        </router-link>
 
         <div class="project-status">
           <el-tag :type="getStatusType(project.status)" size="small">
@@ -371,7 +440,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onActivated } from 'vue'
-import { Plus, MoreFilled, Notebook, Film, VideoCamera, Setting } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Notebook, Film, VideoCamera, Setting, Search, SortUp, SortDown } from '@element-plus/icons-vue'
 
 // 组合式函数
 import { useProjectList } from './composables/useProjectList'
@@ -404,8 +473,13 @@ const {
   pageSize,
   filterType,
   filterStatus,
+  searchKeyword,
+  sortBy,
+  sortOrder,
   loadProjects,
-  goToProject,
+  onSearchInput,
+  onFilterChange,
+  toggleSortOrder,
   goToModelConfig,
   handleCommand: listHandleCommand,
   getTypeLabel,
@@ -560,11 +634,34 @@ onActivated(() => {
 
 .filter-bar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 16px;
   margin-bottom: 24px;
 
+  .filter-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .filter-label {
+    font-size: 14px;
+    color: #606266;
+    white-space: nowrap;
+  }
+
+  .search-input {
+    width: 220px;
+  }
+
   .el-select {
     width: 150px;
+  }
+
+  .sort-order-btn {
+    flex-shrink: 0;
   }
 }
 
@@ -579,7 +676,6 @@ onActivated(() => {
   background: #fff;
   border-radius: 16px;
   padding: 20px;
-  cursor: pointer;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid rgba(64, 158, 255, 0.1);
   position: relative;
@@ -644,18 +740,19 @@ onActivated(() => {
       }
     }
 
-    .more-icon-wrapper {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .more-actions-btn {
       width: 32px;
       height: 32px;
+      padding: 0;
       border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.3s;
 
       &:hover {
         background: rgba(64, 158, 255, 0.1);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--primary-color, #409eff);
+        outline-offset: 2px;
       }
     }
 
@@ -670,14 +767,32 @@ onActivated(() => {
     }
   }
 
+  // 卡片主链接：router-link 渲染为 a 标签，去除默认链接样式
+  .project-card-main {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    border-radius: 8px;
+
+    &:focus-visible {
+      outline: 2px solid var(--primary-color, #409eff);
+      outline-offset: 4px;
+    }
+  }
+
   .project-title {
     font-size: 16px;
     font-weight: 600;
     color: #303133;
     margin: 0 0 10px 0;
+    // 长标题两行截断，不把进度和操作按钮推出卡片
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    word-break: break-all;
   }
 
   .project-meta {
@@ -740,6 +855,50 @@ onActivated(() => {
   display: flex;
   justify-content: center;
   margin-top: 24px;
+}
+
+// ============================================================
+// 响应式适配：窄屏下工具栏自动换行、项目卡片单列
+// 断点与 styles/responsive.scss 保持一致（768px）
+// ============================================================
+@media (max-width: 768px) {
+  .page-header {
+    .header-actions {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  }
+
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+
+    .filter-item {
+      width: 100%;
+    }
+
+    .filter-label {
+      flex: 0 0 34px;
+    }
+
+    .search-input,
+    .el-select {
+      flex: 1 1 auto;
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+    }
+
+    .sort-order-btn {
+      flex-shrink: 0;
+    }
+  }
+
+  .project-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+  }
 }
 
 .kb-tip {

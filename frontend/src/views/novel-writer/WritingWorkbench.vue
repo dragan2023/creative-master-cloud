@@ -132,11 +132,13 @@
         <!-- 右侧：实时进度面板（缩小区域） -->
         <el-col :span="8">
           <AgentProgressPanel
-            :ws-connected="writingStore.wsConnected"
+            :ws-status="writingStore.wsStatus"
+            :ws-last-message-at="writingStore.wsLastMessageAt"
             :agent-pipeline="agentPipeline"
             :workflow-steps="workflowSteps"
             :current-processing-info="currentProcessingInfo"
             :progress-messages="writingStore.progressMessages"
+            @reconnect="writingStore.retryConnection"
           />
         </el-col>
       </el-row>
@@ -205,6 +207,7 @@
 
     <!-- 知识图谱弹窗 -->
     <KnowledgeGraphDialog
+      v-if="knowledgeGraphDialogMounted"
       v-model:visible="knowledgeGraphVisible"
       :project-id="projectId"
       :total-units="projectTotalUnits"
@@ -213,6 +216,7 @@
 
     <!-- 一致性检查报告弹窗-->
     <ConsistencyReportDialog
+      v-if="consistencyReportDialogMounted"
       v-model:visible="consistencyReportVisible"
       :project-id="projectId"
       :total-units="projectTotalUnits"
@@ -223,7 +227,7 @@
     <!-- 实时质控仪表盘弹窗(v2.2重构 - 正文质控组件) -->
     <!-- v4.0优化: 仅小说类型显示质控仪表盘，剧集/电影类型使用对话修正替代 -->
     <ContentQualityControl
-      v-if="isNovelType"
+      v-if="isNovelType && qualityControlDialogMounted"
       v-model:visible="showQualityControlVisualization"
       :project-id="projectId"
       :task-id="writingStore.currentTask?.id"
@@ -268,6 +272,7 @@
 
     <!-- 文风选择器对话框 -->
     <StyleSelectorDialog
+      v-if="styleSelectorDialogMounted"
       v-model:visible="showStyleSelector"
       :initial-style-ids="selectedStyleIds"
       :initial-intensity="styleIntensity"
@@ -276,7 +281,7 @@
 
     <!-- 剧集风格选择器（复用创意生成模块） -->
     <SeriesStyleSelectorDialog
-      v-if="actualContentType === 'series_script'"
+      v-if="actualContentType === 'series_script' && scriptStyleSelectorDialogMounted"
       v-model:visible="showScriptStyleSelector"
       :initial-selected="{
         dimensions: scriptStyleData.dimensions,
@@ -289,7 +294,7 @@
 
     <!-- 电影风格选择器（复用创意生成模块） -->
     <MovieStyleSelectorDialog
-      v-if="actualContentType === 'movie_script'"
+      v-if="actualContentType === 'movie_script' && scriptStyleSelectorDialogMounted"
       v-model:visible="showScriptStyleSelector"
       :initial-selected="{
         dimensions: scriptStyleData.dimensions
@@ -307,6 +312,7 @@
 
     <!-- 模型配置弹窗 -->
     <ModelConfigDialog
+      v-if="modelConfigDialogMounted"
       v-model:visible="showModelConfigDialog"
     />
 
@@ -314,7 +320,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, watch, defineAsyncComponent } from "vue";
 import { useRoute } from "vue-router";
 import { useWritingTaskStore } from "@/stores/writingTask";
 import { novelWriterApi } from "@/api/novel-writer";
@@ -324,15 +330,15 @@ import TaskCreationPanel from "./components/TaskCreationPanel.vue";
 import ProjectSetupPanel from "./components/ProjectSetupPanel.vue";
 import KnowledgeBasePanel from "./components/KnowledgeBasePanel.vue";
 
-// 导入子组件
-import KnowledgeGraphDialog from "./components/KnowledgeGraphDialog.vue";
-import ConsistencyReportDialog from "./components/ConsistencyReportDialog.vue";
-import ContentQualityControl from "./components/ContentQualityControl.vue";
-import StyleSelectorDialog from "./components/StyleSelectorDialog.vue";
-import SeriesStyleSelectorDialog from "../generate/components/SeriesStyleSelectorDialog.vue";
-import MovieStyleSelectorDialog from "../generate/components/MovieStyleSelectorDialog.vue";
+// 导入子组件（低频弹窗延迟加载：首次打开时才加载对应 chunk，配合模板 v-if 懒挂载）
+const KnowledgeGraphDialog = defineAsyncComponent(() => import("./components/KnowledgeGraphDialog.vue"));
+const ConsistencyReportDialog = defineAsyncComponent(() => import("./components/ConsistencyReportDialog.vue"));
+const ContentQualityControl = defineAsyncComponent(() => import("./components/ContentQualityControl.vue"));
+const StyleSelectorDialog = defineAsyncComponent(() => import("./components/StyleSelectorDialog.vue"));
+const SeriesStyleSelectorDialog = defineAsyncComponent(() => import("../generate/components/SeriesStyleSelectorDialog.vue"));
+const MovieStyleSelectorDialog = defineAsyncComponent(() => import("../generate/components/MovieStyleSelectorDialog.vue"));
+const ModelConfigDialog = defineAsyncComponent(() => import("./components/ModelConfigDialog.vue"));
 import AgentConfigDialog from "./components/AgentConfigDialog.vue";
-import ModelConfigDialog from "./components/ModelConfigDialog.vue";
 import UnitSummariesUploadDialog from "./components/UnitSummariesUploadDialog.vue";
 import OutlineUploadDialog from "./components/OutlineUploadDialog.vue";
 import SceneContentDialog from "./components/SceneContentDialog.vue";
@@ -348,7 +354,10 @@ import { getContentTypeLabel, getContentTypeTagType, getStatusType, getStatusLab
 import { useStyleManagement } from './composables/useStyleManagement'
 import { useWorkbenchUnits } from './composables/useWorkbenchUnits'
 import { useWorkbenchTask } from './composables/useWorkbenchTask'
+import { useTaskTerminalRefresh } from './composables/useTaskTerminalRefresh'
+import { useWorkbenchLifecycle } from './composables/useWorkbenchLifecycle'
 import { useAgentPipeline } from './composables/useAgentPipeline'
+import { useLazyDialogMount } from '@/composables/useLazyDialogMount'
 
 // ==================== Props ====================
 const props = defineProps({
@@ -416,6 +425,9 @@ const {
   styleIntensity, styleGuide,
   styleUploadAction, uploadHeaders,
   showScriptStyleSelector, handleScriptStyleConfirm,
+  // 文风文档与 AI 消除回调（修复：模板已绑定但此前未解构，导致运行时 undefined）
+  handleRefreshStyleDocument, handleStyleUploadSuccess, handleStyleUploadError,
+  handleDeleteStyleDocument, handleAiEliminationChange, handleThresholdChange,
   // 剧本风格状态（需顶层解构以保证模板中 ref 自动解包）
   scriptStyleData
 } = styleMgmt
@@ -478,6 +490,10 @@ watch(localProjectData, (newData) => {
 }, { immediate: true })
 
 // ==================== 3. 任务创建和管理（组合式函数）====================
+// 任务终态内容校准：running→终态时刷新一次单元内容（阶段03 §3.5）
+useTaskTerminalRefresh(writingStore)
+useWorkbenchLifecycle(writingStore)
+
 const wbTask = useWorkbenchTask({
   writingStore,
   projectId,
@@ -552,6 +568,14 @@ const knowledgeGraphVisible = ref(false);
 const consistencyReportVisible = ref(false);
 const showSettingsDialog = ref(false);
 const showQualityControlVisualization = ref(false);
+
+// 低频弹窗懒挂载标记：首次打开前不渲染异步弹窗组件
+const knowledgeGraphDialogMounted = useLazyDialogMount(knowledgeGraphVisible);
+const consistencyReportDialogMounted = useLazyDialogMount(consistencyReportVisible);
+const qualityControlDialogMounted = useLazyDialogMount(showQualityControlVisualization);
+const styleSelectorDialogMounted = useLazyDialogMount(showStyleSelector);
+const scriptStyleSelectorDialogMounted = useLazyDialogMount(showScriptStyleSelector);
+const modelConfigDialogMounted = useLazyDialogMount(showModelConfigDialog);
 
 // DeepSeek 思考模式
 const thinkingModeEnabled = ref(false);
@@ -686,11 +710,6 @@ onMounted(async () => {
   // 加载思考模式配置
   await loadThinkingModeConfig()
 })
-
-onUnmounted(() => {
-  // 断开WebSocket连接
-  writingStore.disconnectWebSocket();
-});
 
 // 监听项目ID变化（路由切换时）
 watch(

@@ -181,6 +181,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+import { InfoFilled, Search } from '@element-plus/icons-vue'
 import { knowledgeApi } from '@/api'
 import { useConfigPersistence } from '@/composables/useConfigPersistence'
 

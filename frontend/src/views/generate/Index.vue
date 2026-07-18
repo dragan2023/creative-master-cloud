@@ -13,7 +13,7 @@
       >
         <div class="module-icon">
           <el-icon :size="48">
-            <component :is="module.icon" />
+            <component :is="resolveElementIcon(module.icon)" />
           </el-icon>
         </div>
         <div class="module-content">
@@ -30,7 +30,9 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
+import { ArrowRight } from '@element-plus/icons-vue'
 import { CREATIVE_MODULES } from '@/config'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 const router = useRouter()
 const creativeModules = CREATIVE_MODULES

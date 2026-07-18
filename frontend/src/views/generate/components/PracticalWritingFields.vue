@@ -11,7 +11,7 @@
               :class="['card-item', { active: form.doc_type === item.value }]"
               @click="form.doc_type = item.value"
             >
-              <el-icon :size="20"><component :is="item.icon" /></el-icon>
+              <el-icon :size="20"><component :is="resolveElementIcon(item.icon)" /></el-icon>
               <span>{{ item.label }}</span>
             </div>
           </div>
@@ -24,7 +24,7 @@
               :class="['card-item', { active: form.doc_type === item.value }]"
               @click="form.doc_type = item.value"
             >
-              <el-icon :size="20"><component :is="item.icon" /></el-icon>
+              <el-icon :size="20"><component :is="resolveElementIcon(item.icon)" /></el-icon>
               <span>{{ item.label }}</span>
             </div>
           </div>
@@ -37,7 +37,7 @@
               :class="['card-item', { active: form.doc_type === item.value }]"
               @click="form.doc_type = item.value"
             >
-              <el-icon :size="20"><component :is="item.icon" /></el-icon>
+              <el-icon :size="20"><component :is="resolveElementIcon(item.icon)" /></el-icon>
               <span>{{ item.label }}</span>
             </div>
           </div>
@@ -50,7 +50,7 @@
               :class="['card-item', { active: form.doc_type === item.value }]"
               @click="form.doc_type = item.value"
             >
-              <el-icon :size="20"><component :is="item.icon" /></el-icon>
+              <el-icon :size="20"><component :is="resolveElementIcon(item.icon)" /></el-icon>
               <span>{{ item.label }}</span>
             </div>
           </div>
@@ -68,7 +68,7 @@
         :class="['card-item', { active: form.industry === item.value }]"
         @click="form.industry = item.value"
       >
-        <el-icon :size="18"><component :is="item.icon" /></el-icon>
+        <el-icon :size="18"><component :is="resolveElementIcon(item.icon)" /></el-icon>
         <span>{{ item.label }}</span>
       </div>
     </div>
@@ -140,7 +140,7 @@
         :on-progress="(event) => $emit('ref-doc-progress', event)"
         :before-upload="beforeReferenceDocUpload"
         :show-file-list="false"
-        accept=".txt,.md,.doc,.docx,.pdf,.xlsx,.xls"
+        accept=".txt,.md,.doc,.docx,.pdf,.xlsx"
         :disabled="uploadingRefDoc"
       >
         <el-button type="primary" text :loading="uploadingRefDoc">
@@ -162,7 +162,7 @@
       <!-- 提示 -->
       <div class="token-tip">
         <el-icon><InfoFilled /></el-icon>
-        <span>支持 .txt, .md, .doc, .docx, .pdf, .xlsx, .xls 格式，文件字符数量越多消耗的token越多。上传的文档将作为创作的核心参考资料，权重高于其他输入参数。</span>
+        <span>支持 .txt, .md, .doc, .docx, .pdf, .xlsx 格式，文件字符数量越多消耗的token越多。上传的文档将作为创作的核心参考资料，权重高于其他输入参数。</span>
       </div>
     </div>
   </el-form-item>
@@ -182,6 +182,7 @@ import {
   Film, Stamp, CaretRight, Service,
   Upload, InfoFilled
 } from '@element-plus/icons-vue'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 const props = defineProps({
   form: {
@@ -232,11 +233,11 @@ onMounted(() => {
 
 // 上传前验证（参考文档 - 支持更多格式）
 const beforeReferenceDocUpload = (file) => {
-  const allowedExtensions = ['.txt', '.md', '.doc', '.docx', '.pdf', '.xlsx', '.xls']
+  const allowedExtensions = ['.txt', '.md', '.doc', '.docx', '.pdf', '.xlsx']
   const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
   
   if (!allowedExtensions.includes(fileExtension)) {
-    ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf, .xlsx, .xls 格式的文件！')
+    ElMessage.error('只支持上传 .txt, .md, .doc, .docx, .pdf, .xlsx 格式的文件！')
     return false
   }
   if (file.size / 1024 / 1024 > 100) {

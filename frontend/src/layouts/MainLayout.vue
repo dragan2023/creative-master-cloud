@@ -1,81 +1,58 @@
 <template>
   <el-container class="main-layout">
-    <!-- 侧边栏 -->
-    <el-aside :width="sidebarWidth" class="sidebar">
+    <!-- 桌面端侧边栏 -->
+    <el-aside v-if="!isMobile" :width="sidebarWidth" class="sidebar">
       <div class="logo">
         <div class="logo-icon-wrapper">
           <img src="/logo.png" alt="全能创意大师" class="logo-img" />
         </div>
         <span v-show="!collapsed" class="logo-text">全能创意大师</span>
       </div>
-      
-      <el-menu
-        :default-active="activeMenu"
-        :collapse="collapsed"
-        :collapse-transition="false"
-        router
-        class="sidebar-menu"
-      >
-        <el-menu-item index="/">
-          <el-icon><HomeFilled /></el-icon>
-          <template #title>首页</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/generate">
-          <el-icon><MagicStick /></el-icon>
-          <template #title>创意生成</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/api-keys">
-          <el-icon><Key /></el-icon>
-          <template #title>API Key管理</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/knowledge">
-          <el-icon><FolderOpened /></el-icon>
-          <template #title>知识库</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/novel-writer">
-          <el-icon><Edit /></el-icon>
-          <template #title>小说/剧本生成</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/history">
-          <el-icon><Clock /></el-icon>
-          <template #title>历史记录</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/profile">
-          <el-icon><User /></el-icon>
-          <template #title>个人设置</template>
-        </el-menu-item>
-        
-        <!-- 超级管理员入口 -->
-        <el-menu-item v-if="userStore.isSuperAdmin" index="/admin">
-          <el-icon><Setting /></el-icon>
-          <template #title>管理后台</template>
-        </el-menu-item>
-      </el-menu>
-      
+
+      <!-- 菜单数据与权限判断统一来自 menuConfig.js -->
+      <MainNavMenu :collapsed="collapsed" />
+
       <!-- 版本信息 -->
       <div v-show="!collapsed" class="sidebar-footer">
         <span class="version-text">v{{ currentVersion }}</span>
       </div>
     </el-aside>
+
+    <!-- 移动端抽屉导航（与桌面端共用同一份菜单数据） -->
+    <el-drawer
+      v-if="isMobile"
+      v-model="mobileMenuVisible"
+      direction="ltr"
+      size="240px"
+      :with-header="false"
+      class="mobile-nav-drawer"
+    >
+      <div class="logo">
+        <div class="logo-icon-wrapper">
+          <img src="/logo.png" alt="全能创意大师" class="logo-img" />
+        </div>
+        <span class="logo-text">全能创意大师</span>
+      </div>
+      <MainNavMenu :collapsed="false" />
+      <div class="sidebar-footer">
+        <span class="version-text">v{{ currentVersion }}</span>
+      </div>
+    </el-drawer>
     
     <!-- 主内容区 -->
     <el-container>
       <!-- 顶部栏 -->
       <el-header class="header">
         <div class="header-left">
-          <el-button 
-            text 
-            @click="toggleSidebar"
+          <el-button
+            text
             class="collapse-btn"
+            :aria-label="isMobile ? '打开主导航' : (collapsed ? '展开侧边栏' : '收起侧边栏')"
+            @click="handleNavigationToggle"
           >
             <el-icon :size="20">
-              <Fold v-if="!collapsed" />
+              <Menu v-if="isMobile" />
+              <Fold v-else-if="!collapsed" />
               <Expand v-else />
             </el-icon>
           </el-button>
@@ -106,6 +83,10 @@
                 <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon>退出登录
                 </el-dropdown-item>
+                <!-- 退出程序：仅本地桌面运行环境展示（自首页高频操作区迁入） -->
+                <el-dropdown-item v-if="isLocalDesktopEnv" divided command="exit" :disabled="exiting">
+                  <el-icon><CircleClose /></el-icon>退出程序
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -114,8 +95,16 @@
       
       <!-- 内容区 -->
       <el-main class="main-content">
-        <router-view v-slot="{ Component, route }">
-          <component :is="Component" :key="route.fullPath" />
+        <!-- 可恢复运行时错误界面：子页面抛出异常时替代路由视图展示 -->
+        <RuntimeError
+          v-if="runtimeError"
+          :error-id="runtimeError.errorId"
+          @retry="retryCurrentView"
+          @back-home="backToHome"
+        />
+        <router-view v-else v-slot="{ Component }">
+          <!-- key 不含查询参数：查询变化不重挂载；路径变化或点击重试（viewKey 递增）时重新挂载 -->
+          <component :is="Component" :key="`${route.path}::${viewKey}`" />
         </router-view>
       </el-main>
     </el-container>
@@ -123,29 +112,43 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, provide, onErrorCaptured } from 'vue'
+import { ref, computed, onMounted, provide, onErrorCaptured, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore, useAppStore } from '@/stores'
-import { DocumentChecked, Setting, SwitchButton } from '@element-plus/icons-vue'
+import { Setting, SwitchButton, CircleClose, Menu, Fold, Expand, ArrowDown, User } from '@element-plus/icons-vue'
 import { updateApi } from '@/api'
 import { APP_VERSION } from '@/config/version'
 import { getToken, getUserInfo } from '@/utils/authStorage'
+import RuntimeError from '@/views/error/RuntimeError.vue'
+import MainNavMenu from './components/MainNavMenu.vue'
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
+import { useAppExit } from '@/composables/useAppExit'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const appStore = useAppStore()
 
+// 统一响应式布局：断点唯一来源，移动端使用抽屉导航
+const { isMobile, mobileMenuVisible, openMobileMenu, closeMobileMenu } = useResponsiveLayout()
+
+// 退出程序：仅本地桌面运行环境展示入口
+const { exiting, isLocalDesktopEnv, detectRuntimeEnvironment, confirmAndExit } = useAppExit()
+
 // 当前版本号（从后端API获取，失败时使用本地版本）
 const currentVersion = ref(APP_VERSION)
 
 const collapsed = computed(() => appStore.sidebarCollapsed)
 const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
-const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta.title)
 
-function toggleSidebar() {
-  appStore.toggleSidebar()
+/** 导航开关：移动端打开抽屉，桌面端切换侧栏折叠 */
+function handleNavigationToggle() {
+  if (isMobile.value) {
+    openMobileMenu()
+  } else {
+    appStore.toggleSidebar()
+  }
 }
 
 // 获取当前版本号
@@ -166,21 +169,50 @@ async function handleCommand(command) {
     router.push('/admin')
   } else if (command === 'logout') {
     userStore.logout()
+  } else if (command === 'exit') {
+    await confirmAndExit()
   }
 }
 
 // 提供给子组件使用
 provide('currentVersion', currentVersion)
 
-// 全局错误捕获：捕获子组件的错误，防止导致界面卡死
+// 可恢复运行时错误状态：捕获子组件异常后展示错误界面，支持重试重新挂载
+const runtimeError = ref(null)
+const viewKey = ref(0)
+
 onErrorCaptured((error, instance, info) => {
-  console.error('[MainLayout] 捕获到组件错误:', error, info)
-  // 返回 false 阻止错误继续传播
+  const errorId = `UI-${Date.now().toString(36).toUpperCase()}`
+  console.error(`[${errorId}]`, error, info)
+  runtimeError.value = { errorId }
+  // 阻止错误继续传播，防止界面卡死
   return false
+})
+
+/** 重试当前页面：清除错误并递增 viewKey 强制重新挂载路由视图 */
+function retryCurrentView() {
+  runtimeError.value = null
+  viewKey.value += 1
+}
+
+/** 从错误界面返回首页 */
+function backToHome() {
+  runtimeError.value = null
+  router.push('/')
+}
+
+// 路由切换时清除错误状态并关闭移动端抽屉
+watch(() => route.path, () => {
+  if (runtimeError.value) {
+    runtimeError.value = null
+  }
+  closeMobileMenu()
 })
 
 onMounted(async () => {
   await fetchCurrentVersion()
+  // 查询运行环境，决定是否展示“退出程序”入口
+  detectRuntimeEnvironment()
   
   // 验证用户状态：如果 token 存在但 userInfo 不存在，尝试获取用户信息
   const token = getToken()
@@ -266,65 +298,6 @@ onMounted(async () => {
     }
   }
   
-  .sidebar-menu {
-    flex: 1;
-    border-right: none;
-    background: transparent;
-    position: relative;
-    z-index: 1;
-    padding: 8px 0;
-    
-    :deep(.el-menu-item) {
-      color: rgba(255, 255, 255, 0.7);
-      margin: 4px 8px;
-      border-radius: 8px;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      position: relative;
-      overflow: hidden;
-      
-      &::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 3px;
-        background: linear-gradient(180deg, #409EFF, #00D4AA);
-        transform: scaleY(0);
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-      
-      &:hover {
-        background: rgba(64, 158, 255, 0.15);
-        color: #fff;
-        transform: translateX(4px);
-        
-        &::before {
-          transform: scaleY(1);
-        }
-      }
-      
-      &.is-active {
-        background: linear-gradient(90deg, rgba(64, 158, 255, 0.3) 0%, rgba(0, 212, 170, 0.1) 100%);
-        color: #fff;
-        box-shadow: 0 4px 15px rgba(64, 158, 255, 0.2);
-        
-        &::before {
-          transform: scaleY(1);
-        }
-        
-        .el-icon {
-          color: #409EFF;
-        }
-      }
-      
-      .el-icon {
-        font-size: 18px;
-        transition: all 0.3s;
-      }
-    }
-  }
-  
   .sidebar-footer {
     padding: 16px;
     border-top: 1px solid rgba(64, 158, 255, 0.2);
@@ -373,6 +346,11 @@ onMounted(async () => {
       &:hover {
         background: rgba(64, 158, 255, 0.1);
         color: #409EFF;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--primary-color, #409EFF);
+        outline-offset: 2px;
       }
     }
     
@@ -444,5 +422,78 @@ onMounted(async () => {
   padding: 24px;
   overflow-y: auto;
   min-height: calc(100vh - 60px);
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+
+    // 窄屏下隐藏用户名，避免与面包屑互相挤压
+    .header-right .user-info .username {
+      display: none;
+    }
+  }
+}
+</style>
+
+<style lang="scss">
+// 移动端抽屉导航：与桌面端侧栏同一视觉主题（非 scoped：需覆盖 el-drawer 内部结构）
+.mobile-nav-drawer {
+  background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+
+  .el-drawer__body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+  }
+
+  .logo {
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border-bottom: 1px solid rgba(64, 158, 255, 0.2);
+    flex-shrink: 0;
+
+    .logo-icon-wrapper {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      .logo-img {
+        width: 36px;
+        height: 36px;
+        object-fit: contain;
+        border-radius: 5px;
+      }
+    }
+
+    .logo-text {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(90deg, #fff 0%, #409EFF 50%, #00D4AA 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      white-space: nowrap;
+      letter-spacing: 1px;
+    }
+  }
+
+  .sidebar-footer {
+    padding: 16px;
+    border-top: 1px solid rgba(64, 158, 255, 0.2);
+    text-align: center;
+    flex-shrink: 0;
+
+    .version-text {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.4);
+      letter-spacing: 1px;
+    }
+  }
 }
 </style>

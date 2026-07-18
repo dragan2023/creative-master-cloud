@@ -25,9 +25,36 @@ class ProjectStatus(str, enum.Enum):
     PAUSED = "paused"           # 已暂停
 
 
+class GenerationTaskStatus:
+    """生成任务状态常量（持久化于 WritingTask 表，见迁移 019/022）"""
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class KnowledgeBaseStatus:
+    """知识库状态常量（对应 kb_status 列）"""
+    PENDING = "pending"
+    BUILDING = "building"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class StyleAnalysisStatus:
+    """风格分析状态常量（对应 style_analysis_status 列）"""
+    PENDING = "pending"
+    ANALYZING = "analyzing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class NovelProject(BaseModel):
     """小说/剧本项目表"""
     __tablename__ = "novel_projects"
+
+    # 生成任务运行时状态镜像（数据库列已由迁移 022 删除，真实持久化在 WritingTask；
+    # task_manager_db 仍以该属性作跨模块状态镜像，类属性默认值防止读取 AttributeError）
+    generation_task_status = None
 
     user_id = Column(Integer, ForeignKey(
         "users.id", ondelete="CASCADE"), nullable=False, comment="用户ID")
@@ -340,3 +367,93 @@ class NovelProject(BaseModel):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
+
+    # ==================== 生成任务状态管理 ====================
+
+    def mark_generation_started(self) -> None:
+        """标记生成任务开始，并清除上一次失败信息"""
+        self.generation_task_status = GenerationTaskStatus.RUNNING
+        self.error_message = None
+
+    def mark_generation_completed(self) -> None:
+        """标记生成任务完成，并清除上一次失败信息"""
+        self.generation_task_status = GenerationTaskStatus.COMPLETED
+        self.error_message = None
+
+    def mark_generation_failed(self, error: str | None = None) -> None:
+        """标记生成任务失败并记录错误信息"""
+        self.generation_task_status = GenerationTaskStatus.FAILED
+        self.error_message = error
+
+    def is_generation_running(self) -> bool:
+        return self.generation_task_status == GenerationTaskStatus.RUNNING
+
+    def is_generation_completed(self) -> bool:
+        return self.generation_task_status == GenerationTaskStatus.COMPLETED
+
+    def is_generation_failed(self) -> bool:
+        return self.generation_task_status == GenerationTaskStatus.FAILED
+
+    # ==================== 知识库状态管理 ====================
+
+    def mark_kb_building(self) -> None:
+        """标记知识库构建中"""
+        self.kb_status = KnowledgeBaseStatus.BUILDING
+
+    def mark_kb_ready(self) -> None:
+        """标记知识库就绪"""
+        self.kb_status = KnowledgeBaseStatus.READY
+
+    def mark_kb_failed(self, error: str | None = None) -> None:
+        """标记知识库构建失败；error 非空时记录到项目错误信息"""
+        self.kb_status = KnowledgeBaseStatus.FAILED
+        if error is not None:
+            self.error_message = error
+
+    def is_kb_building(self) -> bool:
+        return self.kb_status == KnowledgeBaseStatus.BUILDING
+
+    def is_kb_ready(self) -> bool:
+        return self.kb_status == KnowledgeBaseStatus.READY
+
+    def is_kb_failed(self) -> bool:
+        return self.kb_status == KnowledgeBaseStatus.FAILED
+
+    # ==================== 风格分析状态管理 ====================
+
+    def mark_style_analysis_started(self) -> None:
+        """标记风格分析开始，并清除上一次分析错误"""
+        self.style_analysis_status = StyleAnalysisStatus.ANALYZING
+        self.style_analysis_error = None
+
+    def mark_style_analysis_completed(self) -> None:
+        """标记风格分析完成，并清除上一次分析错误"""
+        self.style_analysis_status = StyleAnalysisStatus.COMPLETED
+        self.style_analysis_error = None
+
+    def mark_style_analysis_failed(self, error: str | None = None) -> None:
+        """标记风格分析失败并记录分析错误"""
+        self.style_analysis_status = StyleAnalysisStatus.FAILED
+        self.style_analysis_error = error
+
+    def is_style_analysis_pending(self) -> bool:
+        return self.style_analysis_status == StyleAnalysisStatus.PENDING
+
+    def is_style_analysis_running(self) -> bool:
+        return self.style_analysis_status == StyleAnalysisStatus.ANALYZING
+
+    def is_style_analysis_completed(self) -> bool:
+        return self.style_analysis_status == StyleAnalysisStatus.COMPLETED
+
+    def is_style_analysis_failed(self) -> bool:
+        return self.style_analysis_status == StyleAnalysisStatus.FAILED
+
+    # ==================== 业务流程检查 ====================
+
+    def can_start_writing(self) -> bool:
+        """是否具备开始写作的前提：大纲内容非空且不能仅为空白字符"""
+        return bool(self.outline_content and self.outline_content.strip())
+
+    def can_restart_generation(self) -> bool:
+        """生成任务运行中不允许重启；其余持久化状态均允许"""
+        return self.generation_task_status != GenerationTaskStatus.RUNNING

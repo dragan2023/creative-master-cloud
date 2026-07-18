@@ -185,7 +185,7 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Edit } from '@element-plus/icons-vue'
+import { Edit, Upload, Document, InfoFilled } from '@element-plus/icons-vue'
 import { movieTypes, genres, platforms } from '../composables/useGenerationForm'
 import MovieStyleSelectorDialog from './MovieStyleSelectorDialog.vue'
 

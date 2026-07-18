@@ -42,12 +42,11 @@ ALLOWED_DOC_TYPES = {
     "application/msword": ".doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
     "application/pdf": ".pdf",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
-    "application/vnd.ms-excel": ".xls"
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx"
 }
 
 # 支持的文档扩展名
-ALLOWED_DOC_EXTENSIONS = [".txt", ".md", ".doc", ".docx", ".pdf", ".xlsx", ".xls"]
+ALLOWED_DOC_EXTENSIONS = [".txt", ".md", ".doc", ".docx", ".pdf", ".xlsx"]
 
 
 def register_upload_routes(router: APIRouter):

@@ -70,6 +70,7 @@ async def _async_get_kb_progress(kb_id: int) -> Dict[str, Any]:
         "total_steps": 6,
         "current_step_index": 0,
         "error": None,
+        "status": "unknown",
         "is_processing": False,
         "updated_at": None
     })
@@ -97,6 +98,10 @@ async def _async_get_all_kb_progress() -> List[Dict[str, Any]]:
 
 def update_kb_progress(kb_id: int, step: str, progress: int, step_index: int, error: str = None, total_steps: int = 6):
     """更新知识库处理进度（同时写入内存和 Redis）"""
+    if error and not error.startswith("KB-"):
+        prefix = "KB-PARSE-001" if step_index == 1 else "KB-PROCESS-001"
+        error = f"{prefix}: {error}"
+    status = "failed" if error else ("completed" if progress >= 100 else "processing")
     progress_data = {
         "kb_id": kb_id,
         "current_step": step,
@@ -104,6 +109,7 @@ def update_kb_progress(kb_id: int, step: str, progress: int, step_index: int, er
         "total_steps": total_steps,
         "current_step_index": step_index,
         "error": error,
+        "status": status,
         "is_processing": error is None and progress < 100,
         "updated_at": get_local_now().isoformat()
     }
@@ -120,6 +126,7 @@ def get_kb_progress(kb_id: int) -> Dict[str, Any]:
         "total_steps": 6,
         "current_step_index": 0,
         "error": None,
+        "status": "unknown",
         "is_processing": False,
         "updated_at": None
     })

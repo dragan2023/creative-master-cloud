@@ -16,11 +16,16 @@ import asyncio
 
 from app.core.logger import get_logger
 from app.core.config import get_settings
+from app.core.blocking_executor import run_blocking
+from app.tools.document_extractors import (
+    SUPPORTED_DOCUMENT_EXTENSIONS,
+    TEXT_ENCODINGS,
+    extract_document,
+)
 
 
 # 支持的编码列表（按优先级排序）
-SUPPORTED_ENCODINGS = ['utf-8', 'gbk',
-                       'gb2312', 'gb18030', 'utf-16', 'latin-1']
+SUPPORTED_ENCODINGS = list(TEXT_ENCODINGS)
 
 
 def read_file_with_encoding(file_path: str, encodings: List[str] = None) -> str:
@@ -121,7 +126,7 @@ class DocumentPreprocessor:
             self.logger.info(f"使用 HTTPS 代理: {https_proxy}")
 
         # 支持的文件扩展名
-        self.supported_extensions = {".pdf", ".docx", ".doc", ".txt", ".md"}
+        self.supported_extensions = set(SUPPORTED_DOCUMENT_EXTENSIONS)
 
     def _refresh_config(self):
         """动态刷新配置（每次处理时调用）"""
@@ -232,36 +237,14 @@ class DocumentPreprocessor:
         except Exception as e:
             self.logger.error(f"文档预处理失败: {str(e)}")
             # 尝试回退到基本解析
-            return await self._fallback_process(file_path, str(e))
+            return {"error": str(e)}
 
     async def _parse_with_fallback(self, file_path: str) -> str:
-        """解析文档：使用 pypdf 或 python-docx"""
-        ext = Path(file_path).suffix.lower()
-
-        try:
-            if ext == ".pdf":
-                from pypdf import PdfReader
-                reader = PdfReader(file_path)
-                text_parts = [page.extract_text()
-                              for page in reader.pages if page.extract_text()]
-                return "\n\n".join(text_parts)
-
-            elif ext in [".docx", ".doc"]:
-                from docx import Document
-                doc = Document(file_path)
-                paragraphs = [
-                    para.text for para in doc.paragraphs if para.text.strip()]
-                return "\n".join(paragraphs)
-
-            elif ext in [".txt", ".md"]:
-                return read_file_with_encoding(file_path)
-
-            else:
-                return ""
-
-        except Exception as e:
-            self.logger.error(f"回退解析失败: {str(e)}")
-            return ""
+        """在有界线程中调用唯一同步文档提取层。"""
+        result = await run_blocking(extract_document, file_path)
+        if "error" in result:
+            raise ValueError(result["error"])
+        return result["content"]
 
     def _filter_content(self, text: str) -> str:
         """
@@ -346,7 +329,10 @@ class DocumentPreprocessor:
         """完全回退处理"""
         self.logger.warning(f"使用完全回退处理: {error}")
 
-        text = await self._parse_with_fallback(file_path)
+        try:
+            text = await self._parse_with_fallback(file_path)
+        except Exception as extraction_error:
+            return {"error": str(extraction_error)}
         chunks = self._fallback_chunk(text)
 
         return {

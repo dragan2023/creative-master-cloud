@@ -7,7 +7,12 @@
     "dev": "vite --host 0.0.0.0 --port 3001",
     "build": "vite build",
     "build:protected": "vite build --mode production",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "check:budget": "node ../scripts/check_frontend_budget.mjs",
+    "verify": "npm run test && npm run build && npm run check:budget"
   },
   "dependencies": {
     "@antv/g6": "^5.0.51",
@@ -25,12 +30,19 @@
     "vue-router": "^4.4.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@vitejs/plugin-vue": "^6.0.2",
+    "@vue/test-utils": "^2.4.11",
     "javascript-obfuscator": "^4.1.0",
+    "jsdom": "^29.1.1",
+    "playwright": "^1.61.1",
     "rollup-plugin-obfuscator": "^1.0.3",
     "sass": "^1.97.3",
     "terser": "^5.31.0",
+    "unplugin-auto-import": "^21.0.0",
+    "unplugin-vue-components": "^32.1.0",
     "vite": "^5.4.11",
-    "vite-plugin-compression": "^0.5.1"
+    "vite-plugin-compression": "^0.5.1",
+    "vitest": "^4.1.10"
   }
 }

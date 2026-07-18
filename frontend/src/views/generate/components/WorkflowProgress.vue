@@ -24,7 +24,7 @@
           <el-icon v-if="step.status === 'running'" class="is-spinning"><Loading /></el-icon>
           <el-icon v-else-if="step.status === 'done'" color="#67C23A"><CircleCheck /></el-icon>
           <el-icon v-else-if="step.status === 'error'" color="#F56C6C"><CircleClose /></el-icon>
-          <el-icon v-else><component :is="step.icon" /></el-icon>
+          <el-icon v-else><component :is="resolveElementIcon(step.icon)" /></el-icon>
         </div>
         <div class="step-content">
           <div class="step-message">{{ step.message }}</div>
@@ -45,7 +45,9 @@
 </template>
 
 <script setup>
+import { Loading, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { stepIcons } from '../composables/useWorkflow'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 defineProps({
   generating: {

@@ -2,7 +2,7 @@
  * 质量控制 composable
  * 管理质控SSE订阅、全局大纲质控、单元概述质控和自动修正逻辑
  */
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { globalOutlineQCApi, unitSummariesQCApi } from '@/api'
 import { getToken } from '@/utils/authStorage'
 
@@ -204,7 +204,6 @@ export function useQualityControl(deps) {
         group: 'qc-warning'
       })
 
-      const { ElMessageBox } = await import('element-plus')
       try {
         await ElMessageBox.confirm(
           '当前没有全局大纲，质控检测可能不准确。您可以：\n\n1. 点击"取消"，先导入全局大纲\n2. 点击"继续"，使用当前内容检测（效果可能不佳）',

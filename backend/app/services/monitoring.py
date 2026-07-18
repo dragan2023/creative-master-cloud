@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from app.core.logger import get_logger
 from app.core.config import get_settings
+from app.utils.time_utils import utc_now_naive
 
 logger = get_logger("monitoring")
 settings = get_settings()
@@ -31,7 +32,7 @@ class RequestMetric:
     response_time_ms: float
     tenant_id: Optional[int] = None
     user_id: Optional[int] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now_naive)
 
 
 @dataclass
@@ -46,7 +47,7 @@ class SystemMetrics:
     disk_total_gb: float
     network_bytes_sent: int
     network_bytes_recv: int
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now_naive)
 
 
 class MonitoringService:
@@ -73,7 +74,7 @@ class MonitoringService:
         })
         
         # 启动时间
-        self._start_time = datetime.utcnow()
+        self._start_time = utc_now_naive()
     
     def record_request(
         self,
@@ -121,7 +122,7 @@ class MonitoringService:
             stats["errors"] += 1
         
         # 更新每日统计
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = utc_now_naive().strftime("%Y-%m-%d")
         daily = self._daily_stats[today]
         daily["total_requests"] += 1
         if user_id:
@@ -170,7 +171,7 @@ class MonitoringService:
         Returns:
             API统计数据
         """
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utc_now_naive() - timedelta(hours=hours)
         
         # 过滤时间范围内的请求
         recent_metrics = [
@@ -235,7 +236,7 @@ class MonitoringService:
         Returns:
             租户统计数据
         """
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utc_now_naive() - timedelta(hours=hours)
         
         # 过滤租户请求
         tenant_metrics = [
@@ -260,7 +261,7 @@ class MonitoringService:
         Returns:
             运行时间数据
         """
-        now = datetime.utcnow()
+        now = utc_now_naive()
         uptime = now - self._start_time
         
         return {
@@ -299,7 +300,7 @@ class MonitoringService:
                 "memory_percent": metrics.memory_percent,
                 "disk_percent": metrics.disk_percent
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utc_now_naive().isoformat()
         }
     
     def clear_old_metrics(self, days: int = 7) -> int:
@@ -312,7 +313,7 @@ class MonitoringService:
         Returns:
             清理的数量
         """
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utc_now_naive() - timedelta(days=days)
         original_count = len(self._request_metrics)
         
         self._request_metrics = [

@@ -196,6 +196,26 @@ SECRET_KEY=your-secret-key-here
 
 ---
 
+## ✅ 质量验证
+
+提交前运行以下命令，确保前端测试/构建/体积预算与后端语法/单元测试全部通过：
+
+```powershell
+cd frontend
+npm.cmd run verify
+cd ..
+python scripts\verify_syntax.py
+python -m pytest backend/tests -v
+```
+
+说明：
+
+- `npm.cmd run verify` = Vitest 单测 + Vite 生产构建 + 产物体积预算检查（`scripts/check_frontend_budget.mjs`）。
+- 后端测试建议使用项目虚拟环境：`backend\venv\Scripts\python.exe -m pytest backend/tests -v`。
+- 体积预算与历史验收结果见 `docs/全能创意大师用户体验与性能优化/优化验收记录.md`。
+
+---
+
 ## 📝 更新日志
 
 ### v5.1 (2026-07-17)

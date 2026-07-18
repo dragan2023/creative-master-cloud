@@ -110,7 +110,11 @@ export function useProjectForm(loadProjects) {
         router.push(`/novel-writer/${res.data.id}`)
       }
     } catch (error) {
-      ElMessage.error(editingProject.value ? '更新失败' : '创建失败')
+      // Axios 错误已由响应拦截器按策略提示一次（error.normalized 存在），
+      // 此处仅兜底本地异常（如响应结构不符），避免同一失败出现两条提示
+      if (!error?.normalized) {
+        ElMessage.error(editingProject.value ? '更新失败' : '创建失败')
+      }
     } finally {
       saving.value = false
     }
@@ -129,7 +133,9 @@ export function useProjectForm(loadProjects) {
       ElMessage.success('项目已删除')
       loadProjects()
     } catch (error) {
-      if (error !== 'cancel') {
+      if (error === 'cancel') return
+      // Axios 错误由拦截器提示一次，此处仅兜底本地异常
+      if (!error?.normalized) {
         ElMessage.error('删除失败')
       }
     }

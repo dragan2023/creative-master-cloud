@@ -415,8 +415,16 @@ async def health_check():
     return {
         "status": "healthy",
         "app_name": settings.APP_NAME,
-        "version": settings.APP_VERSION
+        "version": settings.APP_VERSION,
+        "runtime_env": settings.RUNTIME_ENV
     }
+
+
+# 运行环境查询端点（前端据此决定是否展示“退出程序”入口）
+@app.get("/api/v1/system/environment", tags=["系统"])
+async def get_runtime_environment():
+    """返回运行环境标识：local_desktop=本地桌面运行，server=云端部署"""
+    return {"runtime_env": settings.RUNTIME_ENV}
 
 
 # 退出程序端点（需超级管理员权限）
