@@ -55,9 +55,12 @@ test('长任务断网15秒恢复后单连接续传，终态只刷新一次', asy
 
   const taskStatusRequests = []
   const unitsRefreshRequests = []
+  const sseConnections = []
   page.on('request', (request) => {
     const sanitizedUrl = request.url().split('?')[0]
-    if (sanitizedUrl.includes(`/writing-tasks/${taskId}/units`)) {
+    if (sanitizedUrl.includes('/task-events') || request.resourceType() === 'eventsource') {
+      sseConnections.push({ url: sanitizedUrl, at: Date.now() })
+    } else if (sanitizedUrl.includes(`/writing-tasks/${taskId}/units`)) {
       unitsRefreshRequests.push({ url: sanitizedUrl, at: Date.now() })
     } else if (sanitizedUrl.includes('/writing-tasks')) {
       taskStatusRequests.push({ url: sanitizedUrl, at: Date.now() })
@@ -146,11 +149,13 @@ test('长任务断网15秒恢复后单连接续传，终态只刷新一次', asy
     .slice(taskRequestCountBeforeLeave)
     .filter((entry) => entry.url.includes(`/writing-tasks/${taskId}`))
   expect(newTaskRequests, '离开工作台后不得出现该任务状态轮询').toHaveLength(0)
+  expect(sseConnections, '写作工作台不得为同一任务并行启动SSE主连接').toHaveLength(0)
 
   // ==================== 证据输出（已脱敏，无token） ====================
   console.log(
-    '[E2E证据] WS连接数=%d, 任务状态请求数=%d, 内容刷新数=%d',
+    '[E2E证据] WS连接数=%d, SSE连接数=%d, 任务状态请求数=%d, 内容刷新数=%d',
     wsConnections.length,
+    sseConnections.length,
     taskStatusRequests.length,
     unitsRefreshRequests.length
   )

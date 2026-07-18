@@ -473,6 +473,13 @@ async def exit_application(current_user=Depends(get_current_superuser)):
 # 注册路由
 app.include_router(api_router, prefix="/api/v1")
 
+# QA测试钩子路由（仅测试环境）：QA_TEST_HOOKS=1 时挂载，生产环境不注册
+# 用于断网恢复E2E的任务数据准备与真实WebSocket推送触发（阶段03 §3.5）
+if os.getenv("QA_TEST_HOOKS") == "1":
+    from app.api.v1.endpoints import qa_test_hooks
+    app.include_router(qa_test_hooks.router, prefix="/api/v1")
+    logging.getLogger("app").warning("QA_TEST_HOOKS已启用：/api/v1/qa-test-hooks 测试钩子端点已挂载（仅限测试环境）")
+
 
 # ==================== WebSocket端点 ====================
 # [2026-03-28] 多Agent重构: 写作任务WebSocket端点
