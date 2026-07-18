@@ -24,6 +24,73 @@ class RequestOwnedStream(BytesIO):
     pass
 
 
+class FakeUploadDB:
+    def __init__(
+        self,
+        *,
+        commit_error=None,
+        refresh_error=None,
+        rollback_error=None,
+        block_commit=False,
+    ):
+        self.commit_error = commit_error
+        self.refresh_error = refresh_error
+        self.rollback_error = rollback_error
+        self.block_commit = block_commit
+        self.commit_started = asyncio.Event()
+        self.commit_release = asyncio.Event()
+        self.rollback_count = 0
+        self.added = []
+
+    def add(self, value):
+        self.added.append(value)
+
+    async def commit(self):
+        self.commit_started.set()
+        if self.block_commit:
+            await self.commit_release.wait()
+        if self.commit_error is not None:
+            raise self.commit_error
+
+    async def rollback(self):
+        self.rollback_count += 1
+        if self.rollback_error is not None:
+            raise self.rollback_error
+
+    async def refresh(self, value):
+        if self.refresh_error is not None:
+            raise self.refresh_error
+        value.id = 101
+
+
+def _configure_upload_test(monkeypatch, tmp_path):
+    monkeypatch.setattr(upload_module, "kb_processing_progress", {})
+    monkeypatch.setattr(
+        upload_module,
+        "settings",
+        SimpleNamespace(
+            ALLOWED_EXTENSIONS={".txt"},
+            MAX_UPLOAD_SIZE=1024,
+            get_chroma_dir=lambda: str(tmp_path),
+        ),
+    )
+
+
+def _start_upload(db):
+    upload = SimpleNamespace(filename="notes.txt", size=7, file=BytesIO(b"content"))
+    return asyncio.create_task(
+        upload_module.upload_knowledge_base_handler(
+            background_tasks=None,
+            name="notes",
+            file=upload,
+            description="",
+            category="general",
+            current_user=SimpleNamespace(id=9),
+            db=db,
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_upload_copy_allows_event_loop_heartbeat(monkeypatch, tmp_path):
     started = threading.Event()
@@ -41,11 +108,7 @@ async def test_upload_copy_allows_event_loop_heartbeat(monkeypatch, tmp_path):
         heartbeat_before_release.append(heartbeat_signal.wait(0.1))
         release.set()
 
-    def stop_after_copy(_path):
-        raise StopAfterCopy("copy completed")
-
     monkeypatch.setattr(upload_module.shutil, "copyfileobj", blocking_copy)
-    monkeypatch.setattr(upload_module.os.path, "getsize", stop_after_copy)
     monkeypatch.setattr(upload_module, "kb_processing_progress", {})
     monkeypatch.setattr(
         upload_module,
@@ -66,6 +129,7 @@ async def test_upload_copy_allows_event_loop_heartbeat(monkeypatch, tmp_path):
         heartbeat_signal.set()
 
     upload = SimpleNamespace(filename="notes.txt", size=7, file=BytesIO(b"content"))
+    db = FakeUploadDB(refresh_error=StopAfterCopy("copy completed"))
     handler_task = asyncio.create_task(
         upload_module.upload_knowledge_base_handler(
             background_tasks=None,
@@ -74,7 +138,7 @@ async def test_upload_copy_allows_event_loop_heartbeat(monkeypatch, tmp_path):
             description="",
             category="general",
             current_user=SimpleNamespace(id=9),
-            db=None,
+            db=db,
         )
     )
     heartbeat_task = asyncio.create_task(heartbeat())
@@ -188,3 +252,84 @@ async def test_copy_failure_removes_temporary_and_final_files(monkeypatch, tmp_p
 
     upload_dir = tmp_path / "uploads"
     assert list(upload_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_cancelling_during_commit_rolls_back_and_removes_owned_file(
+    monkeypatch,
+    tmp_path,
+):
+    _configure_upload_test(monkeypatch, tmp_path)
+    cleanup_started = threading.Event()
+    cleanup_release = threading.Event()
+    original_remove = upload_module._remove_file_if_exists
+
+    def gated_remove(path):
+        cleanup_started.set()
+        cleanup_release.wait()
+        original_remove(path)
+
+    monkeypatch.setattr(upload_module, "_remove_file_if_exists", gated_remove)
+    db = FakeUploadDB(block_commit=True)
+    handler_task = _start_upload(db)
+
+    try:
+        await asyncio.wait_for(db.commit_started.wait(), 1.0)
+        handler_task.cancel()
+        assert await asyncio.to_thread(cleanup_started.wait, 1.0)
+        handler_task.cancel()
+        await asyncio.sleep(0)
+        assert not handler_task.done()
+    finally:
+        cleanup_release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await handler_task
+
+    upload_dir = tmp_path / "uploads"
+    assert db.rollback_count == 1
+    assert list(upload_dir.glob("*.part")) == []
+    assert list(upload_dir.glob("*.txt")) == []
+
+
+@pytest.mark.asyncio
+async def test_commit_failure_rolls_back_removes_file_and_preserves_exception(
+    monkeypatch,
+    tmp_path,
+):
+    _configure_upload_test(monkeypatch, tmp_path)
+    commit_error = RuntimeError("commit failed")
+    db = FakeUploadDB(
+        commit_error=commit_error,
+        rollback_error=RuntimeError("rollback failed"),
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        await _start_upload(db)
+
+    upload_dir = tmp_path / "uploads"
+    assert caught.value is commit_error
+    assert db.rollback_count == 1
+    assert list(upload_dir.glob("*.part")) == []
+    assert list(upload_dir.glob("*.txt")) == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_after_commit_keeps_db_owned_file_without_rollback(
+    monkeypatch,
+    tmp_path,
+):
+    _configure_upload_test(monkeypatch, tmp_path)
+    refresh_error = RuntimeError("refresh failed")
+    db = FakeUploadDB(refresh_error=refresh_error)
+
+    with pytest.raises(RuntimeError) as caught:
+        await _start_upload(db)
+
+    upload_dir = tmp_path / "uploads"
+    final_files = list(upload_dir.glob("*.txt"))
+    assert caught.value is refresh_error
+    assert db.rollback_count == 0
+    assert list(upload_dir.glob("*.part")) == []
+    assert len(final_files) == 1
+    assert final_files[0].read_bytes() == b"content"

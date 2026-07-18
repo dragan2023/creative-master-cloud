@@ -40,6 +40,45 @@ def _copy_uploaded_file(source, destination: str) -> None:
         shutil.copyfileobj(source, buffer)
 
 
+def _remove_file_if_exists(path: str) -> None:
+    """Remove an owned upload idempotently in the blocking executor."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+async def _wait_for_cleanup_task(task: asyncio.Task) -> None:
+    """Wait for bounded cleanup even if the caller is cancelled repeatedly."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+    task.result()
+
+
+async def _rollback_and_remove_upload(db, file_path: str, logger) -> None:
+    """Best-effort rollback and file removal without hiding the root error."""
+    try:
+        await db.rollback()
+    except BaseException as rollback_error:
+        logger.warning(
+            f"知识库上传事务回滚失败: file_path={file_path}, "
+            f"error={rollback_error}",
+            exc_info=True,
+        )
+
+    try:
+        await run_blocking(_remove_file_if_exists, file_path)
+    except BaseException as remove_error:
+        logger.warning(
+            f"知识库上传文件清理失败: file_path={file_path}, "
+            f"error={remove_error}",
+            exc_info=True,
+        )
+
+
 async def upload_knowledge_base_handler(
     background_tasks: BackgroundTasks,
     name: str,
@@ -112,36 +151,53 @@ async def upload_knowledge_base_handler(
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-    file_size = os.path.getsize(file_path)
-    if file_size > settings.MAX_UPLOAD_SIZE:
-        os.remove(file_path)
-        raise ValidationException(
-            message=f"文件大小超过限制 ({settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB)"
+    record_committed = False
+    try:
+        file_size = os.path.getsize(file_path)
+        if file_size > settings.MAX_UPLOAD_SIZE:
+            raise ValidationException(
+                message=f"文件大小超过限制 ({settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB)"
+            )
+
+        # 解析category
+        try:
+            kb_category = KnowledgeBaseCategory(category)
+        except ValueError:
+            kb_category = KnowledgeBaseCategory.GENERAL
+
+        # 创建知识库记录
+        kb = KnowledgeBase(
+            user_id=current_user.id,
+            name=name,
+            description=description,
+            type=KnowledgeBaseType.TEMP,
+            category=kb_category,
+            status=KnowledgeBaseStatus.PROCESSING,
+            file_path=file_path,
+            file_type=file_ext[1:],
+            file_size=file_size,
+            collection_name=f"kb_{file_id}",
+            expires_at=None
         )
 
-    # 解析category
-    try:
-        kb_category = KnowledgeBaseCategory(category)
-    except ValueError:
-        kb_category = KnowledgeBaseCategory.GENERAL
+        db.add(kb)
+        await db.commit()
+        record_committed = True
+    except asyncio.CancelledError:
+        if not record_committed:
+            cleanup_task = asyncio.create_task(
+                _rollback_and_remove_upload(db, file_path, logger)
+            )
+            await _wait_for_cleanup_task(cleanup_task)
+        raise
+    except Exception:
+        if not record_committed:
+            cleanup_task = asyncio.create_task(
+                _rollback_and_remove_upload(db, file_path, logger)
+            )
+            await _wait_for_cleanup_task(cleanup_task)
+        raise
 
-    # 创建知识库记录
-    kb = KnowledgeBase(
-        user_id=current_user.id,
-        name=name,
-        description=description,
-        type=KnowledgeBaseType.TEMP,
-        category=kb_category,
-        status=KnowledgeBaseStatus.PROCESSING,
-        file_path=file_path,
-        file_type=file_ext[1:],
-        file_size=file_size,
-        collection_name=f"kb_{file_id}",
-        expires_at=None
-    )
-
-    db.add(kb)
-    await db.commit()
     await db.refresh(kb)
 
     # 后台处理知识库
