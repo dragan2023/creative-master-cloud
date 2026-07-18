@@ -59,7 +59,24 @@ async def test_non_qa_task_cannot_emit_terminal_status():
 
 
 @pytest.mark.asyncio
+async def test_same_user_normal_project_cannot_be_registered_as_qa_task():
+    db = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await qa_test_hooks.seed_running_writing_task(
+            request=qa_test_hooks.SeedRunningTaskRequest(project_id=70, total_units=5),
+            current_user=SimpleNamespace(id=7),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 403
+    db.execute.assert_not_awaited()
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_cross_user_cannot_emit_or_cleanup_registered_qa_task():
+    qa_test_hooks._register_qa_project(project_id=15, user_id=7)
     qa_test_hooks._register_qa_task(task_id=92, user_id=7, project_id=15)
     db = AsyncMock()
     foreign_user = SimpleNamespace(id=8)
@@ -101,6 +118,7 @@ async def test_qa_terminal_emit_uses_production_status_change_path(monkeypatch):
         send_task_complete=AsyncMock(),
     )
     monkeypatch.setattr(qa_test_hooks, "get_websocket_manager", lambda: manager)
+    qa_test_hooks._register_qa_project(project_id=15, user_id=7)
     qa_test_hooks._register_qa_task(task_id=93, user_id=7, project_id=15)
 
     response = await qa_test_hooks.emit_writing_task_complete(

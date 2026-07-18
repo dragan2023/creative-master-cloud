@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url'
 import {
   installSignalCleanup,
   runPlaywright,
+  shutdownOwnedProcess,
+  signalOwnedProcess,
   spawnOwned,
-  terminateOwnedProcess
 } from './run-e2e-processes.mjs'
 
 const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -94,21 +95,31 @@ async function main() {
   const pythonPath = process.platform === 'win32'
     ? path.join(backendDir, 'venv', 'Scripts', 'python.exe')
     : path.join(backendDir, 'venv', 'bin', 'python')
-  const vitePath = path.join(frontendDir, 'node_modules', 'vite', 'bin', 'vite.js')
+  const backendWrapperPath = path.join(backendDir, 'scripts', 'run_e2e_server.py')
+  const viteWrapperPath = path.join(frontendDir, 'scripts', 'run-e2e-vite.mjs')
   const ownedChildren = []
   let cleanupPromise = null
-  const cleanup = () => {
+  const cleanup = (signal = null) => {
     if (!cleanupPromise) {
       cleanupPromise = (async () => {
         const errors = []
         for (const child of [...ownedChildren].reverse()) {
           try {
-            await terminateOwnedProcess(child)
+            if (signal) {
+              await signalOwnedProcess(child, signal)
+            } else {
+              await shutdownOwnedProcess(child)
+            }
           } catch (error) {
             errors.push(error)
           }
         }
-        if (errors.length) throw new AggregateError(errors, 'E2E自有进程清理失败')
+        if (errors.length) {
+          throw new AggregateError(
+            errors,
+            `E2E自有进程清理失败: ${errors.map((error) => error?.message || error).join(' | ')}`
+          )
+        }
       })()
     }
     return cleanupPromise
@@ -119,22 +130,22 @@ async function main() {
     await assertOwnedPortsAreFree()
     const backend = await spawnOwned(
       pythonPath,
-      ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8002'],
+      [backendWrapperPath],
       {
         cwd: backendDir,
         env: { ...process.env, QA_TEST_HOOKS: '1', RUNTIME_ENV: 'test' },
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe']
       }
     )
     ownedChildren.push(backend)
 
     const vite = await spawnOwned(
       process.execPath,
-      [vitePath, '--host', '127.0.0.1', '--port', '3001', '--strictPort'],
+      [viteWrapperPath],
       {
         cwd: frontendDir,
-        env: { ...process.env, BROWSER: 'none' },
-        stdio: ['ignore', 'pipe', 'pipe']
+        env: { ...process.env, BROWSER: 'none', E2E_VITE_PORT: '3001' },
+        stdio: ['pipe', 'pipe', 'pipe']
       }
     )
     ownedChildren.push(vite)

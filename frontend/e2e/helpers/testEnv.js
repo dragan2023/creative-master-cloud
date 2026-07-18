@@ -57,16 +57,14 @@ function withAuth(token, data) {
  */
 export async function createTestProject(api, token) {
   const response = await api.post(
-    '/api/v1/novel-writer/projects',
+    '/api/v1/qa-test-hooks/projects',
     withAuth(token, {
-      title: `E2E断网恢复-${Date.now()}`,
-      content_type: 'novel',
-      genre: '测试'
+      title: `E2E断网恢复-${Date.now()}`
     })
   )
-  expect(response.ok(), '创建测试项目应成功').toBeTruthy()
+  expect(response.ok(), '创建并登记QA专用项目应成功').toBeTruthy()
   const body = await response.json()
-  return body.data.id
+  return body.data.project_id
 }
 
 /**

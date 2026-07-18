@@ -14,6 +14,7 @@ QA测试钩子端点（仅测试环境启用）
 创建时间: 2026-07-18（阶段03 §3.5 断网恢复E2E配套）
 """
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -24,6 +25,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logger import get_logger
 from app.models import NovelProject, User, WritingTask
+from app.models.novel_project import ProjectType
 from app.models.writing_task import TaskStatus
 from app.schemas.common import ResponseModel
 from app.services.writing_engine.websocket_manager import get_websocket_manager
@@ -32,10 +34,30 @@ router = APIRouter(prefix="/qa-test-hooks", tags=["QA测试钩子"])
 logger = get_logger("qa_test_hooks")
 
 # 进程内私有登记是QA操作权的唯一来源；普通API无法写入或伪造。
+_qa_project_registry: dict[int, int] = {}
 _qa_task_registry: dict[int, tuple[int, int]] = {}
 
 
+def _register_qa_project(project_id: int, user_id: int) -> None:
+    _qa_project_registry[project_id] = user_id
+
+
+def _require_qa_project_owner(project_id: int, user_id: int) -> None:
+    owner_id = _qa_project_registry.get(project_id)
+    if owner_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="项目不是本进程创建的QA专用项目",
+        )
+    if owner_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权操作其他用户的QA专用项目",
+        )
+
+
 def _register_qa_task(task_id: int, user_id: int, project_id: int) -> None:
+    _require_qa_project_owner(project_id, user_id)
     _qa_task_registry[task_id] = (user_id, project_id)
 
 
@@ -52,12 +74,19 @@ def _require_qa_task_owner(task_id: int, user_id: int) -> int:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权操作其他用户的QA任务",
         )
+    _require_qa_project_owner(project_id, user_id)
     return project_id
 
 
 def _clear_qa_task_registry_for_tests() -> None:
     """仅供单元测试隔离模块进程状态。"""
+    _qa_project_registry.clear()
     _qa_task_registry.clear()
+
+
+class CreateQaProjectRequest(BaseModel):
+    """创建QA专用项目的请求。"""
+    title: str = Field("E2E断网恢复", min_length=1, max_length=200)
 
 
 class SeedRunningTaskRequest(BaseModel):
@@ -69,6 +98,37 @@ class SeedRunningTaskRequest(BaseModel):
 class EmitCompleteRequest(BaseModel):
     """触发任务完成推送的请求"""
     total_word_count: int = Field(12000, ge=0, description="推送的总字数")
+
+
+@router.post("/projects", response_model=ResponseModel[dict])
+async def create_qa_project(
+    request: CreateQaProjectRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """创建并登记只能由QA hook后续seed/cleanup的专用项目。"""
+    project = NovelProject(
+        user_id=current_user.id,
+        title=request.title,
+        project_type=ProjectType.NOVEL,
+        content_type="novel",
+        genre="QA测试",
+        project_code=f"QA_{uuid4().hex[:20]}",
+        generation_config={},
+        knowledge_base_config={},
+        novel_config={},
+    )
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    _register_qa_project(project.id, current_user.id)
+    logger.info("QA钩子创建专用项目: project_id=%s, user_id=%s", project.id, current_user.id)
+    return ResponseModel(
+        success=True,
+        code=200,
+        message="QA专用项目已创建",
+        data={"project_id": project.id},
+    )
 
 
 @router.post("/writing-tasks/seed-running", response_model=ResponseModel[dict])
@@ -83,6 +143,7 @@ async def seed_running_writing_task(
     只写数据库，不启动Pipeline，因此任务会保持running状态，
     为断网/恢复测试提供持续时间足够的活动任务。
     """
+    _require_qa_project_owner(request.project_id, current_user.id)
     project_result = await db.execute(
         select(NovelProject).where(
             and_(
@@ -224,6 +285,7 @@ async def cleanup_qa_writing_task(
     await db.delete(project)
     await db.commit()
     _qa_task_registry.pop(task_id, None)
+    _qa_project_registry.pop(project_id, None)
     logger.info("QA钩子清理任务与项目: task_id=%s, project_id=%s", task_id, project_id)
     return ResponseModel(
         success=True,
