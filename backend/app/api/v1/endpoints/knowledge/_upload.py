@@ -17,6 +17,7 @@ from app.core.database import SYNC_DATABASE_URL, get_db
 from app.core.config import get_settings
 from app.core.logger import get_logger
 from app.core.exceptions import ValidationException
+from app.core.blocking_executor import run_blocking
 from app.models import (
     KnowledgeBase, KnowledgeBaseType, KnowledgeBaseStatus,
     KnowledgeBaseCategory, User
@@ -31,6 +32,12 @@ from ._state import (
 )
 
 settings = get_settings()
+
+
+def _copy_uploaded_file(source, destination: str) -> None:
+    """Copy an uploaded stream while owning the destination file in one thread."""
+    with open(destination, "wb") as buffer:
+        shutil.copyfileobj(source, buffer)
 
 
 async def upload_knowledge_base_handler(
@@ -75,8 +82,7 @@ async def upload_knowledge_base_handler(
     file_id = str(uuid.uuid4())
     file_path = os.path.join(upload_dir, f"{file_id}{file_ext}")
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    await run_blocking(_copy_uploaded_file, file.file, file_path)
 
     file_size = os.path.getsize(file_path)
     if file_size > settings.MAX_UPLOAD_SIZE:

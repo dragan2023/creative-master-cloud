@@ -5,6 +5,7 @@ import re
 import time
 
 from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+from app.core.blocking_executor import run_blocking
 
 
 class RetrieveForRevisionMixin:
@@ -54,7 +55,10 @@ class RetrieveForRevisionMixin:
 
             # 诊断：检查向量库集合状态
             try:
-                doc_count = self.vector_store.count_documents(collection_name)
+                doc_count = await run_blocking(
+                    self.vector_store.count_documents,
+                    collection_name,
+                )
                 self.logger.info(
                     f"向量库集合状态: collection={collection_name}, doc_count={doc_count}")
             except Exception as count_err:
@@ -63,7 +67,8 @@ class RetrieveForRevisionMixin:
                 doc_count = 0
 
             # 1. 检索全局大纲内容
-            global_results = self.vector_store.query(
+            global_results = await run_blocking(
+                self.vector_store.query,
                 collection_name=collection_name,
                 query_texts=[query_text],
                 n_results=n_results,
@@ -89,7 +94,8 @@ class RetrieveForRevisionMixin:
                 try:
                     repair_result = await self.repair_kb_vector_store(project_id)
                     if repair_result["success"]:
-                        global_results = self.vector_store.query(
+                        global_results = await run_blocking(
+                            self.vector_store.query,
                             collection_name=collection_name,
                             query_texts=[query_text],
                             n_results=n_results,
@@ -122,7 +128,8 @@ class RetrieveForRevisionMixin:
                         })
 
             # 2. 检索当前单元大纲内容（严禁其他单元）
-            unit_results = self.vector_store.query(
+            unit_results = await run_blocking(
+                self.vector_store.query,
                 collection_name=collection_name,
                 query_texts=[query_text],
                 n_results=n_results,

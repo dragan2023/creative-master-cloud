@@ -8,6 +8,7 @@ import os
 import time
 
 from app.tools.novel_graph_rag.impl.generator import NovelKnowledgeGraph
+from app.core.blocking_executor import run_blocking
 
 
 class RetrieveGlobalOnlyMixin:
@@ -47,7 +48,8 @@ class RetrieveGlobalOnlyMixin:
         try:
             collection_name = self.get_collection_name(project_id)
 
-            query_result = self.vector_store.query(
+            query_result = await run_blocking(
+                self.vector_store.query,
                 collection_name=collection_name,
                 query_texts=[query_text],
                 n_results=n_results,
@@ -64,7 +66,8 @@ class RetrieveGlobalOnlyMixin:
                     repair_result = await self.repair_kb_vector_store(project_id)
                     if repair_result["success"]:
                         # 重建成功后重新查询
-                        query_result = self.vector_store.query(
+                        query_result = await run_blocking(
+                            self.vector_store.query,
                             collection_name=collection_name,
                             query_texts=[query_text],
                             n_results=n_results,

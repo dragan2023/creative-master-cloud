@@ -14,6 +14,7 @@ import os
 import re
 
 from app.core.config import get_settings
+from app.core.blocking_executor import run_blocking
 
 
 class FileParser:
@@ -93,8 +94,7 @@ class FileParser:
             return {"error": f"解析失败: {str(e)}"}
 
     async def _parse_pdf(self, file_path: str) -> Dict[str, Any]:
-        """
-        解析 PDF 文件
+        """解析 PDF 文件（同步内核放入有界线程执行器，避免阻塞事件循环）
 
         Args:
             file_path: 文件路径
@@ -102,6 +102,10 @@ class FileParser:
         Returns:
             解析结果
         """
+        return await run_blocking(self._parse_pdf_sync, file_path)
+
+    def _parse_pdf_sync(self, file_path: str) -> Dict[str, Any]:
+        """PDF 解析同步内核"""
         from pypdf import PdfReader
 
         reader = PdfReader(file_path)
@@ -125,8 +129,7 @@ class FileParser:
         }
 
     async def _parse_docx(self, file_path: str) -> Dict[str, Any]:
-        """
-        解析 Word 文件
+        """解析 Word 文件（同步内核放入有界线程执行器，避免阻塞事件循环）
 
         Args:
             file_path: 文件路径
@@ -134,6 +137,10 @@ class FileParser:
         Returns:
             解析结果
         """
+        return await run_blocking(self._parse_docx_sync, file_path)
+
+    def _parse_docx_sync(self, file_path: str) -> Dict[str, Any]:
+        """Word 解析同步内核"""
         from docx import Document
 
         doc = Document(file_path)
@@ -165,8 +172,7 @@ class FileParser:
         }
 
     async def _parse_xlsx(self, file_path: str) -> Dict[str, Any]:
-        """
-        解析 Excel 文件（.xlsx / .xls）
+        """解析 Excel 文件（.xlsx / .xls，同步内核放入有界线程执行器）
 
         Args:
             file_path: 文件路径
@@ -174,6 +180,10 @@ class FileParser:
         Returns:
             解析结果
         """
+        return await run_blocking(self._parse_xlsx_sync, file_path)
+
+    def _parse_xlsx_sync(self, file_path: str) -> Dict[str, Any]:
+        """Excel 解析同步内核"""
         try:
             import openpyxl
         except ImportError:
@@ -209,8 +219,7 @@ class FileParser:
         }
 
     async def _parse_txt(self, file_path: str) -> Dict[str, Any]:
-        """
-        解析 TXT/MD 文件
+        """解析 TXT/MD 文件（同步内核放入有界线程执行器，避免阻塞事件循环）
 
         Args:
             file_path: 文件路径
@@ -218,6 +227,10 @@ class FileParser:
         Returns:
             解析结果
         """
+        return await run_blocking(self._parse_txt_sync, file_path)
+
+    def _parse_txt_sync(self, file_path: str) -> Dict[str, Any]:
+        """TXT/MD 解析同步内核（尝试多种编码）"""
         # 尝试多种编码
         encodings = ["utf-8", "gbk", "gb2312", "utf-16", "latin-1"]
         content = None

@@ -9,6 +9,7 @@
 """
 from typing import List, Dict, Any, Optional
 
+from app.core.blocking_executor import run_blocking
 from app.core.vector_store import vector_store, get_vector_store
 from app.tools.graph_rag import get_graph_rag, GraphRAG
 from app.core.logger import get_logger
@@ -43,11 +44,12 @@ class KnowledgeRetrievalTool:
             检索结果列表
         """
         try:
-            results = self.vector_store.query(
+            results = await run_blocking(
+                self.vector_store.query,
                 collection_name=collection_name,
                 query_texts=[query],
                 n_results=n_results,
-                where=where_filter
+                where=where_filter,
             )
 
             formatted_results = []

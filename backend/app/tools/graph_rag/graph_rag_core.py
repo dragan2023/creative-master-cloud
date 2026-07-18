@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 import os
 
 from app.core.logger import get_logger
+from app.core.blocking_executor import run_blocking
 from app.core.vector_store import get_vector_store
 from app.core.config import get_settings
 
@@ -147,10 +148,11 @@ class GraphRAG:
         """
         # 1. 向量检索
         try:
-            vector_results = self.vector_store.query(
+            vector_results = await run_blocking(
+                self.vector_store.query,
                 collection_name=collection_name,
                 query_texts=[query],
-                n_results=n_results
+                n_results=n_results,
             )
         except Exception as e:
             self.logger.warning(f"向量检索失败: {str(e)}")

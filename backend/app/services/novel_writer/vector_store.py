@@ -11,6 +11,7 @@ import os
 from typing import List, Dict, Any, Optional
 
 from app.core.logger import get_logger
+from app.core.blocking_executor import run_blocking
 from app.core.vector_store import get_vector_store
 
 
@@ -136,10 +137,11 @@ class ProjectVectorStore:
             检索结果列表
         """
         try:
-            results = self.vector_store.query(
+            results = await run_blocking(
+                self.vector_store.query,
                 collection_name=collection_name,
                 query_texts=[query],
-                n_results=n_results
+                n_results=n_results,
             )
 
             formatted_results = []

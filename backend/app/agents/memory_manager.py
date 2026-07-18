@@ -14,6 +14,7 @@ import uuid
 from app.core.redis_client import redis_manager
 from app.core.vector_store import vector_store
 from app.core.config import get_settings
+from app.core.blocking_executor import run_blocking
 from app.models.base import get_local_now
 
 
@@ -257,10 +258,11 @@ class MemoryManager:
         collection_name = self._get_user_collection_name(user_id)
 
         try:
-            results = vector_store.query(
+            results = await run_blocking(
+                vector_store.query,
                 collection_name=collection_name,
                 query_texts=[query],
-                n_results=n_results
+                n_results=n_results,
             )
 
             # 格式化结果
