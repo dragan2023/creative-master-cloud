@@ -111,6 +111,7 @@ nul
 dist/
 build/
 backend/app/static/assets/
+backend/app/static/brand/
 backend/app/static/index.html
 !backend/app/static/.gitkeep
 
@@ -138,6 +139,9 @@ frontend/fix_imports.ps1
 
 # ===== 工作文档 =====
 docs/
+
+# ===== 本地视觉探索会话 =====
+.superpowers/
 
 # ===== 备份和打包文件 =====
 *.backup

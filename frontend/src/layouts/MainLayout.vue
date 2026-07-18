@@ -4,7 +4,7 @@
     <el-aside :width="sidebarWidth" class="sidebar">
       <div class="logo">
         <div class="logo-icon-wrapper">
-          <img src="/logo.png" alt="全能创意大师" class="logo-img" />
+          <img src="/brand/ink-monkey-logo.png" alt="全能创意大师水墨金丝猴标志" class="logo-img" />
         </div>
         <span v-show="!collapsed" class="logo-text">全能创意大师</span>
       </div>
@@ -203,7 +203,7 @@ onMounted(async () => {
 }
 
 .sidebar {
-  background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+  background: linear-gradient(180deg, #101a2e 0%, #17243a 58%, #1f2633 100%);
   display: flex;
   flex-direction: column;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -211,7 +211,6 @@ onMounted(async () => {
   position: relative;
   overflow: hidden;
   
-  // 科技感背景装饰
   &::before {
     content: '';
     position: absolute;
@@ -219,9 +218,9 @@ onMounted(async () => {
     left: 0;
     right: 0;
     bottom: 0;
-    background: 
-      radial-gradient(ellipse at 50% 0%, rgba(64, 158, 255, 0.1) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 100%, rgba(0, 212, 170, 0.08) 0%, transparent 50%);
+    background:
+      radial-gradient(ellipse at 0% 0%, rgba(211, 150, 75, 0.13) 0%, transparent 45%),
+      radial-gradient(ellipse at 80% 100%, rgba(74, 99, 142, 0.18) 0%, transparent 54%);
     pointer-events: none;
   }
   
@@ -231,7 +230,7 @@ onMounted(async () => {
     align-items: center;
     justify-content: center;
     gap: 12px;
-    border-bottom: 1px solid rgba(64, 158, 255, 0.2);
+    border-bottom: 1px solid rgba(236, 199, 132, 0.18);
     position: relative;
     z-index: 1;
     
@@ -247,20 +246,19 @@ onMounted(async () => {
       }
       
       .logo-img {
-        width: 36px;
-        height: 36px;
-        object-fit: contain;
-        border-radius: 5px;
+        width: 38px;
+        height: 38px;
+        object-fit: cover;
+        object-position: 50% 38%;
+        border-radius: 10px;
+        box-shadow: 0 5px 14px rgba(0, 0, 0, 0.28);
       }
     }
     
     .logo-text {
       font-size: 18px;
       font-weight: 700;
-      background: linear-gradient(90deg, #fff 0%, #409EFF 50%, #00D4AA 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: #f8f0e5;
       white-space: nowrap;
       letter-spacing: 1px;
     }
@@ -289,13 +287,13 @@ onMounted(async () => {
         top: 0;
         bottom: 0;
         width: 3px;
-        background: linear-gradient(180deg, #409EFF, #00D4AA);
+        background: #d99a50;
         transform: scaleY(0);
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       }
       
       &:hover {
-        background: rgba(64, 158, 255, 0.15);
+        background: rgba(211, 150, 75, 0.14);
         color: #fff;
         transform: translateX(4px);
         
@@ -305,16 +303,16 @@ onMounted(async () => {
       }
       
       &.is-active {
-        background: linear-gradient(90deg, rgba(64, 158, 255, 0.3) 0%, rgba(0, 212, 170, 0.1) 100%);
+        background: linear-gradient(90deg, rgba(190, 127, 52, 0.28) 0%, rgba(190, 127, 52, 0.04) 100%);
         color: #fff;
-        box-shadow: 0 4px 15px rgba(64, 158, 255, 0.2);
+        box-shadow: 0 4px 15px rgba(20, 24, 35, 0.24);
         
         &::before {
           transform: scaleY(1);
         }
         
         .el-icon {
-          color: #409EFF;
+          color: #efc07a;
         }
       }
       
@@ -327,7 +325,7 @@ onMounted(async () => {
   
   .sidebar-footer {
     padding: 16px;
-    border-top: 1px solid rgba(64, 158, 255, 0.2);
+    border-top: 1px solid rgba(236, 199, 132, 0.18);
     text-align: center;
     position: relative;
     z-index: 1;

@@ -4,19 +4,13 @@
     <div class="welcome-section">
       <div class="welcome-content">
         <div class="welcome-text">
+          <span class="welcome-kicker">CREATIVE STUDIO</span>
           <h1>欢迎回来，{{ userStore.userInfo?.username || '用户' }}</h1>
-          <p>选择一个创意模块开始您的创作之旅</p>
+          <p>让每一个念头，找到它的表达。</p>
           <div class="version-info">
             <span class="version-badge">v{{ currentVersion }}</span>
           </div>
         </div>
-        <div class="welcome-illustration">
-          <img src="/logo.png" alt="全能创意大师" class="welcome-logo-img" />
-        </div>
-      </div>
-      <div class="welcome-decoration">
-        <div class="deco-line"></div>
-        <div class="deco-dot"></div>
       </div>
     </div>
     
@@ -360,11 +354,12 @@ function showManualCloseTip() {
 .welcome-section {
   position: relative;
   border-radius: 20px;
-  padding: 36px 40px;
+  min-height: 230px;
+  padding: 40px;
   margin-bottom: 32px;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+  background: #101f35 url('/brand/ink-monkey-banner.png') center / cover no-repeat;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 12px 32px rgba(18, 27, 43, 0.2);
   
   .welcome-content {
     display: flex;
@@ -381,27 +376,31 @@ function showManualCloseTip() {
     left: 0;
     right: 0;
     bottom: 0;
-    background: 
-      radial-gradient(ellipse at 20% 50%, rgba(64, 158, 255, 0.15) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 50%, rgba(0, 212, 170, 0.1) 0%, transparent 50%);
+    background: linear-gradient(90deg, rgba(9, 22, 39, 0.78) 0%, rgba(11, 29, 47, 0.62) 37%, rgba(11, 29, 47, 0.08) 66%);
     pointer-events: none;
   }
   
   .welcome-text {
+    .welcome-kicker {
+      display: inline-block;
+      color: #efc77d;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      margin-bottom: 10px;
+    }
+
     h1 {
       font-size: 28px;
       margin-bottom: 10px;
       font-weight: 700;
-      background: linear-gradient(90deg, #fff, #409EFF, #00D4AA);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: #fffaf2;
     }
     
     p {
       opacity: 0.8;
       font-size: 15px;
-      color: rgba(255, 255, 255, 0.7);
+      color: rgba(250, 242, 230, 0.78);
       margin-bottom: 16px;
     }
     
@@ -411,62 +410,28 @@ function showManualCloseTip() {
       gap: 12px;
       
       .version-badge {
-        background: rgba(64, 158, 255, 0.2);
-        border: 1px solid rgba(64, 158, 255, 0.3);
+        background: rgba(173, 103, 38, 0.18);
+        border: 1px solid rgba(235, 190, 118, 0.34);
         padding: 4px 14px;
         border-radius: 20px;
         font-size: 12px;
         font-weight: 600;
-        color: #409EFF;
+        color: #f5d299;
       }
-    }
-  }
-  
-  .welcome-illustration {
-    position: relative;
-    width: 120px;
-    height: 120px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    
-    .welcome-logo-img {
-      width: 100px;
-      height: 100px;
-      object-fit: contain;
-      border-radius: 6px;
-      position: relative;
-      z-index: 1;
-    }
-  }
-  
-  .welcome-decoration {
-    position: absolute;
-    bottom: 0;
-    left: 40px;
-    right: 40px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    
-    .deco-line {
-      flex: 1;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.3), transparent);
-    }
-    
-    .deco-dot {
-      width: 6px;
-      height: 6px;
-      background: #409EFF;
-      border-radius: 50%;
     }
   }
 }
 
-@keyframes pulse-glow {
-  0%, 100% { transform: scale(1); opacity: 0.2; }
-  50% { transform: scale(1.2); opacity: 0.3; }
+@media (max-width: 768px) {
+  .welcome-section {
+    min-height: 210px;
+    padding: 30px 24px;
+    background-position: 62% center;
+
+    .welcome-text h1 {
+      font-size: 24px;
+    }
+  }
 }
 
 .section-title {
