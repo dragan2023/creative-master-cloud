@@ -181,19 +181,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"清理遗留运行任务失败（不影响启动）: {e}")
 
-    # 注入 NovelProjectRepository 到 task_manager（支持依赖倒置）
+    # 注入任务状态 Session Factory（每次操作创建短生命周期 Session，避免长连接共享）
     try:
         from app.core.database import async_session_maker
-        from app.repositories.novel_project import NovelProjectRepository
-        from app.services.task_manager import set_novel_project_repo
+        from app.services.task_manager import set_session_factory
 
-        # 创建独立 session（不作为 context manager，保持长连接）
-        session = async_session_maker()
-        repo = NovelProjectRepository(session)
-        set_novel_project_repo(repo)
-        logger.info("已注入 NovelProjectRepository 到 task_manager")
+        set_session_factory(async_session_maker)
+        logger.info("已注入任务状态 Session Factory")
     except Exception as e:
-        logger.warning(f"注入 Repository 失败（不影响启动）: {e}")
+        logger.warning(f"注入 Session Factory 失败（不影响启动）: {e}")
 
     # 初始化 LLM 能力报告
     try:
