@@ -341,7 +341,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTaskStore } from '@/stores/task'
 import { useOutlineStore } from '@/stores/outline'
@@ -391,8 +391,7 @@ const state = useProjectDetailState(_refreshCallbacks)
 const {
   loading, project, chapters, selectedChapter, chapterContent,
   generatingDirectory, regeneratingNames, manualUnitCount,
-  abortController, taskPollingTimer, TASK_POLLING_INTERVAL,
-  sseConnection, sseReconnectTimer, SSE_RECONNECT_DELAY,
+  abortController,
   showUnitSummariesUploadDialog, unitSummariesUploadMode,
   unitSummariesInput, globalOutlineInput, uploadingUnitSummaries,
   editingChapter, editTitleValue,
@@ -419,9 +418,6 @@ const {
   handleClearAllOutlines, handleClearAllContent, handleClearAll,
   getStatusType, getStatusText, getChapterStatusType, getChapterStatusText,
   formatDateTime, getStepIcon, formatDuration, showOutlineUpload,
-  startSSEConnection, stopSSEConnection,
-  startTaskMonitoring, stopTaskMonitoring,
-  startTaskPolling, stopTaskPolling, refreshListByTaskType,
   // Revision & Compliance state
   revisionCompareVisible, originalDraftContent, revisedContent,
   chapterRevisionInfo, revisionViewMode,
@@ -444,8 +440,7 @@ const {
 const outlineStore = useOutlineStore()
 outlineStore.initProject({
   projectId, project, taskStore, abortController,
-  loadProject, loadChapters,
-  startTaskPolling, stopTaskPolling
+  loadProject, loadChapters
 })
 
 // 从 store 解构响应式状态（替代原来从 useProjectDetailState 传入的 30+ 参数）
@@ -510,7 +505,7 @@ const {
   downloadBlob
 } = outlineStore
 
-// ============ Step 4: 设置 refreshCallbacks（让 SSE/轮询能刷新大纲） ============
+// ============ Step 4: 设置生成完成后的大纲刷新回调 ============
 _refreshCallbacks.loadEpisodeOutlines = loadEpisodeOutlines
 _refreshCallbacks.loadChapterOutlines = loadChapterOutlines
 _refreshCallbacks.loadSceneOutlines = loadSceneOutlines
@@ -567,33 +562,7 @@ onMounted(async () => {
   // 加载知识库状态（页面初始化时主动查询后端真实状态）
   await loadKnowledgeBaseStatus()
 
-  // 加载完成后启动SSE连接或轮询
-  startTaskMonitoring()
 })
-
-onUnmounted(() => {
-  stopTaskMonitoring()
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
-})
-
-// 处理页面可见性变化
-function handleVisibilityChange() {
-  if (!document.hidden) {
-    taskStore.fetchTaskStatus(projectId.value).then(task => {
-      if (task && task.status === 'running') {
-        if (!sseConnection.value && !taskPollingTimer.value) {
-          taskStore.setTask(task)
-          startTaskMonitoring()
-        }
-      } else if (task && (task.status === 'failed' || task.status === 'cancelled' || task.status === 'completed')) {
-        taskStore.clearTask()
-      }
-    })
-  }
-}
-
-// 添加页面可见性监听
-document.addEventListener('visibilitychange', handleVisibilityChange)
 
 // 监听项目变化，加载相应类型的大纲
 watch(() => project.value, (newVal) => {
@@ -640,4 +609,5 @@ watch(() => project.value, (newVal) => {
     color: #e6a23c;
   }
 }
+
 </style>

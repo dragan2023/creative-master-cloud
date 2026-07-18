@@ -1,576 +1,274 @@
 ﻿/**
- * 多Agent协作文学作品生成系统 - 写作任务状态管理（WebSocket部分）
- * 
+ * 多Agent协作文学作品生成系统 - 写作任务状态管理（WebSocket生命周期部分）
+ *
  * 模块: writing-engine
  * 文件: writingTask/websocket.js
- * 功能: 管理WebSocket连接、消息处理和重连逻辑
- * 
+ * 功能: 管理WebSocket连接生命周期：连接、主动断开、指数退避重连、
+ *       浏览器离线/恢复感知与连接状态机（WS_STATUS）
+ *
+ * 生命周期规则（阶段03修复）:
+ * - manualClose: 主动断开后close回调不得调度重连
+ * - connectionGeneration: 每次connect递增，过期连接的open/message/error/close回调不得改变当前状态
+ * - 重连延迟: 指数退避加0.8~1.2抖动，最终值封顶 MAX_RECONNECT_DELAY(30秒)
+ * - offline/online: 离线立即进入offline状态并暂停重连；恢复在线且任务运行中时只调度一次立即重连
+ * - 消息处理逻辑见 messageHandlers.js / qcMessageHandlers.js
+ *
  * 创建时间: 2026-03-27
- * 最后修改: 2026-04-26
+ * 最后修改: 2026-07-18
  */
 
 import { connectWritingTaskWS } from '@/api/writing-task'
+import { WS_STATUS } from './state'
+import { createWSMessageHandler } from './messageHandlers'
 
-export function useWritingTaskWebSocket(state) {
+/** 基础重连延迟（毫秒） */
+export const BASE_RECONNECT_DELAY = 3000
+
+/** 重连延迟上限（毫秒），任何抖动后的延迟不得超过该值 */
+export const MAX_RECONNECT_DELAY = 30000
+
+/** 最大重连次数，超过后进入failed状态等待手动重试 */
+export const MAX_RECONNECT_ATTEMPTS = 5
+
+/**
+ * WebSocket连接生命周期管理
+ * @param {Object} state - useWritingTaskState() 返回的状态引用集合
+ * @param {Object} dependencies - 可注入依赖（单元测试用）:
+ *   wsFactory(taskId, callbacks) / setTimeoutFn / clearTimeoutFn / randomFn / windowRef
+ */
+export function useWritingTaskWebSocket(state, dependencies = {}) {
+  const {
+    wsFactory = connectWritingTaskWS,
+    setTimeoutFn = (...args) => setTimeout(...args),
+    clearTimeoutFn = (timerId) => clearTimeout(timerId),
+    randomFn = Math.random,
+    windowRef = typeof window !== 'undefined' ? window : null
+  } = dependencies
+
   /** WebSocket重连定时器 */
   let reconnectTimer = null
-  
-  /** 基础重连延迟（毫秒） */
-  const BASE_RECONNECT_DELAY = 3000
-  
-  /** 最大重连延迟（毫秒） */
-  const MAX_RECONNECT_DELAY = 60000
-  
-  /** 最大重连次数 */
-  const MAX_RECONNECT_ATTEMPTS = 5
-  
+
   /** 当前重连次数 */
   let reconnectAttempts = 0
-  
-  /** 防止重复重连的锁 */
-  let isReconnecting = false
 
-  // ==================== WebSocket管理 ====================
-  
+  /** 主动关闭标记：置位后close回调不得调度重连 */
+  let manualClose = false
+
+  /** 连接代次：每次connect递增，过期回调按代次丢弃 */
+  let connectionGeneration = 0
+
+  /** 最近一次连接的任务ID（离线恢复与手动重试使用） */
+  let lastTaskId = null
+
+  /** online/offline监听是否已注册 */
+  let networkListenersAttached = false
+
+  const { handleMessage, resetTerminalLock } = createWSMessageHandler(state, {
+    onTerminal: () => disconnectWS()
+  })
+
+  // ==================== 重连延迟 ====================
+
+  /**
+   * 计算第attempts次重连的延迟：指数退避加0.8~1.2抖动，封顶30秒
+   * @param {number} attempts - 已重连次数（从0开始）
+   * @returns {number} 延迟毫秒数（严格小于等于 MAX_RECONNECT_DELAY）
+   */
+  function getReconnectDelay(attempts) {
+    const baseDelay = BASE_RECONNECT_DELAY * Math.pow(2, attempts)
+    const jittered = baseDelay * (0.8 + randomFn() * 0.4)
+    return Math.min(MAX_RECONNECT_DELAY, Math.round(jittered))
+  }
+
+  // ==================== 内部判定 ====================
+
+  function isStaleGeneration(generation) {
+    return generation !== connectionGeneration
+  }
+
+  function isTaskRunning() {
+    return state.currentTask.value?.status === 'running'
+  }
+
+  function isBrowserOffline() {
+    return windowRef?.navigator?.onLine === false
+  }
+
+  // ==================== 浏览器网络事件 ====================
+
+  function handleBrowserOffline() {
+    // 离线立即暂停重连，等待online事件恢复
+    clearReconnectTimer()
+    const status = state.wsStatus.value
+    if (status === WS_STATUS.IDLE || status === WS_STATUS.CLOSED) return
+    state.wsStatus.value = WS_STATUS.OFFLINE
+  }
+
+  function handleBrowserOnline() {
+    if (manualClose || !lastTaskId) return
+    if (state.wsStatus.value !== WS_STATUS.OFFLINE) return
+    if (!isTaskRunning()) {
+      state.wsStatus.value = WS_STATUS.CLOSED
+      return
+    }
+    // 恢复在线且任务仍运行：只调度一次立即重连
+    reconnectAttempts = 0
+    connectWS(lastTaskId)
+  }
+
+  function attachNetworkListeners() {
+    if (!windowRef || networkListenersAttached) return
+    windowRef.addEventListener('offline', handleBrowserOffline)
+    windowRef.addEventListener('online', handleBrowserOnline)
+    networkListenersAttached = true
+  }
+
+  function removeNetworkListeners() {
+    if (!windowRef || !networkListenersAttached) return
+    windowRef.removeEventListener('offline', handleBrowserOffline)
+    windowRef.removeEventListener('online', handleBrowserOnline)
+    networkListenersAttached = false
+  }
+
+  // ==================== 连接管理 ====================
+
+  function clearReconnectTimer() {
+    if (reconnectTimer) {
+      clearTimeoutFn(reconnectTimer)
+      reconnectTimer = null
+    }
+  }
+
+  /** 关闭并释放当前socket（先摘除引用，旧socket回调由代次守卫丢弃） */
+  function closeActiveSocket() {
+    const socket = state.wsConnection.value
+    state.wsConnection.value = null
+    if (socket) {
+      try {
+        socket.close()
+      } catch (closeError) {
+        console.warn('[WritingTask Store] 关闭WebSocket异常:', closeError)
+      }
+    }
+  }
+
   /**
    * 连接WebSocket
-   * @param {string} taskId - 任务ID
+   * @param {string|number} taskId - 任务ID
    */
   function connectWS(taskId) {
-    // 先断开现有连接
-    disconnectWS()
-
-    // 重置重连计数（仅在首次连接时）
-    if (reconnectAttempts === 0) {
-      isReconnecting = false
+    // 任务ID改变时视为全新连接：重置重试计数与终态锁
+    if (lastTaskId !== null && lastTaskId !== taskId) {
+      reconnectAttempts = 0
     }
+    // 先完整清理旧连接：代次递增使旧回调全部过期
+    connectionGeneration += 1
+    const generation = connectionGeneration
+    clearReconnectTimer()
+    closeActiveSocket()
 
-    state.wsConnection.value = connectWritingTaskWS(taskId, {
+    manualClose = false
+    lastTaskId = taskId
+    resetTerminalLock()
+    attachNetworkListeners()
+
+    state.wsStatus.value = reconnectAttempts > 0 ? WS_STATUS.RECONNECTING : WS_STATUS.CONNECTING
+
+    state.wsConnection.value = wsFactory(taskId, {
       onOpen: () => {
+        if (isStaleGeneration(generation)) return
         console.log('[WritingTask Store] WebSocket连接成功')
-        state.wsConnected.value = true
+        // 连接成功后重置重试次数
+        reconnectAttempts = 0
+        state.wsStatus.value = WS_STATUS.CONNECTED
       },
-      onMessage: handleMessage,
+      onMessage: (msg) => {
+        if (isStaleGeneration(generation)) return
+        state.wsLastMessageAt.value = Date.now()
+        handleMessage(msg)
+      },
       onError: (error) => {
+        if (isStaleGeneration(generation)) return
+        // 状态迁移交由随后的close事件统一处理
         console.error('[WritingTask Store] WebSocket错误:', error)
-        state.wsConnected.value = false
       },
       onClose: () => {
-        state.wsConnected.value = false
+        if (isStaleGeneration(generation)) return
         handleWSClose(taskId)
       }
     })
   }
 
   /**
-   * 处理WebSocket消息
-   * @param {Object} msg - 消息数据
-   * 
-   * 消息类型(type)说明:
-   * - status_change: 任务状态变更
-   * - task_progress: 整体任务进度
-   * - unit_progress: 单元进度
-   * - scene_progress: 场景进度
-   * - task_complete: 任务完成
-   * - task_failed: 任务失败
-   * - error: 错误消息
-   * - statistics: 统计数据更新
-   */
-  function handleMessage(msg) {
-    // 添加到消息队列
-    state.progressMessages.value.push({
-      ...msg,
-      timestamp: Date.now()
-    })
-    
-    // 限制消息队列长度
-    if (state.progressMessages.value.length > 100) {
-      state.progressMessages.value.shift()
-    }
-    
-    // 根据消息类型更新状态
-    switch (msg.type) {
-      case 'status_change':
-        // 状态变更
-        if (state.currentTask.value) {
-          // 支持两种消息格式
-          const newStatus = msg.new_status || msg.data?.new_status
-          state.currentTask.value.status = newStatus
-          // 如果变为中断状态，断开WebSocket
-          if (newStatus === 'interrupted') {
-            console.log('[WritingTask Store] 任务已被中断')
-          }
-        }
-        break
-        
-      case 'task_progress':
-        // 整体任务进度
-        if (state.currentTask.value) {
-          state.currentTask.value.completed_units = msg.data?.completed_units ?? state.currentTask.value.completed_units
-          state.currentTask.value.current_unit = msg.data?.current_unit ?? state.currentTask.value.current_unit
-          state.currentTask.value.current_scene = msg.data?.current_scene ?? state.currentTask.value.current_scene
-        }
-        break
-        
-      case 'unit_progress':
-        // 单元进度更新
-        if (msg.data) {
-          const unitIndex = msg.data.unit_index || msg.unit_index
-          const unitStatus = msg.data.status || msg.status
-          const unitProgress = msg.data.progress || msg.progress
-          const unitWordCount = msg.data.word_count || msg.word_count
-          
-          // 更新或添加单元
-          if (unitIndex !== undefined) {
-            const existingUnit = state.units.value.find(u => u.unit_index === unitIndex)
-            if (existingUnit) {
-              existingUnit.status = unitStatus || existingUnit.status
-              existingUnit.progress = unitProgress || existingUnit.progress
-              if (unitWordCount !== undefined) {
-                existingUnit.word_count = unitWordCount
-              }
-              // 更新单元标题
-              if (msg.data.unit_title) {
-                existingUnit.unit_title = msg.data.unit_title
-              }
-            } else {
-              // 添加新单元
-              state.units.value.push({
-                unit_index: unitIndex,
-                unit_title: msg.data.unit_title || msg.unit_title,
-                status: unitStatus || 'processing',
-                progress: unitProgress || 0,
-                word_count: unitWordCount || 0
-              })
-            }
-          }
-        }
-        break
-        
-      case 'scene_progress':
-        // 场景进度更新
-        if (msg.data) {
-          const unitIdx = msg.data.unit_index || msg.unit_index
-          const sceneIdx = msg.data.scene_index || msg.scene_index
-          const sceneStatus = msg.data.status || msg.status
-          
-          if (unitIdx !== undefined && sceneIdx !== undefined) {
-            // 确保该单元的场景数组存在
-            if (!state.scenes.value[unitIdx]) {
-              state.scenes.value[unitIdx] = []
-            }
-            
-            // 更新或添加场景
-            const existingScene = state.scenes.value[unitIdx].find(s => s.scene_index === sceneIdx)
-            if (existingScene) {
-              existingScene.status = sceneStatus || existingScene.status
-            } else {
-              state.scenes.value[unitIdx].push({
-                scene_index: sceneIdx,
-                scene_title: msg.data.scene_title || msg.scene_title,
-                status: sceneStatus || 'pending'
-              })
-            }
-          }
-        }
-        break
-        
-      case 'statistics':
-        // 统计数据更新
-        if (msg.stats || msg.data?.stats) {
-          const statsData = msg.stats || msg.data.stats
-          // 使用累加方式更新统计数据
-          state.stats.value = {
-            ...state.stats.value,
-            ...statsData,
-            // 确保 _summary 存在
-            _summary: statsData._summary || statsData
-          }
-          // 同步更新currentTask中的统计数据（使用累计值）
-          if (state.currentTask.value) {
-            state.currentTask.value.total_tokens = statsData._summary?.total_tokens || statsData.total_tokens || state.currentTask.value.total_tokens || 0
-            state.currentTask.value.total_cost = statsData._summary?.total_cost || statsData.total_cost || state.currentTask.value.total_cost || 0
-          }
-        }
-        break
-        
-      case 'task_complete':
-        // 任务完成
-        if (state.currentTask.value) {
-          state.currentTask.value.status = 'completed'
-          state.currentTask.value.completed_at = new Date().toISOString()
-          if (msg.data) {
-            state.currentTask.value.total_word_count = msg.data.total_word_count
-            state.currentTask.value.total_tokens = msg.data.total_tokens
-            state.currentTask.value.total_cost = msg.data.total_cost
-          }
-        }
-        disconnectWS()
-        break
-        
-      case 'task_failed':
-        // 任务失败
-        if (state.currentTask.value) {
-          state.currentTask.value.status = 'failed'
-          state.currentTask.value.error = msg.data?.error || '未知错误'
-        }
-        disconnectWS()
-        break
-        
-      case 'error':
-        // 错误消息
-        console.error('[WritingTask Store] 任务错误:', msg.data || msg.error_message)
-        break
-      
-      case 'workflow_step':
-        // 工作流步骤更新
-        if (msg.data) {
-          console.log('[WritingTask Store] 工作流步骤:', msg.data.step, msg.data.status, msg.data.message)
-          // 如果步骤状态是error，可能是中断导致的
-          if (msg.data.status === 'error' && msg.data.message?.includes('中断')) {
-            if (state.currentTask.value) {
-              state.currentTask.value.status = 'interrupted'
-            }
-          }
-        }
-        break
-        
-      case 'unit_quality_control':
-        // 单元质控状态更新（v2.0新增 - 实时质控）
-        console.log('[WritingTask Store] 收到unit_quality_control消息:', JSON.stringify(msg.data).substring(0, 200))
-        
-        if (msg.data) {
-          const unitIndex = msg.data.unit_index
-          const qcData = msg.data
-          
-          // 更新单元的质控信息
-          const unitIdx = state.units.value.findIndex(u => u.unit_index === unitIndex)
-          console.log('[WritingTask Store] 查找单元:', unitIndex, '找到索引:', unitIdx)
-          
-          if (unitIdx !== -1) {
-            // 使用splice替换整个对象，确保Vue响应式系统能可靠检测到变化
-            const oldUnit = state.units.value[unitIdx]
-            const oldQC = oldUnit.quality_control || {}
-
-            // v3.1: 处理 revert（撤销修正）场景
-            // 当质控状态为 'reverted' 时，清除 content_after_qc_fix
-            // 后续显示将退回到 content_after_generation 或 final_content
-            const isReverted = qcData.status === 'reverted'
-
-            // [修复] 版本字段保护：WS消息可能不包含 content_after_generation
-            // 1. 优先使用WS消息中的值
-            // 2. 回退到 oldUnit.quality_control 中已有的值
-            // 3. 回退到 oldUnit 顶层字段（API fetchUnits 已映射）
-            // 4. content_after_generation 永不因 revert 而清除（初稿是永久保留的）
-            const preservedDraft = qcData.content_after_generation
-              || oldQC.content_after_generation
-              || oldUnit.content_after_generation
-              || null
-
-            const updatedUnit = {
-              ...oldUnit,
-              quality_control: {
-                status: qcData.status,
-                score: qcData.score || 0,
-                issues_count: qcData.issues_count || 0,
-                fixed_count: qcData.fixed_count || 0,
-                compliance_issue_count: qcData.compliance_issue_count || 0,
-                message: qcData.message || '',
-                report: qcData.report || null,
-                issues: qcData.issues || [],
-                fixes_applied: qcData.fixes_applied || [],
-                original_content: qcData.original_content || null,
-                fixed_content: isReverted ? null : (qcData.fixed_content || null),
-                // v3.0: 六维度分数与版本内容
-                dimension_scores: qcData.dimension_scores || {},
-                change_list: qcData.change_list || [],
-                context_summary: qcData.context_summary || '',
-                // [修复] 版本字段保护：content_after_generation 永不因revert清除
-                // revert时只清除content_after_qc_fix（修正稿），初稿保留不变
-                content_after_generation: preservedDraft,
-                content_after_qc_fix: isReverted ? null : (qcData.content_after_qc_fix || oldQC.content_after_qc_fix || null),
-                content_after_self_revise: qcData.content_after_self_revise || oldQC.content_after_self_revise || null,
-                updated_at: Date.now(),
-                _from_ws: true  // 标记数据来自WebSocket，优先级高于API数据
-              }
-            }
-
-            // 质控修正完成后，同步更新单元的 final_content 和 word_count
-            // 确保 WritingWorkbench 页面实时显示修正后的正文内容
-            if (isReverted) {
-              // 撤销修正：恢复到初稿/原始内容
-              const revertedContent = qcData.reverted_content || qcData.original_content || ''
-              updatedUnit.final_content = revertedContent
-              updatedUnit.word_count = revertedContent.length
-              console.log(
-                '[WritingTask Store] 修正已撤销，恢复初稿: unit=%d, word_count=%d',
-                unitIndex, revertedContent.length
-              )
-            } else if (qcData.fixed_content && qcData.status === 'completed') {
-              updatedUnit.final_content = qcData.fixed_content
-              updatedUnit.word_count = qcData.fixed_content.length
-              console.log(
-                '[WritingTask Store] 质控修正内容已同步: unit=%d, word_count=%d',
-                unitIndex, qcData.fixed_content.length
-              )
-            }
-
-            state.units.value.splice(unitIdx, 1, updatedUnit)
-            console.log('[WritingTask Store] 单元质控信息已更新(splice):', updatedUnit.quality_control)
-          } else {
-            // 单元尚未在列表中(可能unit_progress消息还未到达)，创建一个带质控信息的新单元
-            console.log('[WritingTask Store] 单元未找到，创建带质控信息的新单元:', unitIndex)
-            const isReverted = qcData.status === 'reverted'
-            const newUnit = {
-              unit_index: unitIndex,
-              unit_title: qcData.unit_title || `第${unitIndex}章`,
-              status: qcData.status === 'running' ? 'processing' : 'completed',
-              progress: qcData.status === 'running' ? 0 : 100,
-              word_count: qcData.fixed_content ? qcData.fixed_content.length : 0,
-              quality_control: {
-                status: qcData.status,
-                score: qcData.score || 0,
-                issues_count: qcData.issues_count || 0,
-                fixed_count: qcData.fixed_count || 0,
-                compliance_issue_count: qcData.compliance_issue_count || 0,
-                message: qcData.message || '',
-                report: qcData.report || null,
-                issues: qcData.issues || [],
-                fixes_applied: qcData.fixes_applied || [],
-                original_content: qcData.original_content || null,
-                fixed_content: isReverted ? null : (qcData.fixed_content || null),
-                // v3.0: 六维度分数与版本内容
-                dimension_scores: qcData.dimension_scores || {},
-                change_list: qcData.change_list || [],
-                context_summary: qcData.context_summary || '',
-                // [修复] 版本字段保护：content_after_generation 永不因revert清除
-                content_after_generation: qcData.content_after_generation || null,
-                content_after_qc_fix: isReverted ? null : (qcData.content_after_qc_fix || null),
-                content_after_self_revise: qcData.content_after_self_revise || null,
-                updated_at: Date.now(),
-                _from_ws: true  // 标记数据来自WebSocket
-              }
-            }
-            // 质控修正完成后，同步设置 final_content
-            if (isReverted) {
-              newUnit.final_content = qcData.reverted_content || qcData.original_content || ''
-            } else if (qcData.fixed_content && qcData.status === 'completed') {
-              newUnit.final_content = qcData.fixed_content
-            }
-            state.units.value.push(newUnit)
-          }
-          
-          console.log(
-            `[WritingTask Store] 单元质控更新完成: unit=${unitIndex}, ` +
-            `status=${qcData.status}, score=${qcData.score || 0}, ` +
-            `units总数=${state.units.value.length}`
-          )
-        }
-        break
-        
-      // ==================== v2.2新增：批量质控进度消息 ====================
-      case 'content_qc_started':
-        // 批量质控开始
-        console.log('[WritingTask Store] 批量质控开始:', msg.data)
-        if (msg.data && state.batchQCProgress) {
-          state.batchQCProgress.value = {
-            status: 'running',
-            current: 0,
-            total: msg.data.total || 0,
-            currentUnit: null,
-            startedAt: Date.now()
-          }
-        }
-        break
-        
-      case 'content_qc_progress':
-        // 批量质控进度更新
-        console.log('[WritingTask Store] 批量质控进度:', msg.data)
-        if (msg.data && state.batchQCProgress) {
-          const progressData = msg.data
-          state.batchQCProgress.value = {
-            status: 'running',
-            current: progressData.current || 0,
-            total: progressData.total || state.batchQCProgress.value?.total || 0,
-            currentUnit: progressData.current_unit,
-            percent: progressData.progress || Math.round((progressData.current / progressData.total) * 100)
-          }
-          
-          // 更新当前单元的质控状态为running
-          if (progressData.current_unit) {
-            const unitIdx = state.units.value.findIndex(u => u.unit_index === progressData.current_unit)
-            if (unitIdx !== -1) {
-              const oldUnit = state.units.value[unitIdx]
-              state.units.value.splice(unitIdx, 1, {
-                ...oldUnit,
-                quality_control: {
-                  ...oldUnit.quality_control,
-                  status: 'running',
-                  updated_at: Date.now(),
-                  _from_ws: true
-                }
-              })
-            }
-          }
-        }
-        break
-        
-      case 'content_qc_unit_complete':
-        // 单单元质控完成（批量任务中的单个单元）
-        console.log('[WritingTask Store] 批量任务单元质控完成:', msg.data)
-        if (msg.data) {
-          const unitIndex = msg.data.unit_index || msg.data.data?.unit_index
-          const status = msg.data.status || 'success'
-          
-          const unitIdx = state.units.value.findIndex(u => u.unit_index === unitIndex)
-          if (unitIdx !== -1) {
-            const oldUnit = state.units.value[unitIdx]
-            const qcUpdate = {
-              status: status === 'success' ? 'completed' : 'failed',
-              updated_at: Date.now(),
-              _from_ws: true
-            }
-            
-            if (status === 'success') {
-              qcUpdate.score = msg.data.score || msg.data.data?.score || 0
-              qcUpdate.issues_count = msg.data.issues_count || msg.data.data?.issues_count || 0
-              qcUpdate.fixed_count = msg.data.fixed_count || msg.data.data?.fixed_count || 0
-            }
-            
-            state.units.value.splice(unitIdx, 1, {
-              ...oldUnit,
-              quality_control: {
-                ...oldUnit.quality_control,
-                ...qcUpdate
-              }
-            })
-          }
-        }
-        break
-        
-      case 'content_qc_batch_complete':
-        // 批量质控完成
-        console.log('[WritingTask Store] 批量质控完成:', msg.data)
-        if (state.batchQCProgress) {
-          const summaryData = msg.data || msg.data?.data || {}
-          state.batchQCProgress.value = {
-            status: 'completed',
-            current: summaryData.completed || summaryData.total || 0,
-            total: summaryData.total || 0,
-            currentUnit: null,
-            completedUnits: summaryData.completed_units || [],
-            failedUnits: summaryData.failed_units || [],
-            avgScore: summaryData.avg_score || 0,
-            completedAt: Date.now()
-          }
-        }
-        break
-        
-      case 'consistency_report_update':
-        // 一致性报告实时更新（v6.0新增 - WebSocket推送）
-        if (msg.data) {
-          state.consistencyReport.value = {
-            ...msg.data,
-            _updatedAt: Date.now()
-          }
-          console.log(
-            '[WritingTask Store] 一致性报告实时更新: chapter=%d, events=%d, items=%d, facilities=%d',
-            msg.data.chapter_num,
-            Object.keys(msg.data.events || {}).length,
-            Object.keys(msg.data.items || {}).length,
-            Object.keys(msg.data.facilities || {}).length
-          )
-        }
-        break
-        
-      case 'writing_hints':
-        // 规则引擎实时提示（v4.0新增 - 剧本类型轻量级提示）
-        if (msg.data) {
-          const unitIndex = msg.data.unit_index
-          const hints = msg.data.hints || []
-          console.log('[WritingTask Store] 写作提示: unit=%d, hints=%d', unitIndex, hints.length)
-          
-          const unitIdx = state.units.value.findIndex(u => u.unit_index === unitIndex)
-          if (unitIdx !== -1) {
-            const oldUnit = state.units.value[unitIdx]
-            state.units.value.splice(unitIdx, 1, {
-              ...oldUnit,
-              writing_hints: hints,
-              _hints_updated_at: Date.now()
-            })
-          }
-        }
-        break
-        
-      default:
-        // 未知消息类型，记录但不处理
-        console.warn('[WritingTask Store] 未知消息类型:', msg.type, msg)
-    }
-  }
-  
-  /**
-   * 处理WebSocket关闭
-   * @param {string} taskId - 任务ID
+   * 处理非过期连接的close事件：
+   * 按 manualClose → 浏览器离线 → 任务非运行 → 重试上限 的顺序决定去向
    */
   function handleWSClose(taskId) {
-    // 清除连接引用
     state.wsConnection.value = null
-    
-    // 防止重复重连
-    if (isReconnecting) {
-      console.log('[WritingTask Store] 已在重连中，跳过重复请求')
+
+    if (manualClose) {
+      state.wsStatus.value = WS_STATUS.CLOSED
       return
     }
-    
-    // 检查是否需要重连
-    if (state.currentTask.value?.status === 'running' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      isReconnecting = true
-      
-      // 清除旧的重连定时器
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
-        reconnectTimer = null
-      }
-      
-      // 指数退避策略: 3s, 6s, 12s, 24s, 48s（最大60s）
-      const delay = Math.min(
-        BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts),
-        MAX_RECONNECT_DELAY
-      )
-      
-      console.log(`[WritingTask Store] 将在 ${delay/1000}秒后尝试重连 (${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})...`)
-      
-      // 设置重连定时器
-      reconnectTimer = setTimeout(() => {
-        reconnectAttempts++
-        isReconnecting = false
-        reconnectTimer = null
-        connectWS(taskId)
-      }, delay)
-    } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.warn('[WritingTask Store] 达到最大重连次数，停止重连')
-      isReconnecting = false
+    if (isBrowserOffline()) {
+      // 离线由online事件负责恢复，不做定时重连
+      state.wsStatus.value = WS_STATUS.OFFLINE
+      return
     }
+    if (!isTaskRunning()) {
+      state.wsStatus.value = WS_STATUS.CLOSED
+      return
+    }
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.warn('[WritingTask Store] 达到最大重连次数，等待手动重试')
+      state.wsStatus.value = WS_STATUS.FAILED
+      return
+    }
+    scheduleReconnect(taskId)
   }
-  
+
+  /** 调度一次指数退避重连（已有定时器时跳过，防重复调度） */
+  function scheduleReconnect(taskId) {
+    if (reconnectTimer) return
+    const delay = getReconnectDelay(reconnectAttempts)
+    reconnectAttempts += 1
+    state.wsStatus.value = WS_STATUS.RECONNECTING
+    console.log(`[WritingTask Store] 将在 ${delay}ms 后尝试第 ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} 次重连`)
+    reconnectTimer = setTimeoutFn(() => {
+      reconnectTimer = null
+      connectWS(taskId)
+    }, delay)
+  }
+
   /**
-   * 断开WebSocket连接
+   * 主动断开WebSocket
+   * 顺序：置manualClose → 代次过期 → 清重连定时器 → 移除网络监听 → 关闭socket
    */
   function disconnectWS() {
-    // 清除重连定时器
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
+    manualClose = true
+    connectionGeneration += 1
+    clearReconnectTimer()
+    removeNetworkListeners()
+    closeActiveSocket()
+    reconnectAttempts = 0
+    if (state.wsStatus.value !== WS_STATUS.IDLE) {
+      state.wsStatus.value = WS_STATUS.CLOSED
     }
-    
-    if (state.wsConnection.value) {
-      state.wsConnection.value.close()
-      state.wsConnection.value = null
-    }
+  }
+
+  /**
+   * 手动重试：failed/offline/closed状态下重新建立连接并清零重试计数
+   */
+  function retryConnection() {
+    if (!lastTaskId) return
+    reconnectAttempts = 0
+    connectWS(lastTaskId)
   }
 
   return {
     connectWS,
-    disconnectWS
+    disconnectWS,
+    retryConnection,
+    getReconnectDelay
   }
 }

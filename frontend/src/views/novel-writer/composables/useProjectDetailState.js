@@ -2,7 +2,7 @@
  * useProjectDetailState - 核心状态管理与共享数据
  * �?ProjectDetail.vue 中提取，集中管理所有共享响应式状�?
  */
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DOMPurify from 'dompurify'
@@ -11,7 +11,6 @@ import { novelWriterApi } from '@/api/novel-writer'
 import { useTaskStore } from '@/stores/task'
 import { useKnowledgeBase } from './useKnowledgeBase'
 import { useProjectLoader } from './useProjectLoader'
-import { useTaskMonitoring } from './useTaskMonitoring'
 import {
   Document, Reading, Cpu, DataAnalysis, ChatDotRound,
   Edit, Folder, List, Loading, Finished,
@@ -34,17 +33,7 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     loadChapterContent, saveChapterContent, deleteChapter
   } = useProjectLoader()
 
-  const {
-    sseConnection, sseReconnectTimer, taskPollingTimer,
-    startSSEConnection, stopSSEConnection,
-    startTaskPolling, stopTaskPolling,
-    refreshListByTaskType, startTaskMonitoring, stopTaskMonitoring
-  } = useTaskMonitoring(projectId, refreshCallbacks)
-
   // ==================== 以下为保留逻辑 ====================
-
-  const TASK_POLLING_INTERVAL = 2000
-  const SSE_RECONNECT_DELAY = 3000
 
   function showOutlineUpload() {
     // 滚动到上传区域
@@ -1178,11 +1167,6 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     return Array.from(stepMap.values()).reverse()
   })
 
-  // 自动清理：组件卸载时停止任务监控，防止SSE连接和定时器泄漏
-  onUnmounted(() => {
-    stopTaskMonitoring()
-  })
-
   return {
     // 路由
     route, router,
@@ -1197,8 +1181,6 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     globalOutlineInput, uploadingUnitSummaries,
     // AbortController
     abortController,
-    // Task monitoring
-    taskPollingTimer, TASK_POLLING_INTERVAL, sseConnection, sseReconnectTimer, SSE_RECONNECT_DELAY,
     // Episode outlines
     episodeOutlines, generatingEpisodeOutlines, generatingSingleEpisode, selectedEpisode,
     // Batch generation
@@ -1270,9 +1252,5 @@ export function useProjectDetailState(refreshCallbacks = {}) {
     // Helpers
     getStatusType, getStatusText, getChapterStatusType, getChapterStatusText,
     formatDateTime, getStepIcon, formatDuration, showOutlineUpload,
-    // SSE + Polling
-    startSSEConnection, stopSSEConnection,
-    startTaskMonitoring, stopTaskMonitoring,
-    startTaskPolling, stopTaskPolling, refreshListByTaskType
   }
 }

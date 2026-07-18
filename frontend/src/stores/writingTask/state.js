@@ -11,6 +11,22 @@
 
 import { ref, computed } from 'vue'
 
+/**
+ * WebSocket连接状态枚举（阶段03修复）
+ * idle: 从未连接；connecting: 首次连接中；connected: 已连接
+ * offline: 浏览器离线等待恢复；reconnecting: 断线退避重连中
+ * failed: 达到最大重连次数等待手动重试；closed: 主动关闭或任务终态关闭
+ */
+export const WS_STATUS = {
+  IDLE: 'idle',
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+  OFFLINE: 'offline',
+  RECONNECTING: 'reconnecting',
+  FAILED: 'failed',
+  CLOSED: 'closed'
+}
+
 export function useWritingTaskState() {
   // ==================== 状态 ====================
   
@@ -38,8 +54,14 @@ export function useWritingTaskState() {
   /** WebSocket连接实例 */
   const wsConnection = ref(null)
 
-  /** WebSocket连接状态 */
-  const wsConnected = ref(false)
+  /** WebSocket连接状态枚举值（唯一权威状态，取值见 WS_STATUS） */
+  const wsStatus = ref(WS_STATUS.IDLE)
+
+  /** 最近一次收到WebSocket消息的时间戳（毫秒），用于界面展示最后更新时间 */
+  const wsLastMessageAt = ref(null)
+
+  /** WebSocket是否已连接（由wsStatus派生，兼容旧布尔用法，禁止独立赋值） */
+  const wsConnected = computed(() => wsStatus.value === WS_STATUS.CONNECTED)
 
   /** WebSocket消息队列 */
   const progressMessages = ref([])
@@ -135,6 +157,8 @@ export function useWritingTaskState() {
     agentConfig,
     loading,
     wsConnection,
+    wsStatus,
+    wsLastMessageAt,
     wsConnected,
     progressMessages,
     batchQCProgress,  // v2.2新增

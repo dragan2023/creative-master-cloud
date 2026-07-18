@@ -242,7 +242,8 @@ export function connectWritingTaskWS(taskId, callbacks = {}) {
     wsUrl += `${wsUrl.includes('?') ? '&' : '?'}${authQuery}`
   }
   
-  console.log('[WritingTask WS] 连接URL:', wsUrl)
+  // 认证参数只用于建连，禁止进入控制台、Playwright 报告或测试附件。
+  console.log('[WritingTask WS] 连接URL:', wsUrl.split('?')[0])
   const ws = new WebSocket(wsUrl)
 
   ws.onopen = (event) => {

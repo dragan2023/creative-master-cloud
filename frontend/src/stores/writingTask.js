@@ -26,7 +26,7 @@ export const useWritingTaskStore = defineStore('writingTask', () => {
   const state = useWritingTaskState()
   
   // 初始化WebSocket模块（需要状态引用）
-  const { connectWS, disconnectWS } = useWritingTaskWebSocket(state)
+  const { connectWS, disconnectWS, retryConnection } = useWritingTaskWebSocket(state)
   
   // 初始化动作模块（需要状态和WebSocket方法）
   const actions = useWritingTaskActions(state, connectWS, disconnectWS)
@@ -49,6 +49,7 @@ export const useWritingTaskStore = defineStore('writingTask', () => {
     // WebSocket方法
     connectWS,
     disconnectWS,
+    retryConnection,
     disconnectWebSocket: disconnectWS
   }
 })

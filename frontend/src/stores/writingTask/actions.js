@@ -74,6 +74,10 @@ export function useWritingTaskActions(state, connectWS, disconnectWS) {
           return task
         }
       }
+
+      // 当前项目没有运行中任务：关闭上一项目/上一任务的实时连接，
+      // 避免路由复用 WritingWorkbench 时遗留孤儿 WebSocket。
+      disconnectWS()
       
       // 如果没有运行中的任务，获取最近的一个任务
       const listRes = await writingTaskApi.listTasks({ page: 1, page_size: 1 })
