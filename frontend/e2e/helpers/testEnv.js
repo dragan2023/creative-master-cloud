@@ -1,7 +1,7 @@
 /**
  * E2E 测试环境辅助（阶段03 §3.5）
  *
- * 职责：测试账号认证、测试项目创建、running 任务准备、终态推送触发。
+ * 职责：测试账号认证、测试项目创建、running任务准备、生产终态推送与清理。
  * 安全：token 仅存于测试进程内存并注入浏览器 localStorage，
  *       不打印到控制台、报告或截图（禁止事项 4.4）。
  */
@@ -90,15 +90,27 @@ export async function seedRunningTask(api, token, projectId) {
 }
 
 /**
- * 通过QA测试钩子把任务置为completed并经真实WebSocket广播task_complete
+ * 通过QA测试钩子把任务置为completed并广播生产Pipeline同款status_change
  * @returns {Promise<number>} 送达的连接数
  */
-export async function emitTaskComplete(api, token, taskId) {
+export async function emitProductionTerminalStatus(api, token, taskId) {
   const response = await api.post(
     `/api/v1/qa-test-hooks/writing-tasks/${taskId}/emit-complete`,
     withAuth(token, { total_word_count: 12000 })
   )
-  expect(response.ok(), '触发task_complete推送应成功').toBeTruthy()
+  expect(response.ok(), '触发生产status_change推送应成功').toBeTruthy()
   const body = await response.json()
   return body.data.delivered_connections
+}
+
+/** 清理本进程登记的QA任务及其测试项目；失败必须使E2E失败。 */
+export async function cleanupQaTask(api, token, taskId) {
+  const response = await api.delete(
+    `/api/v1/qa-test-hooks/writing-tasks/${taskId}`,
+    withAuth(token)
+  )
+  expect(response.ok(), 'QA任务与项目清理应成功').toBeTruthy()
+  const body = await response.json()
+  expect(body.success, 'QA清理响应success应为true').toBe(true)
+  return body.data
 }

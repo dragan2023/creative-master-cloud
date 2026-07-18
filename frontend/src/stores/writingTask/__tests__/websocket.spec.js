@@ -277,6 +277,38 @@ describe('场景5：资源清理', () => {
 })
 
 describe('场景6：终态锁', () => {
+  it('生产status_change进入终态时断开连接并移除网络监听', () => {
+    const { ws, sockets, state, fakeWindow } = createHarness()
+    ws.connectWS(1)
+    sockets[0].fireOpen()
+
+    sockets[0].fireMessage({
+      type: 'status_change',
+      task_id: 1,
+      old_status: 'running',
+      new_status: 'completed'
+    })
+
+    expect(state.currentTask.value.status).toBe('completed')
+    expect(sockets[0].closed).toBe(true)
+    expect(state.wsStatus.value).toBe(WS_STATUS.CLOSED)
+    expect(fakeWindow.listenerCount('online')).toBe(0)
+    expect(fakeWindow.listenerCount('offline')).toBe(0)
+  })
+
+  it('status_change终态后晚到的task_complete不会重复触发断连', () => {
+    const state = useWritingTaskState()
+    state.currentTask.value = { id: 1, status: 'running' }
+    const onTerminal = vi.fn()
+    const { handleMessage } = createWSMessageHandler(state, { onTerminal })
+
+    handleMessage({ type: 'status_change', old_status: 'running', new_status: 'completed' })
+    handleMessage({ type: 'task_complete', data: { total_word_count: 500 } })
+
+    expect(onTerminal).toHaveBeenCalledTimes(1)
+    expect(state.currentTask.value.status).toBe('completed')
+  })
+
   it('两个终态消息同时到达只处理一次状态写入与连接关闭', () => {
     const { ws, sockets, state } = createHarness()
     ws.connectWS(1)

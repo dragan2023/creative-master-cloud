@@ -9,7 +9,29 @@ import { describe, expect, it, vi } from 'vitest'
 import { useTaskTerminalRefresh } from '../useTaskTerminalRefresh'
 
 describe('useTaskTerminalRefresh', () => {
-  it('同一任务的重复终态只刷新一次内容', async () => {
+  it('同一任务interrupted→running→completed的两个运行代次各校准一次', async () => {
+    const writingStore = reactive({
+      currentTask: { id: 7, status: 'running' },
+      fetchUnits: vi.fn().mockResolvedValue([])
+    })
+    useTaskTerminalRefresh(writingStore)
+
+    writingStore.currentTask.status = 'interrupted'
+    await nextTick()
+    await Promise.resolve()
+
+    writingStore.currentTask.status = 'running'
+    await nextTick()
+    writingStore.currentTask.status = 'completed'
+    await nextTick()
+    await Promise.resolve()
+
+    expect(writingStore.fetchUnits).toHaveBeenCalledTimes(2)
+    expect(writingStore.fetchUnits).toHaveBeenNthCalledWith(1, 7)
+    expect(writingStore.fetchUnits).toHaveBeenNthCalledWith(2, 7)
+  })
+
+  it('同一运行代次的重复completed只校准一次且组件不负责断连', async () => {
     const writingStore = reactive({
       currentTask: { id: 7, status: 'running' },
       fetchUnits: vi.fn().mockResolvedValue([]),
@@ -20,14 +42,10 @@ describe('useTaskTerminalRefresh', () => {
     writingStore.currentTask.status = 'completed'
     await nextTick()
     await Promise.resolve()
-
-    // 第二个终态来源晚到，不得覆盖首个终态或重复刷新。
-    writingStore.currentTask.status = 'failed'
+    writingStore.currentTask.status = 'completed'
     await nextTick()
-    await Promise.resolve()
 
     expect(writingStore.fetchUnits).toHaveBeenCalledTimes(1)
-    expect(writingStore.fetchUnits).toHaveBeenCalledWith(7)
-    expect(writingStore.disconnectWebSocket).toHaveBeenCalledTimes(1)
+    expect(writingStore.disconnectWebSocket).not.toHaveBeenCalled()
   })
 })

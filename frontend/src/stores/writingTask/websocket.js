@@ -63,7 +63,7 @@ export function useWritingTaskWebSocket(state, dependencies = {}) {
   /** online/offline监听是否已注册 */
   let networkListenersAttached = false
 
-  const { handleMessage, resetTerminalLock } = createWSMessageHandler(state, {
+  const { handleMessage } = createWSMessageHandler(state, {
     onTerminal: () => disconnectWS()
   })
 
@@ -169,7 +169,6 @@ export function useWritingTaskWebSocket(state, dependencies = {}) {
 
     manualClose = false
     lastTaskId = taskId
-    resetTerminalLock()
     attachNetworkListeners()
 
     state.wsStatus.value = reconnectAttempts > 0 ? WS_STATUS.RECONNECTING : WS_STATUS.CONNECTING

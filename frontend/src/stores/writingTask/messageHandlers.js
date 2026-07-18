@@ -38,19 +38,36 @@ const PROGRESS_MESSAGE_LIMIT = 100
  * 创建WebSocket消息处理器
  * @param {Object} state - 写作任务状态引用集合
  * @param {Object} hooks - { onTerminal: 终态时回调（负责断开连接） }
- * @returns {{ handleMessage: Function, resetTerminalLock: Function }}
+ * @returns {{ handleMessage: Function }}
  */
 export function createWSMessageHandler(state, hooks = {}) {
   const { onTerminal = () => {} } = hooks
+  const terminalStatuses = new Set(['completed', 'failed', 'interrupted'])
 
   /**
-   * 终态锁：task_complete/task_failed 只处理第一个到达的终态消息，
-   * 后续终态消息直接丢弃，保证终态只触发一次状态写入与连接关闭
+   * 唯一终态迁移入口。
+   *
+   * 防重以一次“非终态 -> 终态”边沿为单位：同一终态的重复消息不会再次
+   * 断连；任务恢复到running后，再进入终态会形成新的运行代次并再次处理。
    */
-  let terminalHandled = false
+  function applyTaskStatus(newStatus, applyDetails = () => {}) {
+    const task = state.currentTask.value
+    if (!task || !newStatus) return false
 
-  function resetTerminalLock() {
-    terminalHandled = false
+    const previousStatus = task.status
+    const wasTerminal = terminalStatuses.has(previousStatus)
+    const isTerminal = terminalStatuses.has(newStatus)
+    if (wasTerminal && isTerminal) {
+      console.log('[WritingTask Store] 终态已处理，丢弃重复终态消息:', newStatus)
+      return false
+    }
+
+    task.status = newStatus
+    applyDetails(task)
+    if (!wasTerminal && isTerminal) {
+      onTerminal({ previousStatus, newStatus, taskId: task.id })
+    }
+    return true
   }
 
   function handleMessage(msg) {
@@ -125,10 +142,9 @@ export function createWSMessageHandler(state, hooks = {}) {
   }
 
   function applyStatusChange(msg) {
-    if (!state.currentTask.value) return
     // 支持两种消息格式
     const newStatus = msg.new_status || msg.data?.new_status
-    state.currentTask.value.status = newStatus
+    applyTaskStatus(newStatus)
     if (newStatus === 'interrupted') {
       console.log('[WritingTask Store] 任务已被中断')
     }
@@ -209,34 +225,20 @@ export function createWSMessageHandler(state, hooks = {}) {
   }
 
   function applyTaskComplete(msg) {
-    if (terminalHandled) {
-      console.log('[WritingTask Store] 终态已处理，丢弃重复的task_complete消息')
-      return
-    }
-    terminalHandled = true
-    if (state.currentTask.value) {
-      state.currentTask.value.status = 'completed'
-      state.currentTask.value.completed_at = new Date().toISOString()
+    applyTaskStatus('completed', (task) => {
+      task.completed_at = new Date().toISOString()
       if (msg.data) {
-        state.currentTask.value.total_word_count = msg.data.total_word_count
-        state.currentTask.value.total_tokens = msg.data.total_tokens
-        state.currentTask.value.total_cost = msg.data.total_cost
+        task.total_word_count = msg.data.total_word_count
+        task.total_tokens = msg.data.total_tokens
+        task.total_cost = msg.data.total_cost
       }
-    }
-    onTerminal()
+    })
   }
 
   function applyTaskFailed(msg) {
-    if (terminalHandled) {
-      console.log('[WritingTask Store] 终态已处理，丢弃重复的task_failed消息')
-      return
-    }
-    terminalHandled = true
-    if (state.currentTask.value) {
-      state.currentTask.value.status = 'failed'
-      state.currentTask.value.error = msg.data?.error || '未知错误'
-    }
-    onTerminal()
+    applyTaskStatus('failed', (task) => {
+      task.error = msg.data?.error || '未知错误'
+    })
   }
 
   function applyWorkflowStep(msg) {
@@ -244,9 +246,7 @@ export function createWSMessageHandler(state, hooks = {}) {
     console.log('[WritingTask Store] 工作流步骤:', msg.data.step, msg.data.status, msg.data.message)
     // 如果步骤状态是error，可能是中断导致的
     if (msg.data.status === 'error' && msg.data.message?.includes('中断')) {
-      if (state.currentTask.value) {
-        state.currentTask.value.status = 'interrupted'
-      }
+      applyTaskStatus('interrupted')
     }
   }
 
@@ -283,7 +283,6 @@ export function createWSMessageHandler(state, hooks = {}) {
   }
 
   return {
-    handleMessage,
-    resetTerminalLock
+    handleMessage
   }
 }

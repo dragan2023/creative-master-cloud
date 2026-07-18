@@ -8,7 +8,7 @@
  * 1. 进入工作台后建立恰好一条 WebSocket 主连接，UI 显示"实时连接"
  * 2. 离线15秒：UI 明确显示离线；期间零新连接（无请求风暴）
  * 3. 恢复在线：只新建一条主连接并回到"实时连接"
- * 4. 终态（真实WS推送task_complete）：内容校准恰好一次、连接关闭、
+ * 4. 终态（真实Pipeline同款status_change）：内容校准恰好一次、连接关闭、
  *    5秒观察期内不再重连
  * 5. 离开工作台后30秒内没有该任务的新连接或轮询
  *
@@ -19,7 +19,8 @@ import {
   acquireTestAuth,
   createTestProject,
   seedRunningTask,
-  emitTaskComplete
+  emitProductionTerminalStatus,
+  cleanupQaTask
 } from './helpers/testEnv'
 
 /** 离线观察时长（计划要求15秒） */
@@ -40,16 +41,26 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  await auth?.api?.dispose()
+  try {
+    if (auth?.api && taskId) {
+      const cleaned = await cleanupQaTask(auth.api, auth.token, taskId)
+      expect(cleaned.task_id).toBe(taskId)
+      expect(cleaned.project_id).toBe(projectId)
+    }
+  } finally {
+    await auth?.api?.dispose()
+  }
 })
 
 test('长任务断网15秒恢复后单连接续传，终态只刷新一次', async ({ page, context }) => {
   // ==================== 证据计数器（URL剥离认证参数防泄露） ====================
   const wsConnections = []
+  const wsClosures = []
   page.on('websocket', (ws) => {
     const sanitizedUrl = ws.url().split('?')[0]
     if (sanitizedUrl.includes(`/writing-tasks/${taskId}/ws`)) {
       wsConnections.push({ url: sanitizedUrl, at: Date.now() })
+      ws.on('close', () => wsClosures.push({ url: sanitizedUrl, at: Date.now() }))
     }
   })
 
@@ -107,13 +118,18 @@ test('长任务断网15秒恢复后单连接续传，终态只刷新一次', asy
   await page.waitForTimeout(2000)
   expect(wsConnections.length).toBe(wsCountBeforeOffline + 1)
 
-  // ==================== 4. 终态：真实WS推送task_complete ====================
+  // ==================== 4. 终态：真实Pipeline同款status_change ====================
   const unitsCountBeforeComplete = unitsRefreshRequests.length
-  const deliveredConnections = await emitTaskComplete(auth.api, auth.token, taskId)
-  expect(deliveredConnections, 'task_complete应送达至少1条连接').toBeGreaterThanOrEqual(1)
+  const closuresBeforeTerminal = wsClosures.length
+  const deliveredConnections = await emitProductionTerminalStatus(auth.api, auth.token, taskId)
+  expect(deliveredConnections, '生产status_change应送达至少1条连接').toBeGreaterThanOrEqual(1)
 
   // 连接关闭（终态由store主动断开）
   await expect(connectionState).toContainText('连接已关闭', { timeout: 15000 })
+  await expect.poll(() => wsClosures.length, {
+    message: '生产status_change分支应由Store关闭当前WebSocket',
+    timeout: 10000
+  }).toBe(closuresBeforeTerminal + 1)
 
   // 内容自动校准恰好一次
   await expect
@@ -153,8 +169,9 @@ test('长任务断网15秒恢复后单连接续传，终态只刷新一次', asy
 
   // ==================== 证据输出（已脱敏，无token） ====================
   console.log(
-    '[E2E证据] WS连接数=%d, SSE连接数=%d, 任务状态请求数=%d, 内容刷新数=%d',
+    '[E2E证据] WS连接数=%d, WS关闭数=%d, SSE连接数=%d, 任务状态请求数=%d, 内容刷新数=%d',
     wsConnections.length,
+    wsClosures.length,
     sseConnections.length,
     taskStatusRequests.length,
     unitsRefreshRequests.length
