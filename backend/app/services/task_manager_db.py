@@ -10,8 +10,9 @@
 """
 from collections.abc import Callable
 from typing import Optional, Dict, Any
+import warnings
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.logger import get_logger
 from app.core.database import async_session_maker
@@ -27,6 +28,36 @@ def set_session_factory(factory: Callable[[], AsyncSession]) -> None:
     """注入 Session 工厂（由启动期调用，测试时可注入伪工厂）"""
     global _session_factory
     _session_factory = factory
+
+
+def set_novel_project_repo(repo: NovelProjectRepository) -> None:
+    """Deprecated adapter that derives a short-lived Session factory.
+
+    The repository instance itself is never retained or reused.  Only its
+    AsyncSession bind is used to construct a factory that creates a distinct
+    session for every database operation.
+    """
+    warnings.warn(
+        "set_novel_project_repo() is deprecated; use set_session_factory()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    session = getattr(repo, "session", None)
+    bind = getattr(session, "bind", None)
+    if bind is None:
+        raise TypeError(
+            "set_novel_project_repo() requires repo.session to be an "
+            "AsyncSession with a configured bind"
+        )
+
+    factory = async_sessionmaker(
+        bind,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+    set_session_factory(factory)
 
 
 def _apply_task_fields(project, task: Dict[str, Any]) -> None:
@@ -142,6 +173,7 @@ async def clear_task_in_db(project_id: int):
 
 __all__ = [
     "set_session_factory",
+    "set_novel_project_repo",
     "sync_task_to_db",
     "get_task_from_db",
     "clear_task_in_db",

@@ -26,6 +26,7 @@ from app.services.task_manager_sse import (
     notify_task_update,
 )
 from app.services.task_manager_db import (
+    set_novel_project_repo,
     set_session_factory,
     sync_task_to_db,
     get_task_from_db,

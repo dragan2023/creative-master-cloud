@@ -81,8 +81,36 @@ async def upload_knowledge_base_handler(
 
     file_id = str(uuid.uuid4())
     file_path = os.path.join(upload_dir, f"{file_id}{file_ext}")
+    temp_path = os.path.join(
+        upload_dir,
+        f".{file_id}.{uuid.uuid4().hex}.part",
+    )
 
-    await run_blocking(_copy_uploaded_file, file.file, file_path)
+    copy_task = asyncio.create_task(
+        run_blocking(_copy_uploaded_file, file.file, temp_path)
+    )
+    try:
+        try:
+            await asyncio.shield(copy_task)
+        except asyncio.CancelledError:
+            # The request owner may close UploadFile as soon as this handler
+            # returns.  Keep ownership until the worker has stopped touching
+            # both the source stream and the temporary destination.
+            while not copy_task.done():
+                try:
+                    await asyncio.shield(copy_task)
+                except asyncio.CancelledError:
+                    continue
+            try:
+                copy_task.result()
+            except BaseException:
+                # Caller cancellation remains the externally visible error.
+                pass
+            raise
+        os.replace(temp_path, file_path)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
     file_size = os.path.getsize(file_path)
     if file_size > settings.MAX_UPLOAD_SIZE:

@@ -15,6 +15,8 @@ from unittest.mock import patch
 import pytest
 
 from app.services import task_manager_db
+from app.core.database import engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class FakeAsyncSession:
@@ -222,3 +224,68 @@ async def test_clear_commit_failure_rolls_back_exits_logs_id_and_reraises(
     assert session.rollback_count == 1
     assert session.exit_count == 1
     assert "project_id=42" in warning.call_args.args[0]
+
+
+def test_legacy_repo_adapter_builds_factory_from_fake_bind(monkeypatch):
+    bind = object()
+
+    class DerivedFactory:
+        def __call__(self):
+            return object()
+
+    derived_factory = DerivedFactory()
+    captured = {}
+
+    def fake_async_sessionmaker(received_bind, **kwargs):
+        captured["bind"] = received_bind
+        captured["kwargs"] = kwargs
+        return derived_factory
+
+    monkeypatch.setattr(
+        task_manager_db,
+        "async_sessionmaker",
+        fake_async_sessionmaker,
+        raising=False,
+    )
+    repo = SimpleNamespace(session=SimpleNamespace(bind=bind))
+
+    with patch.object(task_manager_db, "set_session_factory") as setter:
+        with pytest.warns(DeprecationWarning, match="set_session_factory"):
+            task_manager_db.set_novel_project_repo(repo)
+
+    assert captured["bind"] is bind
+    assert captured["kwargs"]["class_"] is AsyncSession
+    assert captured["kwargs"]["expire_on_commit"] is False
+    setter.assert_called_once_with(derived_factory)
+    assert derived_factory() is not derived_factory()
+
+
+@pytest.mark.asyncio
+async def test_legacy_repo_adapter_derives_distinct_sessions_from_real_bind():
+    original_factory = task_manager_db._session_factory
+    legacy_session = AsyncSession(bind=engine)
+    first = second = None
+    try:
+        repo = SimpleNamespace(session=legacy_session)
+        with pytest.warns(DeprecationWarning, match="set_session_factory"):
+            task_manager_db.set_novel_project_repo(repo)
+
+        derived_factory = task_manager_db._session_factory
+        first = derived_factory()
+        second = derived_factory()
+        assert first is not second
+        assert first is not legacy_session
+        assert second is not legacy_session
+    finally:
+        task_manager_db.set_session_factory(original_factory)
+        if first is not None:
+            await first.close()
+        if second is not None:
+            await second.close()
+        await legacy_session.close()
+
+
+def test_legacy_repo_adapter_rejects_missing_bind():
+    with pytest.warns(DeprecationWarning, match="set_session_factory"):
+        with pytest.raises(TypeError, match="AsyncSession.*bind"):
+            task_manager_db.set_novel_project_repo(SimpleNamespace(session=object()))

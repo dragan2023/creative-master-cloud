@@ -243,3 +243,102 @@ async def test_completed_future_releases_capacity_exactly_once(monkeypatch):
 
     assert await run_blocking(lambda: "value") == "value"
     assert capacity.release_count == 1
+
+
+@pytest.mark.asyncio
+async def test_capacity_waiter_does_not_poll_on_each_loop_turn(monkeypatch):
+    class DeniedCapacity:
+        def __init__(self):
+            self.acquire_calls = 0
+
+        def acquire(self, *, blocking):
+            assert blocking is False
+            self.acquire_calls += 1
+            return False
+
+        def release(self):
+            raise AssertionError("a task that never acquired must not release")
+
+    capacity = DeniedCapacity()
+    monkeypatch.setattr(blocking_executor, "_capacity", capacity)
+    task = asyncio.create_task(run_blocking(lambda: None))
+    try:
+        await asyncio.sleep(0)
+        first_attempts = capacity.acquire_calls
+        for _ in range(50):
+            await asyncio.sleep(0)
+        assert capacity.acquire_calls == first_attempts == 1
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_capacity_waiters_submit_in_fifo_order():
+    total_capacity = (
+        blocking_executor.BLOCKING_MAX_WORKERS
+        + blocking_executor.BLOCKING_MAX_PENDING
+    )
+    for _ in range(total_capacity):
+        assert blocking_executor._capacity.acquire(blocking=False)
+
+    execution_order = []
+    tasks = []
+    initial_slot_released = False
+    try:
+        for value in range(3):
+            tasks.append(
+                asyncio.create_task(
+                    run_blocking(lambda item=value: execution_order.append(item))
+                )
+            )
+            await asyncio.sleep(0)
+
+        await _wait_until(lambda: len(blocking_executor._waiters) == 3)
+        blocking_executor._release_capacity(None)
+        initial_slot_released = True
+        await asyncio.gather(*tasks)
+
+        assert execution_order == [0, 1, 2]
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        slots_to_restore = total_capacity - (1 if initial_slot_released else 0)
+        for _ in range(slots_to_restore):
+            blocking_executor._release_capacity(None)
+
+
+@pytest.mark.asyncio
+async def test_cancelling_head_waiter_allows_next_waiter_to_receive_slot():
+    total_capacity = (
+        blocking_executor.BLOCKING_MAX_WORKERS
+        + blocking_executor.BLOCKING_MAX_PENDING
+    )
+    for _ in range(total_capacity):
+        assert blocking_executor._capacity.acquire(blocking=False)
+
+    ran = []
+    first = asyncio.create_task(run_blocking(lambda: ran.append("first")))
+    await asyncio.sleep(0)
+    second = asyncio.create_task(run_blocking(lambda: ran.append("second")))
+    slot_released = False
+    try:
+        await _wait_until(lambda: len(blocking_executor._waiters) == 2)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+        blocking_executor._release_capacity(None)
+        slot_released = True
+        await second
+        assert ran == ["second"]
+    finally:
+        for task in (first, second):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+        slots_to_restore = total_capacity - (1 if slot_released else 0)
+        for _ in range(slots_to_restore):
+            blocking_executor._release_capacity(None)
