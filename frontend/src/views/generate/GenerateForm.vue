@@ -874,10 +874,13 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  // 离开路由时释放全部实时连接：生成主流 + 质控进度 SSE
   if (currentEventSource.value && currentEventSource.value.abort) {
     currentEventSource.value.abort()
     currentEventSource.value = null
   }
+  // 修复：此前遗漏关闭质控 SSE，导致离开页面后连接泄漏
+  stopQCSSEConnection()
   generating.value = false
   globalOutlineGenerating.value = false
   unitSummariesGenerating.value = false
@@ -1169,6 +1172,8 @@ async function handleStop() {
     currentEventSource.value.abort()
     currentEventSource.value = null
   }
+  // 中断生成时一并释放质控进度 SSE，避免残留连接
+  stopQCSSEConnection()
   
   if (currentSessionId.value) {
     try {

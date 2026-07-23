@@ -57,7 +57,9 @@ backend/.env.local
 frontend/.env.local
 frontend/.env.development
 !.env.example
-!.env.cloud
+# .env.cloud 可能承载真实密钥，禁止跟踪；仅保留脱敏模板 .env.cloud.example
+.env.cloud
+!.env.cloud.example
 
 # ===== 日志文件 =====
 logs/
@@ -121,8 +123,7 @@ backend/app/static/index.html
 htmlcov/
 .tox/
 .nox/
-backend/tests/
-tests/
+# 测试源码属于版本控制范围；只忽略测试运行产生的缓存、覆盖率和报告文件。
 
 # ===== 审查差异与临时文件 =====
 *_diff*.txt
@@ -139,6 +140,10 @@ frontend/fix_imports.ps1
 
 # ===== 工作文档 =====
 docs/
+!docs/
+docs/*
+!docs/全面安全技术债清理方案/
+!docs/全面安全技术债清理方案/**
 
 # ===== 本地视觉探索会话 =====
 .superpowers/

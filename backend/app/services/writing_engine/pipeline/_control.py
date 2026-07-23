@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import get_logger
 from app.models.writing_task import WritingTask, TaskStatus
+from app.services.writing_engine.task_lifecycle import transition_task
 
 from app.agents.writing.orchestrator_agent import OrchestratorAgent
 from app.agents.writing.base_agent import AgentContext, AgentResult
@@ -92,10 +93,14 @@ class PipelineControlMixin(PipelineExecuteMixin):
             from sqlalchemy import update
             from app.core.database import async_session_maker
             async with async_session_maker() as db:
-                await db.execute(
-                    update(WritingTask)
-                    .where(WritingTask.id == self.task_id)
-                    .values(status=TaskStatus.INTERRUPTED, end_time=datetime.now())
+                task = (await db.execute(
+                    select(WritingTask).where(WritingTask.id == self.task_id)
+                )).scalar_one_or_none()
+                if not task:
+                    return
+                await transition_task(
+                    task, TaskStatus.INTERRUPTED, self._ws_manager,
+                    reason="任务执行被中断",
                 )
                 await db.commit()
                 logger.info(f"已直接更新任务状态为中断: task_id={self.task_id}")
@@ -139,15 +144,15 @@ class PipelineControlMixin(PipelineExecuteMixin):
                         logger.warning(
                             f"检测到幽灵状态RUNNING，自动转为INTERRUPTED: task_id={self.task.id}")
                         # 更新状态为INTERRUPTED
-                        await db.execute(
-                            update(WritingTask)
-                            .where(WritingTask.id == self.task.id)
-                            .values(status=TaskStatus.INTERRUPTED, end_time=datetime.now())
+                        await transition_task(
+                            self.task, TaskStatus.INTERRUPTED, self._ws_manager,
+                            reason="server_restarted",
                         )
                         await db.commit()
-                        self.task.status = TaskStatus.INTERRUPTED
 
-                if self.task.status not in (TaskStatus.INTERRUPTED, TaskStatus.FAILED):
+                if self.task.status not in (
+                    TaskStatus.PENDING, TaskStatus.INTERRUPTED, TaskStatus.FAILED,
+                ):
                     logger.warning(
                         f"任务不在可续传状态: task_id={self.task.id}, status={self.task.status}")
                     return False
@@ -172,15 +177,15 @@ class PipelineControlMixin(PipelineExecuteMixin):
                     # 需要在数据库会话中更新状态
                     from app.core.database import async_session_maker
                     async with async_session_maker() as db:
-                        await db.execute(
-                            update(WritingTask)
-                            .where(WritingTask.id == self.task.id)
-                            .values(status=TaskStatus.INTERRUPTED, end_time=datetime.now())
+                        await transition_task(
+                            self.task, TaskStatus.INTERRUPTED, self._ws_manager,
+                            reason="server_restarted",
                         )
                         await db.commit()
-                    self.task.status = TaskStatus.INTERRUPTED
 
-            if self.task.status not in (TaskStatus.INTERRUPTED, TaskStatus.FAILED):
+            if self.task.status not in (
+                TaskStatus.PENDING, TaskStatus.INTERRUPTED, TaskStatus.FAILED,
+            ):
                 logger.warning(
                     f"任务不在可续传状态: task_id={self.task.id}, status={self.task.status}")
                 return False
@@ -284,9 +289,10 @@ class PipelineControlMixin(PipelineExecuteMixin):
                     self._orchestrator.set_ws_manager(self._ws_manager)
 
                 # 更新状态为运行中
-                self.task.status = TaskStatus.RUNNING
+                await transition_task(
+                    self.task, TaskStatus.RUNNING, self._ws_manager,
+                )
                 await db.commit()
-                await self._notify_status_change(TaskStatus.COMPLETED, TaskStatus.RUNNING)
 
                 # 构建上下文，设置继续生成的参数
                 context = await self._build_context()
@@ -300,29 +306,30 @@ class PipelineControlMixin(PipelineExecuteMixin):
 
                 # 处理执行结果
                 if self._result.success:
-                    self.task.status = TaskStatus.COMPLETED
+                    await transition_task(
+                        self.task, TaskStatus.COMPLETED, self._ws_manager,
+                    )
                     self.task.completed_units = self.task.total_units
-                    self.task.end_time = datetime.now()
                     logger.info(f"继续生成任务完成: task_id={self.task.id}")
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.COMPLETED)
                 else:
-                    self.task.status = TaskStatus.FAILED
-                    self.task.error_message = self._result.errors[0] if self._result.errors else "未知错误"
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.FAILED, self._ws_manager,
+                        reason=self._result.errors[0] if self._result.errors else "未知错误",
+                    )
                     logger.error(
                         f"继续生成任务失败: task_id={self.task.id}, error={self.task.error_message}")
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.FAILED)
 
                 await db.commit()
 
             except asyncio.CancelledError:
                 if self.task:
                     logger.info(f"继续生成任务被中断: task_id={self.task.id}")
-                    self.task.status = TaskStatus.INTERRUPTED
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.INTERRUPTED, self._ws_manager,
+                        reason="任务执行被取消",
+                    )
                     try:
                         await db.commit()
-                        await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
                     except Exception:
                         logger.warning("继续生成任务中断时数据库提交失败,连接可能已关闭")
 
@@ -330,11 +337,11 @@ class PipelineControlMixin(PipelineExecuteMixin):
                 logger.exception(
                     f"继续生成任务执行异常: task_id={self.task_id}, error={str(e)}")
                 if self.task:
-                    self.task.status = TaskStatus.FAILED
-                    self.task.error_message = str(e)
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.FAILED, self._ws_manager,
+                        reason=str(e),
+                    )
                     await db.commit()
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.FAILED)
 
             finally:
                 type(self).remove_active_pipeline(self.task_id)
@@ -413,37 +420,39 @@ class PipelineControlMixin(PipelineExecuteMixin):
                     self._orchestrator.set_ws_manager(self._ws_manager)
 
                 # 更新状态
-                self.task.status = TaskStatus.RUNNING
+                await transition_task(
+                    self.task, TaskStatus.RUNNING, self._ws_manager,
+                )
                 await db.commit()
-                await self._notify_status_change(TaskStatus.INTERRUPTED, TaskStatus.RUNNING)
 
                 # 调用Orchestrator的resume方法
                 self._result = await self._orchestrator.resume(context)
 
                 # 处理执行结果
                 if self._result.success:
-                    self.task.status = TaskStatus.COMPLETED
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.COMPLETED, self._ws_manager,
+                    )
                     logger.info(f"续传任务完成: task_id={self.task.id}")
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.COMPLETED)
                 else:
-                    self.task.status = TaskStatus.FAILED
-                    self.task.error_message = self._result.errors[0] if self._result.errors else "未知错误"
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.FAILED, self._ws_manager,
+                        reason=self._result.errors[0] if self._result.errors else "未知错误",
+                    )
                     logger.error(
                         f"续传任务失败: task_id={self.task.id}, error={self.task.error_message}")
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.FAILED)
 
                 await db.commit()
 
             except asyncio.CancelledError:
                 if self.task:
                     logger.info(f"续传任务被中断: task_id={self.task.id}")
-                    self.task.status = TaskStatus.INTERRUPTED
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.INTERRUPTED, self._ws_manager,
+                        reason="任务执行被取消",
+                    )
                     try:
                         await db.commit()
-                        await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
                     except Exception:
                         logger.warning("续传任务中断时数据库提交失败,连接可能已关闭")
                 else:
@@ -453,11 +462,11 @@ class PipelineControlMixin(PipelineExecuteMixin):
                 logger.exception(
                     f"续传任务执行异常: task_id={self.task_id}, error={str(e)}")
                 if self.task:
-                    self.task.status = TaskStatus.FAILED
-                    self.task.error_message = str(e)
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.FAILED, self._ws_manager,
+                        reason=str(e),
+                    )
                     await db.commit()
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.FAILED)
 
             finally:
                 type(self).remove_active_pipeline(self.task_id)

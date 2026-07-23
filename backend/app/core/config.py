@@ -8,8 +8,8 @@
 @contact: QQ：7527149（添加时请说明来意）
 """
 from typing import Optional
-from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, model_validator
 from functools import lru_cache
 import os
 import json
@@ -251,11 +251,25 @@ class Settings(BaseSettings):
         description="启用的 MCP 提供者列表，逗号分隔（search_hotnews为基于搜索引擎的热点聚合）"
     )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "ignore"  # 忽略 .env 中未定义的字段
+    # Pydantic v2 配置：使用 model_config 替代已弃用的内部 class Config，
+    # 消除 pydantic-settings v2 的 "class-based `Config` is deprecated" 告警。
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",  # 忽略 .env 中未定义的字段
+    )
+
+    @model_validator(mode="after")
+    def _enforce_version_single_source(self) -> "Settings":
+        """
+        强制产品版本以 version.json 为唯一来源。
+
+        即便 .env 或环境变量残留了历史 APP_VERSION，也统一回落到
+        version.json.current_version，避免页面、API 与发布包版本漂移。
+        """
+        self.APP_VERSION = get_version_from_file()
+        return self
 
     def _normalize_path(self, path: str) -> str:
         """规范化路径，移除 ./ 前缀并确保格式正确"""

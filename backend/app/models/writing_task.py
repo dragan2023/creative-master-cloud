@@ -19,6 +19,8 @@
 作者: AI Assistant
 """
 from uuid import uuid4
+from datetime import datetime
+from typing import Optional
 from sqlalchemy import Column, String, Integer, ForeignKey, Text, Enum, JSON, Float, DateTime
 from sqlalchemy.orm import relationship
 import enum
@@ -30,9 +32,11 @@ class TaskStatus(str, enum.Enum):
     """任务状态枚举"""
     PENDING = "pending"         # 等待中
     RUNNING = "running"         # 运行中
+    CANCELLING = "cancelling"   # 取消中（已发送取消信号，尚未落地）
     INTERRUPTED = "interrupted" # 已中断
     COMPLETED = "completed"     # 已完成
     FAILED = "failed"           # 失败
+    CANCELLED = "cancelled"     # 已取消
 
 
 class WritingTask(BaseModel):
@@ -68,3 +72,30 @@ class WritingTask(BaseModel):
         if self.total_units == 0:
             return 0.0
         return (self.completed_units / self.total_units) * 100
+
+    def transition_to(self, new_status: "TaskStatus", reason: Optional[str] = None,
+                      ended_at: Optional[datetime] = None) -> None:
+        """按单一迁移表将任务状态推进到 new_status。
+
+        非法迁移抛出 InvalidTaskTransitionException 并保留原状态；
+        迁入终态时自动写入 end_time，失败/中断时将 reason 记录到 error_message。
+
+        Args:
+            new_status: 目标状态
+            reason: 迁移原因（失败/中断时作为可查询原因写入 error_message）
+            ended_at: 终态结束时间，缺省为当前时间
+        """
+        from app.services.task_manager_constants import (
+            assert_task_transition_allowed,
+            is_terminal_task_status,
+        )
+        assert_task_transition_allowed(self.status, new_status, reason=reason, ended_at=ended_at)
+        self.status = new_status
+        if is_terminal_task_status(new_status):
+            self.end_time = ended_at or datetime.now()
+        else:
+            # 恢复、重试和继续生成会开启新一轮执行，旧的结束时间和错误原因不应残留。
+            self.end_time = None
+            self.error_message = None
+        if reason and new_status in (TaskStatus.FAILED, TaskStatus.INTERRUPTED):
+            self.error_message = reason

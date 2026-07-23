@@ -162,38 +162,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"自动创建超级管理员失败（不影响启动）: {e}")
 
-    # 清理上次服务器退出时遗留的幽灵运行任务
-    # 服务器重启后，内存中的任务状态丢失，数据库中残留 running 状态的任务已无法继续
-    # 将其标记为 failed，避免前端页面刷新后误认为任务仍在运行
-    # P0改造：改用WritingTask查询（不再依赖NovelProject的DEPRECATED字段）
+    # 收敛启动清理：进程重启后，数据库中残留的 RUNNING 任务是幽灵状态。
+    # 统一调用 interrupt_orphaned_tasks() 以单条条件更新收敛为 INTERRUPTED，
+    # 写入原因 server_restarted，避免前端刷新后误认为任务仍在运行。
     try:
-        from app.repositories.writing_task import WritingTaskRepository
-        from app.core.database import async_session_maker
-        from app.services.task_manager_constants import TASK_STATUS_RUNNING, TASK_STATUS_FAILED
-        async with async_session_maker() as db:
-            repo = WritingTaskRepository(db)
-            running_tasks = await repo.get_by_status(TASK_STATUS_RUNNING)
-            for task in running_tasks:
-                task.status = TASK_STATUS_FAILED
-            if running_tasks:
-                await db.commit()
-                logger.info(f"已清理 {len(running_tasks)} 个遗留运行写作任务")
+        from app.services.task_manager import interrupt_orphaned_tasks
+        await interrupt_orphaned_tasks()
     except Exception as e:
-        logger.warning(f"清理遗留运行任务失败（不影响启动）: {e}")
-
-    # 注入 NovelProjectRepository 到 task_manager（支持依赖倒置）
-    try:
-        from app.core.database import async_session_maker
-        from app.repositories.novel_project import NovelProjectRepository
-        from app.services.task_manager import set_novel_project_repo
-
-        # 创建独立 session（不作为 context manager，保持长连接）
-        session = async_session_maker()
-        repo = NovelProjectRepository(session)
-        set_novel_project_repo(repo)
-        logger.info("已注入 NovelProjectRepository 到 task_manager")
-    except Exception as e:
-        logger.warning(f"注入 Repository 失败（不影响启动）: {e}")
+        logger.warning(f"启动时收敛残留任务失败（不影响启动）: {e}")
 
     # 初始化 LLM 能力报告
     try:
@@ -243,69 +219,18 @@ async def lifespan(app: FastAPI):
     # 启动后自动打开浏览器
     _start_browser_opener()
 
-    # 清理幽灵状态：将所有RUNNING状态的任务标记为INTERRUPTED
-    # 因为后端重启意味着之前的运行进程已终止
-    try:
-        from app.core.database import async_session_maker
-        from app.models import WritingTask
-        from app.models.writing_task import TaskStatus
-        from sqlalchemy import update
-        from datetime import datetime
-
-        async with async_session_maker() as db:
-            result = await db.execute(
-                update(WritingTask)
-                .where(WritingTask.status == TaskStatus.RUNNING)
-                .values(
-                    status=TaskStatus.INTERRUPTED,
-                    end_time=datetime.now(),
-                    error_message="后端服务重启，任务自动中断"
-                )
-            )
-            await db.commit()
-            cleaned_count = result.rowcount
-            if cleaned_count > 0:
-                logger.info(
-                    f"【幽灵状态清理】已清理 {cleaned_count} 个残留的RUNNING状态任务"
-                )
-    except Exception as e:
-        logger.warning(f"清理幽灵状态失败（不影响启动）: {e}")
-
     yield
 
     # 关闭时清理
     logger.info("应用关闭")
 
-    # 清理活跃Pipeline的RUNNING状态
+    # 关闭时收敛残留 RUNNING 任务：与启动一致，统一调用 interrupt_orphaned_tasks()。
+    # 终态任务不在 WHERE 命中范围内，已终止的任务不会被重复改写。
     try:
-        from app.core.database import async_session_maker
-        from app.models import WritingTask
-        from app.models.writing_task import TaskStatus
-        from app.services.writing_engine.pipeline import WritingPipeline
-        from sqlalchemy import update
-        from datetime import datetime
-
-        active_pipelines = WritingPipeline.get_all_active_pipelines()
-        if active_pipelines:
-            # 将不在活跃列表中的RUNNING任务标记为INTERRUPTED
-            async with async_session_maker() as db:
-                result = await db.execute(
-                    update(WritingTask)
-                    .where(WritingTask.status == TaskStatus.RUNNING)
-                    .values(
-                        status=TaskStatus.INTERRUPTED,
-                        end_time=datetime.now(),
-                        error_message="后端服务关闭，任务自动中断"
-                    )
-                )
-                await db.commit()
-                cleaned_count = result.rowcount
-                if cleaned_count > 0:
-                    logger.info(
-                        f"【关闭清理】已将 {cleaned_count} 个RUNNING任务标记为INTERRUPTED"
-                    )
+        from app.services.task_manager import interrupt_orphaned_tasks
+        await interrupt_orphaned_tasks()
     except Exception as e:
-        logger.warning(f"关闭时清理任务状态失败: {e}")
+        logger.warning(f"关闭时收敛残留任务失败: {e}")
 
 
 # 创建 FastAPI 应用实例
@@ -350,14 +275,39 @@ app.add_middleware(
 )
 
 
-# 请求计时中间件
+# 请求计时与 request_id 关联中间件
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
+    from app.core.request_context import (
+        new_request_id, set_request_id, clear_context,
+    )
+    from app.core.observability import log_request_event
+
+    # 优先复用上游传入的 X-Request-ID，否则生成新的，便于链路追踪
+    request_id = request.headers.get("x-request-id") or new_request_id()
+    set_request_id(request_id)
+
     start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = f"{process_time:.4f}"
-    return response
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+
+        response.headers["X-Process-Time"] = f"{process_time:.4f}"
+        response.headers["X-Request-ID"] = request_id
+
+        # 仅对 API 请求记录结构化生命周期日志，避免静态/探活噪声
+        path = request.url.path
+        if path.startswith("/api/"):
+            log_request_event(
+                event="http_request",
+                method=request.method,
+                path=path,
+                status_code=response.status_code,
+                duration_ms=process_time * 1000,
+            )
+        return response
+    finally:
+        clear_context()
 
 
 # 全局异常处理
@@ -395,20 +345,25 @@ async def app_exception_handler(request: Request, exc: AppException):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    import uuid as _uuid
+    from datetime import datetime, timezone
     logger = get_logger("system")
+    # 仅在 API 边界兑底捕获未知异常：生成 trace_id 以便日志与响应关联追查。
+    trace_id = str(_uuid.uuid4())
     error_detail = f"{type(exc).__name__}: {str(exc)}"
     full_traceback = traceback.format_exc()
-    # 记录完整的异常堆栈
-    logger.error(f"未处理的异常: {error_detail}\n{full_traceback}")
+    # 记录完整的异常堆栈（携带 trace_id）
+    logger.error(f"未处理的异常 - 追踪ID: {trace_id}, {error_detail}\n{full_traceback}")
 
     return JSONResponse(
         status_code=500,
-        content={
-            "code": 500,
-            "message": "服务器内部错误",
-            "detail": error_detail if settings.DEBUG else None,
-            "traceback": full_traceback if settings.DEBUG else None
-        }
+        content=ErrorResponse(
+            code=ErrorCode.INTERNAL_ERROR.value,
+            message="服务器内部错误",
+            trace_id=trace_id,
+            details={"detail": error_detail} if settings.DEBUG else None,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        ).model_dump()
     )
 
 

@@ -30,6 +30,8 @@ from app.services.task_manager_db import (
     sync_task_to_db,
     get_task_from_db,
     clear_task_in_db,
+    interrupt_orphaned_tasks,
+    SERVER_RESTARTED_REASON,
 )
 
 logger = get_logger("task_manager")

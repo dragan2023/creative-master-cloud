@@ -97,6 +97,31 @@ npm run dev
 
 ---
 
+## 🧪 测试
+
+后端测试统一通过入口脚本运行，脚本会固定调用后端虚拟环境解释器
+（`backend\venv\Scripts\python.exe`），不会静默回退到系统 Python。
+若虚拟环境缺失，脚本会提示先运行 `run-local.ps1` 并以非零退出码结束。
+
+```powershell
+# 运行后端与根级测试
+scripts\test-backend.ps1
+
+# 仅打印将执行的命令（排查/校验用，不实际运行）
+scripts\test-backend.ps1 -PrintCommand
+
+# 追加额外 pytest 参数
+scripts\test-backend.ps1 -- -k character_state
+```
+
+等价的显式命令：
+
+```powershell
+backend\venv\Scripts\python.exe -m pytest backend/tests tests -q -p no:cacheprovider
+```
+
+---
+
 ## ⚙️ 配置说明
 
 ### API Key 配置
@@ -121,6 +146,13 @@ DEBUG=True
 DATABASE_URL=sqlite+aiosqlite:///./data/creative_master.db
 SECRET_KEY=your-secret-key-here
 ```
+
+> 云端部署：仓库仅提供脱敏模板 `.env.cloud.example`。请复制为 `.env.cloud`
+> 并填写真实密钥（`.env.cloud` 已加入 `.gitignore`，不会被提交）：
+>
+> ```powershell
+> copy .env.cloud.example .env.cloud
+> ```
 
 ---
 

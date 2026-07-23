@@ -3,7 +3,7 @@
 """
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from enum import Enum
 
 
@@ -82,8 +82,7 @@ class APIKeyResponse(BaseModel):
     last_used_at: Optional[str] = None
     created_at: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class APIKeyTest(BaseModel):

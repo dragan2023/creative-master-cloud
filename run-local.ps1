@@ -72,9 +72,53 @@ function Test-Environment {
     # 检查 npm
     $npmVersion = (npm --version).ToString()
     Write-Host "[OK] npm $npmVersion" -ForegroundColor Green
-    
+
+    # 输出依赖来源与 lockfile 版本（可复现性可观测）
+    Show-DependencySources
+
     Write-Host ""
     return $true
+}
+
+function Show-DependencySources {
+    Write-Host ""
+    Write-Host "[依赖来源] 解释器与锁文件" -ForegroundColor Magenta
+
+    # Python 实际解释器路径（优先后端虚拟环境）
+    $venvPython = Join-Path $BackendDir "venv\Scripts\python.exe"
+    if (Test-Path $venvPython) {
+        Write-Host "  - Python 解释器: $venvPython (venv)" -ForegroundColor Gray
+    } else {
+        $sysPython = (Get-Command python -ErrorAction SilentlyContinue).Source
+        Write-Host "  - Python 解释器: $sysPython (system)" -ForegroundColor Gray
+    }
+
+    # Node/npm 可执行文件路径
+    $nodePath = (Get-Command node -ErrorAction SilentlyContinue).Source
+    $npmPath = (Get-Command npm -ErrorAction SilentlyContinue).Source
+    Write-Host "  - Node 可执行: $nodePath" -ForegroundColor Gray
+    Write-Host "  - npm 可执行:  $npmPath" -ForegroundColor Gray
+
+    # 后端依赖来源
+    $constraints = Join-Path $BackendDir "constraints.txt"
+    if (Test-Path $constraints) {
+        Write-Host "  - 后端约束:   backend/constraints.txt (已启用兼容上界)" -ForegroundColor Gray
+    } else {
+        Write-Host "  - 后端约束:   未找到 constraints.txt" -ForegroundColor Yellow
+    }
+
+    # 前端 lockfile 版本
+    $lockFile = Join-Path $FrontendDir "package-lock.json"
+    if (Test-Path $lockFile) {
+        try {
+            $lockData = Get-Content $lockFile -Raw | ConvertFrom-Json
+            Write-Host "  - 前端锁文件: package-lock.json (lockfileVersion $($lockData.lockfileVersion))" -ForegroundColor Gray
+        } catch {
+            Write-Host "  - 前端锁文件: package-lock.json (无法解析版本)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  - 前端锁文件: 未找到 package-lock.json" -ForegroundColor Yellow
+    }
 }
 
 function Install-Dependencies {

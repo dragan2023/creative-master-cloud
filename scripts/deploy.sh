@@ -18,9 +18,17 @@ NC='\033[0m' # No Color
 # 检查.env文件
 if [ ! -f ".env" ]; then
     echo -e "${YELLOW}警告: .env 文件不存在${NC}"
-    echo "正在从模板创建 .env 文件..."
-    cp .env.cloud .env
-    echo -e "${RED}请编辑 .env 文件，设置 SECRET_KEY！${NC}"
+    if [ -f ".env.cloud" ]; then
+        echo "正在从本地 .env.cloud 创建 .env 文件..."
+        cp .env.cloud .env
+        echo -e "${RED}请检查 .env 文件，确认 SECRET_KEY 等密钥已正确设置！${NC}"
+    elif [ -f ".env.cloud.example" ]; then
+        echo -e "${RED}未找到 .env.cloud，请先复制模板并填写真实密钥：${NC}"
+        echo "    cp .env.cloud.example .env.cloud"
+        echo -e "${RED}然后编辑 .env.cloud 设置 SECRET_KEY 等密钥后重试。${NC}"
+    else
+        echo -e "${RED}未找到 .env 或 .env.cloud.example，请先创建环境配置文件。${NC}"
+    fi
     echo "生成密钥命令: python -c \"import secrets; print(secrets.token_hex(32))\""
     exit 1
 fi

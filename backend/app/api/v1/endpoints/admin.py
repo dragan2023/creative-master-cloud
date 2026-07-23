@@ -400,3 +400,23 @@ async def system_health(
         storage_used_mb=storage_used_mb,
         storage_total_mb=10240  # 假设总容量10GB
     ))
+
+
+# ==================== 模型调用可观测统计 ====================
+
+@router.get("/llm-stats", response_model=ResponseModel[dict])
+async def get_llm_call_stats(
+    hours: int = Query(24, ge=1, le=720),
+    superuser: User = Depends(get_current_superuser),
+):
+    """
+    获取外部模型调用聚合统计
+
+    按失败类别、可重试率、平均耗时和 Token 消耗聚合，而非只展示总量。
+    仅包含结果类别，不含任何提示词或用户正文明文。
+
+    需要超级管理员权限
+    """
+    from app.services.monitoring import get_monitoring_service
+    stats = get_monitoring_service().get_llm_call_stats(hours=hours)
+    return ResponseModel(data=stats)

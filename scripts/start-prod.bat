@@ -54,7 +54,7 @@ if not exist "%PROJECT_ROOT%.env" (
     
     REM 检查是否存在模板文件
     if exist "%PROJECT_ROOT%.env.cloud" (
-        echo [提示] 发现 .env.cloud 模板文件
+        echo [提示] 发现 .env.cloud 配置文件
         set /p COPY_ENV="是否从 .env.cloud 创建 .env 文件？(y/n): "
         if /i "!COPY_ENV!"=="y" (
             copy "%PROJECT_ROOT%.env.cloud" "%PROJECT_ROOT%.env" >nul
@@ -75,7 +75,13 @@ if not exist "%PROJECT_ROOT%.env" (
             exit /b 1
         )
     ) else (
-        echo [错误] 未找到环境配置文件，请创建 .env 文件
+        if exist "%PROJECT_ROOT%.env.cloud.example" (
+            echo [错误] 未找到 .env.cloud
+            echo [提示] 请将 .env.cloud.example 复制为 .env.cloud 并填写真实密钥后重试
+            echo         copy .env.cloud.example .env.cloud
+        ) else (
+            echo [错误] 未找到环境配置文件，请创建 .env 文件
+        )
         exit /b 1
     )
 )
@@ -326,8 +332,8 @@ echo   status   - 查看服务状态
 echo   help     - 显示帮助信息
 echo.
 echo 环境配置:
-echo   1. 复制 .env.cloud 为 .env
-echo   2. 编辑 .env 文件，设置 SECRET_KEY 等关键配置
+echo   1. 复制 .env.cloud.example 为 .env.cloud
+echo   2. 编辑 .env.cloud 文件，设置 SECRET_KEY 等关键配置
 echo   3. 运行 start-prod.bat init 初始化环境
 echo   4. 运行 start-prod.bat up 启动服务
 echo.

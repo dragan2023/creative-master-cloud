@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from fastapi import WebSocket
 
 from app.core.logger import get_logger
+from app.schemas.task_event import TaskEvent
 
 
 logger = get_logger("writing_engine.websocket_manager")
@@ -45,8 +46,17 @@ class WebSocketManager:
         # 按task_id分组的连接集合
         self._connections: Dict[int, Set[WebSocket]] = {}
 
+        # 按task_id维护的事件单调序号（跨重连保持递增，供前端丢弃过期重放事件）
+        self._sequences: Dict[int, int] = {}
+
         # 连接锁，保护共享资源
         self._lock = Lock()
+
+    def _next_sequence(self, task_id: int) -> int:
+        """为指定任务分配下一个单调递增序号（调用方须已持有 self._lock）"""
+        sequence = self._sequences.get(task_id, 0) + 1
+        self._sequences[task_id] = sequence
+        return sequence
 
     async def connect(self, task_id: int, websocket: WebSocket) -> None:
         """接受并注册WebSocket连接
@@ -102,6 +112,10 @@ class WebSocketManager:
                     f"没有活跃的WebSocket连接: task_id={task_id}, msg_type={msg_type}, "
                     f"活跃任务列表={list(self._connections.keys())}")
                 return 0
+
+            # 盖上单调递增序号：所有经 broadcast 派发的事件统一在此盖章，
+            # 保证同一 task_id 的事件序号单调递增，前端据此丢弃过期重放事件。
+            message["sequence"] = self._next_sequence(task_id)
 
             message_json = json.dumps(message, ensure_ascii=False)
             success_count = 0
@@ -173,13 +187,13 @@ class WebSocketManager:
         Returns:
             int: 成功发送的连接数
         """
-        message = {
-            "type": "status_change",
-            "task_id": task_id,
-            "old_status": old_status if isinstance(old_status, str) else old_status.value,
-            "new_status": new_status if isinstance(new_status, str) else new_status.value,
-            "timestamp": self._get_timestamp()
-        }
+        message = TaskEvent(
+            task_id=task_id,
+            sequence=0,
+            type="status_change",
+            status=new_status if isinstance(new_status, str) else new_status.value,
+            old_status=old_status if isinstance(old_status, str) else old_status.value,
+        ).model_dump(exclude_none=True)
 
         return await self.broadcast(task_id, message)
 

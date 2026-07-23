@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from app.core.logger import get_logger
 from app.models.writing_task import WritingTask, TaskStatus
+from app.services.writing_engine.task_lifecycle import transition_task
+from app.services.writing_engine.websocket_manager import get_websocket_manager
 
 logger = get_logger("writing_tasks")
 
@@ -209,8 +211,10 @@ async def _start_pipeline(task_id: int, project_id: int, config: dict):
                 )
                 task = result.scalar_one_or_none()
                 if task:
-                    task.status = TaskStatus.FAILED
-                    task.error_message = str(e)
+                    await transition_task(
+                        task, TaskStatus.FAILED, get_websocket_manager(),
+                        reason=str(e),
+                    )
                     await db.commit()
         except Exception as db_error:
             logger.error(
@@ -299,8 +303,7 @@ async def _continue_pipeline(task_id: int, start_from: int, unit_count: int):
                         logger.warning(
                             f"[继续生成] 恢复Agent配置失败: role={role_str}, error={e}")
 
-            # 更新任务状态为running
-            task.status = TaskStatus.RUNNING
+            # 保持 pending，实际执行器会通过状态机推进至 running。
             task.start_time = task.start_time or datetime.now()
             await db.commit()
 
@@ -327,8 +330,10 @@ async def _continue_pipeline(task_id: int, start_from: int, unit_count: int):
                 )
                 task = result.scalar_one_or_none()
                 if task:
-                    task.status = TaskStatus.FAILED
-                    task.error_message = str(e)
+                    await transition_task(
+                        task, TaskStatus.FAILED, get_websocket_manager(),
+                        reason=str(e),
+                    )
                     await db.commit()
         except Exception as db_error:
             logger.error(

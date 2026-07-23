@@ -7,6 +7,12 @@ import { API_BASE_URL } from '@/config'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 import { getToken, clearAuth } from '@/utils/authStorage'
+import { createMessageDeduper, resolveErrorAction } from '@/api/errorPolicy'
+
+// 全局错误通知去重器：同一请求的相同错误在时间窗口内只展示一次
+const errorDeduper = createMessageDeduper()
+// 单次登录跳转保护：连续多次 401 只跳转一次
+let isRedirectingToLogin = false
 
 // 创建axios实例
 export const api = axios.create({
@@ -40,46 +46,48 @@ api.interceptors.response.use(
   },
   (error) => {
     const status = error.response?.status
-    const message = error.response?.data?.detail || '请求失败'
-    
-    // 401 未授权 - 跳转登录页
-    if (status === 401) {
-      // 检查是否已经是登录页，避免重复跳转
-      const currentPath = router.currentRoute.value.path
-      if (currentPath !== '/login' && currentPath !== '/register') {
+    const currentPath = router.currentRoute.value.path
+
+    // 通过纯函数策略解析处理动作（是否跳转/是否展示/去重）
+    const action = resolveErrorAction(error, {
+      currentPath,
+      deduper: errorDeduper,
+      isRedirectingToLogin
+    })
+
+    // 401 未授权 - 跳转登录页（连续多次只跳转一次）
+    if (action.kind === 'unauthorized') {
+      if (action.shouldRedirectLogin) {
+        isRedirectingToLogin = true
         clearAuth()
         console.warn('[API] 401 未授权，跳转登录页')
-        router.push({ path: '/login', query: { redirect: currentPath } })
+        Promise.resolve(router.push({ path: '/login', query: { redirect: currentPath } }))
+          .finally(() => { isRedirectingToLogin = false })
       }
       return Promise.reject(error)
     }
-    
-    // 499 表示请求被取消（客户端断开连接）
-    if (status === 499) {
-      // 请求被取消，不显示错误消息（静默处理）
-      console.log('[API] 请求被取消:', message)
-      return Promise.reject({ cancelled: true, message })
+
+    // 499 表示请求被取消（客户端断开连接），静默处理
+    if (action.kind === 'cancelled') {
+      console.log('[API] 请求被取消:', action.message)
+      return Promise.reject({ cancelled: true, message: action.message })
     }
-    
-    // 422 参数校验失败：输出详细字段级别错误
+
+    // 422 参数校验失败：输出详细字段级别错误便于排查
     if (status === 422) {
-      const detail = error.response?.data?.detail
-      console.error('[API] 422 参数校验失败:', JSON.stringify(detail, null, 2))
+      console.error('[API] 422 参数校验失败:', JSON.stringify(error.response?.data?.detail, null, 2))
       console.error('[API] 请求体:', JSON.stringify(error.config?.data, null, 2))
     }
-    
+
     // 安全调用 ElMessage：防止 Element Plus + Vue 3.5 key:0 泄漏导致 setAttribute crash
-    try {
-      // 对422显示友好的字段级别错误
-      if (status === 422 && Array.isArray(error.response?.data?.detail)) {
-        const fields = error.response.data.detail.map(e => `${e.loc?.join('.') || '?'} : ${e.msg}`).join('; ')
-        ElMessage.error('参数校验失败: ' + fields)
-      } else {
-        ElMessage.error(message)
+    // 仅在去重策略判定应展示时才弹出通知
+    if (action.shouldShowMessage && action.message) {
+      try {
+        ElMessage.error(action.message)
+      } catch (domErr) {
+        console.error('[API] 错误通知渲染崩溃（ElMessage bug）:', domErr)
+        console.error('[API] 原始请求错误:', { status, message: action.message, url: error.config?.url })
       }
-    } catch (domErr) {
-      console.error('[API] 错误通知渲染崩溃（ElMessage bug）:', domErr)
-      console.error('[API] 原始请求错误:', { status, message, url: error.config?.url })
     }
     return Promise.reject(error)
   }

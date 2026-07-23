@@ -20,6 +20,8 @@ from app.models.writing_unit import WritingUnit
 from app.schemas.common import ResponseModel
 from app.schemas.writing_task import WritingTaskResponse, WritingTaskContinue
 from app.services.writing_engine.pipeline import WritingPipeline
+from app.services.writing_engine.task_lifecycle import transition_task
+from app.services.writing_engine.websocket_manager import get_websocket_manager
 
 from ._common import _build_task_response
 from ._pipeline import _resume_pipeline, _continue_pipeline
@@ -84,8 +86,10 @@ def register_control_routes(router: APIRouter):
             # 如果没有活跃的Pipeline，直接更新状态
             if not interrupt_sent:
                 logger.info(f"没有活跃的Pipeline，直接更新任务状态: task_id={task_id}")
-                task.status = TaskStatus.INTERRUPTED
-                task.end_time = datetime.now()
+                await transition_task(
+                    task, TaskStatus.INTERRUPTED, get_websocket_manager(),
+                    reason="用户中断任务",
+                )
                 await db.commit()
                 await db.refresh(task)
             else:
@@ -151,9 +155,9 @@ def register_control_routes(router: APIRouter):
                 )
 
             # 更新任务状态
-            task.status = TaskStatus.RUNNING
-            task.end_time = None
-            task.error_message = None
+            await transition_task(
+                task, TaskStatus.PENDING, get_websocket_manager(),
+            )
             await db.commit()
             await db.refresh(task)
 
@@ -305,9 +309,9 @@ def register_control_routes(router: APIRouter):
             # 硬性上限：total_units 不得超过 actual_unit_count
             if actual_unit_count > 0 and task.total_units > actual_unit_count:
                 task.total_units = actual_unit_count
-            task.status = TaskStatus.PENDING  # 重置为pending，让Pipeline启动
-            task.end_time = None
-            task.error_message = None
+            await transition_task(
+                task, TaskStatus.PENDING, get_websocket_manager(),
+            )
 
             # 预创建WritingUnit记录
             from app.models.writing_unit import WritingUnit, UnitStatus
@@ -419,11 +423,10 @@ def register_control_routes(router: APIRouter):
                         detail=f"任务仍在活跃运行中（上次更新: {time_elapsed.seconds//60}分钟前），请稍后再试或使用中断接口"
                     )
             
-            # 更新状态为INTERRUPTED
-            await db.execute(
-                update(WritingTask)
-                .where(WritingTask.id == task_id)
-                .values(status=TaskStatus.INTERRUPTED, end_time=datetime.now())
+            # 更新状态为INTERRUPTED，并派发统一状态事件。
+            await transition_task(
+                task, TaskStatus.INTERRUPTED, get_websocket_manager(),
+                reason="stale_task_reset",
             )
             await db.commit()
             

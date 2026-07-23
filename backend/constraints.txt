@@ -1,0 +1,47 @@
+# ============================================
+# 全能创意大师 - 依赖约束文件（可审计的可复现锁）
+# ============================================
+# 作用：为核心直接依赖锁定"经过验证的兼容上界"，防止 pip 解析出
+#       未经迁移验证的破坏性大版本（例如 pydantic 3.x、sqlalchemy 2.1+）。
+#
+# 使用方式（与 requirements.txt 配合，约束不新增依赖，仅收紧版本上界）：
+#   pip install -r requirements.txt -c constraints.txt
+#
+# 维护规则：
+#   - 升级任一核心库大版本前，必须先在此文件放宽上界并完成迁移验证；
+#   - 严禁以放宽约束的方式绕过 preflight-release.ps1 的门禁失败。
+# --------------------------------------------
+
+# Web 框架与配置（Pydantic v2 系列已验证）
+fastapi<1.0.0
+pydantic>=2.5.3,<3.0.0
+pydantic-settings>=2.1.0,<3.0.0
+uvicorn<1.0.0
+
+# 数据库与迁移（SQLAlchemy 2.0 系列已验证）
+sqlalchemy>=2.0.25,<2.1.0
+alembic<2.0.0
+asyncpg<1.0.0
+aiosqlite<1.0.0
+
+# 向量库与图谱
+chromadb>=0.5.0,<1.0.0
+networkx<4.0.0
+sentence-transformers<4.0.0
+
+# LangChain 生态（0.2/0.3 系列已验证）
+langchain>=0.2.0,<0.4.0
+langchain-community>=0.2.0,<0.4.0
+langchain-openai>=0.1.0,<0.3.0
+langchain-google-genai>=1.0.0,<3.0.0
+
+# LLM API 客户端
+openai>=1.10.0,<2.0.0
+dashscope>=1.14.1,<2.0.0
+google-genai>=1.0.0,<2.0.0
+
+# 数据处理
+numpy>=1.24.0,<3.0.0
+
+# 系统监控
+psutil>=5.9.0,<7.0.0

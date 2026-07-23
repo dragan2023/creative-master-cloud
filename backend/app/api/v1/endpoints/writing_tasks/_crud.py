@@ -102,8 +102,13 @@ def register_crud_routes(router: APIRouter):
 
             # 构建任务配置，注入项目数据
             import json
-            task_config = request.config.dict() if hasattr(
-                request.config, 'dict') else (request.config or {})
+            # 兼容 Pydantic v2：优先 model_dump()，回退旧版 dict()，消除弃用告警
+            if hasattr(request.config, "model_dump"):
+                task_config = request.config.model_dump()
+            elif hasattr(request.config, "dict"):
+                task_config = request.config.dict()
+            else:
+                task_config = request.config or {}
             if not isinstance(task_config, dict):
                 task_config = {}
 

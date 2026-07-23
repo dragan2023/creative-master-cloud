@@ -268,7 +268,7 @@ class BaseLLMProvider(ABC):
             images = kwargs.pop("images", None)
             files = kwargs.pop("files", None)
 
-        return await self.generate(
+        return await self._generate_with_observability(
             prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -276,6 +276,38 @@ class BaseLLMProvider(ABC):
             files=files,
             **kwargs
         )
+
+    async def _generate_with_observability(
+        self,
+        prompt: str,
+        **kwargs
+    ) -> LLMResponse:
+        """包裹 generate，记录结构化调用日志（仅结果类别，不含内容）。"""
+        import time as _time
+        from app.core.observability import (
+            log_llm_call, classify_exception, LLMCallStatus,
+        )
+        info = self.get_model_info()
+        module = kwargs.pop("module", "llm_chat")
+        start = _time.time()
+        try:
+            response = await self.generate(prompt, **kwargs)
+            token_count = (response.usage or {}).get("total_tokens", 0) if response.usage else 0
+            log_llm_call(
+                provider=info["provider"], model=info["model"], module=module,
+                status=LLMCallStatus.SUCCESS,
+                duration_ms=(_time.time() - start) * 1000,
+                token_count=token_count,
+            )
+            return response
+        except Exception as exc:
+            log_llm_call(
+                provider=info["provider"], model=info["model"], module=module,
+                status=classify_exception(exc),
+                duration_ms=(_time.time() - start) * 1000,
+                error_type=type(exc).__name__,
+            )
+            raise
 
     async def chat_stream(
         self,
@@ -332,7 +364,7 @@ class BaseLLMProvider(ABC):
             images = kwargs.pop("images", None)
             files = kwargs.pop("files", None)
 
-        async for chunk in self.generate_stream(
+        async for chunk in self._stream_with_observability(
             prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -341,6 +373,37 @@ class BaseLLMProvider(ABC):
             **kwargs
         ):
             yield chunk
+
+    async def _stream_with_observability(
+        self,
+        prompt: str,
+        **kwargs
+    ) -> AsyncGenerator[str, None]:
+        """包裹 generate_stream，记录流式调用的耗时与结果类别（不含内容）。"""
+        import time as _time
+        from app.core.observability import (
+            log_llm_call, classify_exception, LLMCallStatus,
+        )
+        info = self.get_model_info()
+        module = kwargs.pop("module", "llm_chat_stream")
+        start = _time.time()
+        try:
+            async for chunk in self.generate_stream(prompt, **kwargs):
+                yield chunk
+        except Exception as exc:
+            log_llm_call(
+                provider=info["provider"], model=info["model"], module=module,
+                status=classify_exception(exc),
+                duration_ms=(_time.time() - start) * 1000,
+                error_type=type(exc).__name__,
+            )
+            raise
+        else:
+            log_llm_call(
+                provider=info["provider"], model=info["model"], module=module,
+                status=LLMCallStatus.SUCCESS,
+                duration_ms=(_time.time() - start) * 1000,
+            )
 
     def get_model_info(self) -> Dict[str, Any]:
         """获取模型信息"""

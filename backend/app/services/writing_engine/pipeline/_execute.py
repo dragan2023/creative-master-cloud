@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import get_logger
 from app.models.writing_task import WritingTask, TaskStatus
+from app.services.writing_engine.task_lifecycle import transition_task
 from app.agents.writing.orchestrator_agent import OrchestratorAgent
 from app.agents.writing.base_agent import AgentContext
 from ._context_builder import ContextBuilderMixin
@@ -175,8 +176,10 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                     else:
                         logger.error(
                             f"无法获取有效的 total_units: task_id={self.task_id}, project_id={self.task.project_id}")
-                        self.task.status = TaskStatus.FAILED
-                        self.task.error_message = "项目没有可生成的单元"
+                        await transition_task(
+                            self.task, TaskStatus.FAILED, self._ws_manager,
+                            reason="项目没有可生成的单元",
+                        )
                         await db.commit()
                         return
 
@@ -199,12 +202,11 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                     self._orchestrator.set_ws_manager(self._ws_manager)
 
                 # 更新任务状态为运行中
-                self.task.status = TaskStatus.RUNNING
+                await transition_task(
+                    self.task, TaskStatus.RUNNING, self._ws_manager,
+                )
                 self.task.start_time = datetime.now()
                 await db.commit()
-
-                # 通知状态变更
-                await self._notify_status_change(TaskStatus.PENDING, TaskStatus.RUNNING)
 
                 # 构建执行上下文
                 context = await self._build_context()
@@ -214,17 +216,17 @@ class PipelineExecuteMixin(ContextBuilderMixin):
 
                 # 处理执行结果
                 if self._result.success:
-                    self.task.status = TaskStatus.COMPLETED
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.COMPLETED, self._ws_manager,
+                    )
                     logger.info(f"写作任务完成: task_id={self.task.id}")
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.COMPLETED)
                 else:
-                    self.task.status = TaskStatus.FAILED
-                    self.task.error_message = self._result.errors[0] if self._result.errors else "未知错误"
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.FAILED, self._ws_manager,
+                        reason=self._result.errors[0] if self._result.errors else "未知错误",
+                    )
                     logger.error(
                         f"写作任务失败: task_id={self.task.id}, error={self.task.error_message}")
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.FAILED)
 
                 await db.commit()
 
@@ -232,11 +234,12 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                 # 任务被取消（中断）
                 if self.task:
                     logger.info(f"写作任务被中断: task_id={self.task.id}")
-                    self.task.status = TaskStatus.INTERRUPTED
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.INTERRUPTED, self._ws_manager,
+                        reason="任务执行被取消",
+                    )
                     try:
                         await db.commit()
-                        await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.INTERRUPTED)
                     except Exception:
                         logger.warning("任务中断时数据库提交失败,连接可能已关闭")
                 else:
@@ -247,11 +250,11 @@ class PipelineExecuteMixin(ContextBuilderMixin):
                 logger.exception(
                     f"写作任务执行异常: task_id={self.task_id}, error={str(e)}")
                 if self.task:
-                    self.task.status = TaskStatus.FAILED
-                    self.task.error_message = str(e)
-                    self.task.end_time = datetime.now()
+                    await transition_task(
+                        self.task, TaskStatus.FAILED, self._ws_manager,
+                        reason=str(e),
+                    )
                     await db.commit()
-                    await self._notify_status_change(TaskStatus.RUNNING, TaskStatus.FAILED)
 
             finally:
                 # 从活跃列表移除

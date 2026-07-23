@@ -411,6 +411,16 @@ class TestPromptIntegration:
         assert "苏映雪" in relation_text
 
 
+def test_character_status_is_exported_from_public_package():
+    """公共包必须导出 CharacterStatus 且与 api 层为同一对象"""
+    from app.agents.writing.character_state_tracker import CharacterStatus
+    from app.agents.writing.character_state_tracker.api import (
+        CharacterStatus as ApiCharacterStatus,
+    )
+
+    assert CharacterStatus is ApiCharacterStatus
+
+
 def run_tests():
     """运行测试"""
     pytest.main([__file__, "-v", "-s"])

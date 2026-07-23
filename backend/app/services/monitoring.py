@@ -8,12 +8,16 @@
 @contact: QQ：7527149（添加时请说明来意）
 """
 import time
-import psutil
 import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from collections import defaultdict
 from dataclasses import dataclass, field
+
+try:
+    import psutil
+except ImportError:  # 系统指标依赖缺失时降级，不影响请求/模型调用聚合
+    psutil = None
 
 from app.core.logger import get_logger
 from app.core.config import get_settings
@@ -49,6 +53,22 @@ class SystemMetrics:
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
 
+# 可重试的失败类别（用于仪表盘"可重试率"聚合）
+RETRYABLE_STATUSES = {"rate_limited", "timeout", "provider_error"}
+
+
+@dataclass
+class LLMCallMetric:
+    """外部模型调用指标（仅结果类别，不含内容明文）"""
+    provider: str
+    model: str
+    module: str
+    status: str
+    duration_ms: float
+    token_count: int = 0
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+
 class MonitoringService:
     """监控服务"""
     
@@ -56,6 +76,9 @@ class MonitoringService:
         # 请求指标存储（内存中，可替换为Redis）
         self._request_metrics: List[RequestMetric] = []
         self._max_metrics = 10000  # 最大存储数量
+
+        # 外部模型调用指标存储（仅结果类别，不含内容）
+        self._llm_metrics: List[LLMCallMetric] = []
         
         # 统计缓存
         self._endpoint_stats: Dict[str, Dict] = defaultdict(lambda: {
@@ -136,6 +159,10 @@ class MonitoringService:
         Returns:
             系统指标数据
         """
+        if psutil is None:
+            raise RuntimeError(
+                "系统指标不可用：未安装 psutil，请执行 pip install -r requirements.txt"
+            )
         # CPU使用率
         cpu_percent = psutil.cpu_percent(interval=0.1)
         
@@ -302,6 +329,76 @@ class MonitoringService:
             "timestamp": datetime.utcnow().isoformat()
         }
     
+    def record_llm_call(
+        self,
+        provider: str,
+        model: str,
+        module: str,
+        status: str,
+        duration_ms: float,
+        token_count: int = 0,
+    ) -> None:
+        """
+        记录一次外部模型调用指标（仅结果类别，不含内容明文）。
+
+        Args:
+            provider: 提供商标识
+            model: 模型名称
+            module: 业务模块标识
+            status: 结果类别（success/rate_limited/timeout/...）
+            duration_ms: 耗时（毫秒）
+            token_count: 消耗 token 数
+        """
+        metric = LLMCallMetric(
+            provider=provider,
+            model=model,
+            module=module,
+            status=status,
+            duration_ms=duration_ms,
+            token_count=token_count,
+        )
+        self._llm_metrics.append(metric)
+        if len(self._llm_metrics) > self._max_metrics:
+            self._llm_metrics = self._llm_metrics[-self._max_metrics:]
+
+    def get_llm_call_stats(self, hours: int = 24) -> Dict[str, Any]:
+        """
+        聚合外部模型调用统计，供管理端仪表盘按维度展示（而非只总量）。
+
+        维度：失败类别分布、可重试率、平均耗时、Token 消耗。
+        """
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        recent = [m for m in self._llm_metrics if m.timestamp >= cutoff]
+
+        total_calls = len(recent)
+        if total_calls == 0:
+            return {
+                "total_calls": 0,
+                "success_rate": 0,
+                "failure_categories": {},
+                "retryable_rate": 0,
+                "avg_duration_ms": 0,
+                "total_token_count": 0,
+            }
+
+        failures = [m for m in recent if m.status != "success"]
+        failure_categories: Dict[str, int] = defaultdict(int)
+        for m in failures:
+            failure_categories[m.status] += 1
+
+        retryable = sum(1 for m in failures if m.status in RETRYABLE_STATUSES)
+        total_duration = sum(m.duration_ms for m in recent)
+        total_tokens = sum(m.token_count for m in recent)
+
+        return {
+            "total_calls": total_calls,
+            "success_rate": round((total_calls - len(failures)) / total_calls * 100, 2),
+            "failure_categories": dict(failure_categories),
+            "retryable_rate": round(retryable / len(failures) * 100, 2) if failures else 0,
+            "avg_duration_ms": round(total_duration / total_calls, 2),
+            "total_token_count": total_tokens,
+        }
+
     def clear_old_metrics(self, days: int = 7) -> int:
         """
         清理旧指标数据
