@@ -181,6 +181,16 @@
           质控详情
         </el-button>
         <div class="result-actions">
+          <!-- 继续调整内容按钮(普通模式,与LLM对话修订) -->
+          <el-button
+            v-if="!useTwoStageMode && !generating && generatedContent"
+            text
+            type="warning"
+            @click="$emit('start-revision')"
+          >
+            <el-icon><ChatDotRound /></el-icon>
+            继续调整内容
+          </el-button>
           <el-button text @click="$emit('copy')">
             <el-icon><CopyDocument /></el-icon>
             复制
@@ -689,6 +699,7 @@ const props = defineProps({
   unitSummaries: { type: Object, default: () => ({}) },
   globalOutlineContent: String,
   generatedContent: String,
+  generating: Boolean,  // 生成中标志（用于隐藏"继续调整内容"按钮）
   contentType: String,
   expectedUnitCount: { type: Number, default: 0 },  // 预期总章节数（新增，用于续生成判断）
   qualityReport: { type: Object, default: null },

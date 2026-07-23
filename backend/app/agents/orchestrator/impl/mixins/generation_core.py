@@ -245,6 +245,7 @@ class GenerationCoreMixin:
         ctx.final_content += "\n\n---\n\n✨ *该方案已经过全能创意大师智能验证与优化*"
 
         # 保存生成记录到数据库
+        generation_id = None
         try:
             title = None
             if ctx.input_params:
@@ -268,6 +269,7 @@ class GenerationCoreMixin:
             )
             db.add(generation)
             await db.commit()
+            generation_id = generation.id
             logger.info(f"生成记录已保存 - ID: {generation.id}, 标题: {title}")
         except Exception as save_error:
             logger.exception("保存生成记录失败")
@@ -282,7 +284,8 @@ class GenerationCoreMixin:
             "model": ctx.model_display_name,
             "model_id": ctx.llm_provider.model_name,
             "provider": ctx.llm_provider.get_model_info()["provider"],
-            "duration_ms": duration_ms
+            "duration_ms": duration_ms,
+            "generation_id": generation_id
         })
 
 

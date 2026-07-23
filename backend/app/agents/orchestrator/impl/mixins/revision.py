@@ -304,8 +304,8 @@ class RevisionMixin:
         logger = self.logger
 
         try:
-            # 1. 加载LLM provider - 修复：传入正确的db和user_id参数
-            llm_provider = await self._load_llm_provider(db, user_id, provider)
+            # 1. 加载LLM provider - 修复：_load_llm_provider 返回 (provider, display_name) 元组，需解包
+            llm_provider, _model_display_name = await self._load_llm_provider(db, user_id, provider)
             logger.info(
                 f"Revision: LLM provider loaded successfully for user {user_id}")
 

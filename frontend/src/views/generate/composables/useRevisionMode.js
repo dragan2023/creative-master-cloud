@@ -522,29 +522,36 @@ export function useRevisionMode(deps) {
     console.log('[Revision] User feedback:', currentFeedback)
 
     revising.value = true
-    currentRevisionRound.value++
 
-    // 添加用户消息
+    // 添加用户消息 + "正在生成"占位消息
     revisionMessages.value.push({
       role: 'user',
       content: currentFeedback
     })
+    revisionMessages.value.push({
+      role: 'assistant',
+      content: '正在生成修改指令...'
+    })
 
-    // 添加超时机制
+    const removePendingMessage = () => {
+      const idx = revisionMessages.value.findIndex(
+        m => m.role === 'assistant' && m.content === '正在生成修改指令...'
+      )
+      if (idx !== -1) revisionMessages.value.splice(idx, 1)
+    }
+
+    let succeeded = false
+    let failed = false
+
+    // 超时保护（LLM 长输出，300 秒）
     let timeoutId = null
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
-        reject(new Error('修订请求超时（60秒），请检查网络连接或后端服务'))
-      }, 60000)
+        reject(new Error('修订请求超时（300秒），请检查网络连接或后端服务'))
+      }, 300000)
     })
 
     try {
-      // 显示"正在生成"提示
-      revisionMessages.value.push({
-        role: 'assistant',
-        content: '正在生成修改指令...'
-      })
-
       console.log('[Revision] Calling revisionApi.revise()')
 
       await Promise.race([
@@ -559,97 +566,90 @@ export function useRevisionMode(deps) {
               const moduleMap = { 'practical-writing': 'practical_writing' }
               return moduleMap[type.value] || type.value
             })(),
-            round_number: currentRevisionRound.value
+            round_number: currentRevisionRound.value + 1
           },
-          (chunk) => {
-            console.log('[Revision] Received SSE chunk:', chunk.substring(0, 100))
-            if (chunk.startsWith('event: diff_chunk\ndata: ')) {
-              try {
-                const jsonStr = chunk.split('data: ', 2)[1].trim()
-                if (jsonStr) {
-                  const data = JSON.parse(jsonStr)
-                  console.log('[Revision] Received diff_chunk')
-                }
-              } catch (e) {
-                console.error('Parse diff_chunk failed:', e)
-              }
-            } else if (chunk.startsWith('event: diff_complete\ndata: ')) {
-              try {
-                const jsonStr = chunk.split('data: ', 2)[1].trim()
-                if (jsonStr) {
-                  const diffInstructions = JSON.parse(jsonStr)
-                  console.log('[Revision] Received diff_complete:', diffInstructions.summary)
-
-                  if (!validateDiffInstructions(diffInstructions)) {
-                    throw new Error('差异指令格式无效')
-                  }
-
-                  const newContent = applyDiffInstructions(
-                    revisionContent.value,
-                    diffInstructions
-                  )
-
-                  revisionContent.value = newContent
-
-                  const lastMsgIndex = revisionMessages.value.length - 1
-                  if (lastMsgIndex >= 0 &&
-                      revisionMessages.value[lastMsgIndex].content === '正在生成修改指令...') {
-                    revisionMessages.value.pop()
-                  }
-
-                  revisionMessages.value.push({
-                    role: 'assistant',
-                    content: diffInstructions.summary || '修改完成'
-                  })
-
-                  revisionHistory.value.push({
-                    round_number: currentRevisionRound.value,
-                    user_feedback: currentFeedback,
-                    diff_summary: diffInstructions.summary
-                  })
-
-                  revisionInput.value = ''
-
-                  ElMessage.success(`第${currentRevisionRound.value}轮修订完成`)
-                }
-              } catch (e) {
-                console.error('Parse diff_complete failed:', e)
-                ElMessage.error('解析差异指令失败')
-              }
-            } else if (chunk.startsWith('event: error\ndata: ')) {
-              try {
-                const jsonStr = chunk.split('data: ', 2)[1].trim()
-                if (jsonStr) {
-                  const data = JSON.parse(jsonStr)
-                  throw new Error(data.data || data.message || '未知错误')
-                }
-              } catch (e) {
-                console.error('Revision error:', e)
-                ElMessage.error('修订失败: ' + e.message)
-              }
+          (chunkText) => {
+            // diff_chunk：LLM 输出的指令文本片段，仅用于调试观察
+            if (chunkText) {
+              console.log('[Revision] diff_chunk:', String(chunkText).substring(0, 80))
             }
           },
-          () => {
-            console.log('[Revision] Stream completed')
-            if (timeoutId) clearTimeout(timeoutId)
-            revising.value = false
+          (diffInstructions) => {
+            console.log('[Revision] Received diff_complete:', diffInstructions?.summary)
+            try {
+              if (!validateDiffInstructions(diffInstructions)) {
+                throw new Error('差异指令格式无效')
+              }
+
+              revisionContent.value = applyDiffInstructions(
+                revisionContent.value,
+                diffInstructions
+              )
+
+              removePendingMessage()
+              revisionMessages.value.push({
+                role: 'assistant',
+                content: diffInstructions.summary || '修改完成'
+              })
+
+              // 仅成功时递增轮次
+              currentRevisionRound.value++
+              revisionHistory.value.push({
+                round_number: currentRevisionRound.value,
+                user_feedback: currentFeedback,
+                diff_summary: diffInstructions.summary
+              })
+
+              revisionInput.value = ''
+              succeeded = true
+              ElMessage.success(`第${currentRevisionRound.value}轮修订完成`)
+            } catch (e) {
+              failed = true
+              console.error('[Revision] Apply diff failed:', e)
+              removePendingMessage()
+              revisionMessages.value.push({
+                role: 'assistant',
+                content: '修订失败: ' + e.message
+              })
+              ElMessage.error('修订失败: ' + e.message)
+            }
           },
           (error) => {
+            failed = true
             console.error('[Revision] Stream error:', error)
-            if (timeoutId) clearTimeout(timeoutId)
-            revising.value = false
+            removePendingMessage()
+            revisionMessages.value.push({
+              role: 'assistant',
+              content: '修订失败: ' + (error.message || '未知错误')
+            })
             ElMessage.error('修订失败: ' + (error.message || '未知错误'))
           }
         ),
         timeoutPromise
       ])
 
-      console.log('[Revision] Revision completed successfully')
+      // 流正常结束但既未收到 diff_complete 也未收到 error（异常兜底）
+      if (!succeeded && !failed) {
+        removePendingMessage()
+        revisionMessages.value.push({
+          role: 'assistant',
+          content: '修订失败: 未收到有效的修改指令'
+        })
+        ElMessage.error('修订失败: 未收到有效的修改指令')
+      }
+
+      console.log('[Revision] Revision stream finished, succeeded:', succeeded)
     } catch (error) {
       console.error('[Revision] Revision failed:', error)
+      removePendingMessage()
+      revisionMessages.value.push({
+        role: 'assistant',
+        content: '修订失败: ' + (error.message || '未知错误')
+      })
+      ElMessage.error('修订失败: ' + (error.message || '未知错误'))
+    } finally {
       if (timeoutId) clearTimeout(timeoutId)
       revising.value = false
-      ElMessage.error('修订失败: ' + error.message)
     }
   }
 

@@ -139,6 +139,7 @@
       :unit-summaries="unitSummaries"
       :global-outline-content="globalOutlineContent"
       :generated-content="generatedContent"
+      :generating="generating"
       :content-type="type"
       :expected-unit-count="expectedUnitCount"
       :is-revision-mode="isRevisionMode"
