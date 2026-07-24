@@ -125,10 +125,10 @@ class KnowledgeBase(BaseModel):
 
     def is_expired(self) -> bool:
         """检查知识库是否已过期（仅临时知识库有过期时间）"""
-        from datetime import datetime
+        from app.core.time import utc_now
         if not self.expires_at:
             return False
-        return datetime.utcnow() > self.expires_at
+        return utc_now().replace(tzinfo=None) > self.expires_at
 
     def is_ready_for_use(self) -> bool:
         """检查知识库是否就绪可用"""

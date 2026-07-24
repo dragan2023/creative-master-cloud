@@ -21,6 +21,7 @@ except ImportError:  # 系统指标依赖缺失时降级，不影响请求/模�
 
 from app.core.logger import get_logger
 from app.core.config import get_settings
+from app.core.time import utc_now
 
 logger = get_logger("monitoring")
 settings = get_settings()
@@ -96,7 +97,7 @@ class MonitoringService:
         })
         
         # 启动时间
-        self._start_time = datetime.utcnow()
+        self._start_time = utc_now()
     
     def record_request(
         self,
@@ -144,7 +145,7 @@ class MonitoringService:
             stats["errors"] += 1
         
         # 更新每日统计
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = utc_now().strftime("%Y-%m-%d")
         daily = self._daily_stats[today]
         daily["total_requests"] += 1
         if user_id:
@@ -197,7 +198,7 @@ class MonitoringService:
         Returns:
             API统计数据
         """
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utc_now() - timedelta(hours=hours)
         
         # 过滤时间范围内的请求
         recent_metrics = [
@@ -262,7 +263,7 @@ class MonitoringService:
         Returns:
             租户统计数据
         """
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utc_now() - timedelta(hours=hours)
         
         # 过滤租户请求
         tenant_metrics = [
@@ -287,7 +288,7 @@ class MonitoringService:
         Returns:
             运行时间数据
         """
-        now = datetime.utcnow()
+        now = utc_now()
         uptime = now - self._start_time
         
         return {
@@ -326,7 +327,7 @@ class MonitoringService:
                 "memory_percent": metrics.memory_percent,
                 "disk_percent": metrics.disk_percent
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utc_now().isoformat()
         }
     
     def record_llm_call(
@@ -367,7 +368,7 @@ class MonitoringService:
 
         维度：失败类别分布、可重试率、平均耗时、Token 消耗。
         """
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utc_now() - timedelta(hours=hours)
         recent = [m for m in self._llm_metrics if m.timestamp >= cutoff]
 
         total_calls = len(recent)
@@ -409,7 +410,7 @@ class MonitoringService:
         Returns:
             清理的数量
         """
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utc_now() - timedelta(days=days)
         original_count = len(self._request_metrics)
         
         self._request_metrics = [

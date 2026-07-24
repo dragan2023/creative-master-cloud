@@ -6,6 +6,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from enum import Enum
 
+from app.schemas.common import IsoDatetime
+
 
 class KnowledgeBaseType(str, Enum):
     """知识库类型"""
@@ -54,14 +56,11 @@ class KnowledgeBaseResponse(BaseModel):
     file_size: int = 0
     document_count: int = 0
     preprocessor_metadata: Optional[Dict[str, Any]] = None
-    created_at: datetime
+    created_at: IsoDatetime
 
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 
@@ -95,15 +94,12 @@ class StaticKnowledgeBaseResponse(BaseModel):
     file_size: int = 0
     document_count: int = 0
     preprocessor_metadata: Optional[Dict[str, Any]] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    created_at: IsoDatetime
+    updated_at: Optional[IsoDatetime] = None
 
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 
@@ -137,15 +133,12 @@ class APIKnowledgeBaseResponse(BaseModel):
     status: KnowledgeBaseStatus
     api_config: Optional[Dict[str, Any]] = None
     document_count: int = 0
-    created_at: datetime
-    last_sync: Optional[datetime] = None
+    created_at: IsoDatetime
+    last_sync: Optional[IsoDatetime] = None
 
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 

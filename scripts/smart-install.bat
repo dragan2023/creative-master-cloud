@@ -26,21 +26,21 @@ set "VENV_PYTHON=%BACKEND_DIR%\venv\Scripts\python.exe"
 set "MODEL_DIR=%BACKEND_DIR%\data\marker_models"
 set "INSTALL_LOG=%PROJECT_DIR%install.log"
 
-:: ¾µÏñÔ´ÅäÖÃ
+:: ï¿½ï¿½ï¿½ï¿½Ô´ï¿½ï¿½ï¿½ï¿½
 set "PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
 set "PYPI_MIRROR_2=https://mirrors.aliyun.com/pypi/simple/"
 set "NPM_MIRROR=https://registry.npmmirror.com"
 set "PYTHON_DL=https://npm.taobao.org/mirrors/python/3.10.11/python-3.10.11-amd64.exe"
 set "NODE_DL=https://npmmirror.com/mirrors/node/v20.11.0/node-v20.11.0-x64.msi"
 
-:: ×´Ì¬±êÖ¾
+:: ×´Ì¬ï¿½ï¿½Ö¾
 set "INSTALL_PYTHON=0"
 set "INSTALL_NODE=0"
 set "INSTALL_PY_DEPS=0"
 set "INSTALL_NP_DEPS=0"
 set "DOWNLOAD_MODELS=0"
 
-:: ³õÊ¼»¯ÈÕÖ¾
+:: ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½Ö¾
 echo [%date% %time%] Install log started > "%INSTALL_LOG%"
 echo Project dir: %PROJECT_DIR% >> "%INSTALL_LOG%"
 
@@ -49,7 +49,7 @@ echo  [Detection Phase] Scanning system...
 echo ========================================================
 echo.
 
-:: ¼ì²â Python
+:: ï¿½ï¿½ï¿½ Python
 echo [1/5] Python 3.10+...
 python --version >nul 2>&1
 if errorlevel 1 (
@@ -63,7 +63,7 @@ if errorlevel 1 (
     )
 )
 
-:: ¼ì²â Node.js
+:: ï¿½ï¿½ï¿½ Node.js
 echo [2/5] Node.js 20+...
 node --version >nul 2>&1
 if errorlevel 1 (
@@ -77,7 +77,7 @@ if errorlevel 1 (
     )
 )
 
-:: ¼ì²â Python ÐéÄâ»·¾³
+:: ï¿½ï¿½ï¿½ Python ï¿½ï¿½ï¿½â»·ï¿½ï¿½
 echo [3/5] Python virtual environment...
 if exist "%VENV_PYTHON%" (
     echo       venv: EXISTS
@@ -86,7 +86,7 @@ if exist "%VENV_PYTHON%" (
     set "INSTALL_PY_DEPS=1"
 )
 
-:: ¼ì²â Node ÒÀÀµ
+:: ï¿½ï¿½ï¿½ Node ï¿½ï¿½ï¿½ï¿½
 echo [4/5] Node dependencies...
 if exist "%FRONTEND_DIR%\node_modules" (
     echo       node_modules: EXISTS
@@ -95,7 +95,7 @@ if exist "%FRONTEND_DIR%\node_modules" (
     set "INSTALL_NP_DEPS=1"
 )
 
-:: ¼ì²âÄ£ÐÍÎÄ¼þ
+:: ï¿½ï¿½ï¿½Ä£ï¿½ï¿½ï¿½Ä¼ï¿½
 echo [5/5] AI Models for document parsing...
 if exist "%MODEL_DIR%\layout" (
     if exist "%MODEL_DIR%\text_detection" (
@@ -161,7 +161,7 @@ if !DOWNLOAD_MODELS!==1 (
 if errorlevel 2 goto :cancel
 echo.
 
-:: °²×° Python
+:: ï¿½ï¿½×° Python
 if !INSTALL_PYTHON!==1 (
     echo ========================================================
     echo  [1/4] Installing Python 3.10
@@ -186,7 +186,7 @@ if !INSTALL_PYTHON!==1 (
     echo.
 )
 
-:: °²×° Node.js
+:: ï¿½ï¿½×° Node.js
 if !INSTALL_NODE!==1 (
     echo ========================================================
     echo  [2/4] Installing Node.js 20 LTS
@@ -211,7 +211,7 @@ if !INSTALL_NODE!==1 (
     echo.
 )
 
-:: °²×° Python ÒÀÀµ
+:: ï¿½ï¿½×° Python ï¿½ï¿½ï¿½ï¿½
 if !INSTALL_PY_DEPS!==1 (
     echo ========================================================
     echo  [3/4] Installing Python dependencies
@@ -237,10 +237,10 @@ if !INSTALL_PY_DEPS!==1 (
     "%VENV_PYTHON%" -m pip install --upgrade pip -q 2>> "%INSTALL_LOG%"
     
     echo  [2/2] Installing requirements.txt...
-    "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i !PYPI_MIRROR! 2>> "%INSTALL_LOG%"
+    "%VENV_PYTHON%" -m pip install -r requirements.txt -c constraints.txt -q -i !PYPI_MIRROR! 2>> "%INSTALL_LOG%"
     if errorlevel 1 (
         echo  [!] Primary mirror failed, trying backup...
-        "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i !PYPI_MIRROR_2! 2>> "%INSTALL_LOG%"
+        "%VENV_PYTHON%" -m pip install -r requirements.txt -c constraints.txt -q -i !PYPI_MIRROR_2! 2>> "%INSTALL_LOG%"
     )
     echo  [OK] Python dependencies installed
     echo [%date% %time%] Python deps installed >> "%INSTALL_LOG%"
@@ -250,7 +250,7 @@ if !INSTALL_PY_DEPS!==1 (
 
 :py_deps_done
 
-:: °²×° Node ÒÀÀµ
+:: ï¿½ï¿½×° Node ï¿½ï¿½ï¿½ï¿½
 if !INSTALL_NP_DEPS!==1 (
     echo ========================================================
     echo  [4/4] Installing Node dependencies
@@ -276,12 +276,12 @@ if !INSTALL_NP_DEPS!==1 (
 goto install_complete
 
 :install_with_models
-:: °²×°ËùÓÐ + Ä£ÐÍ
+:: ï¿½ï¿½×°ï¿½ï¿½ï¿½ï¿½ + Ä£ï¿½ï¿½
 echo.
 echo  Installing all components including AI models...
 echo.
 
-:: ÏÈ°²×°»ù´¡×é¼þ£¨¸´ÓÃÉÏÃæµÄÂß¼­£©
+:: ï¿½È°ï¿½×°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ß¼ï¿½ï¿½ï¿½
 if !INSTALL_PYTHON!==1 (
     echo [1/5] Installing Python 3.10...
     powershell -Command "(New-Object Net.WebClient).DownloadFile('!PYTHON_DL!', '%TEMP%\py.exe')"
@@ -308,7 +308,7 @@ if !INSTALL_PY_DEPS!==1 (
     python -m venv venv
     "%VENV_PYTHON%" -m pip config set global.index-url !PYPI_MIRROR! >nul 2>&1
     "%VENV_PYTHON%" -m pip install --upgrade pip -q
-    "%VENV_PYTHON%" -m pip install -r requirements.txt -q -i !PYPI_MIRROR!
+    "%VENV_PYTHON%" -m pip install -r requirements.txt -c constraints.txt -q -i !PYPI_MIRROR!
     cd /d "%PROJECT_DIR%"
     echo  [OK] Python dependencies installed
 )
@@ -322,7 +322,7 @@ if !INSTALL_NP_DEPS!==1 (
     echo  [OK] Node dependencies installed
 )
 
-:: ÏÂÔØÄ£ÐÍ
+:: ï¿½ï¿½ï¿½ï¿½Ä£ï¿½ï¿½
 echo [5/5] Downloading AI Models (~500MB)...
 echo  This may take 5-15 minutes depending on your connection.
 echo.
@@ -333,7 +333,7 @@ echo.
 
 :install_complete
 
-:: Éú³ÉÅäÖÃÎÄ¼þ
+:: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
 if not exist "%BACKEND_DIR%\.env" (
     echo  Creating backend config...
     (

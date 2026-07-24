@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, Tenant, OperationLog, NovelProject, Generation
 from app.core.logger import get_logger
+from app.core.time import utc_now
 
 logger = get_logger("admin_service")
 
@@ -343,7 +344,7 @@ class AdminService:
         total_tenants = await self.db.scalar(select(func.count(Tenant.id)))
         
         # 统计今日活跃用户
-        today = datetime.utcnow().date()
+        today = utc_now().date()
         active_today = await self.db.scalar(
             select(func.count(User.id)).where(
                 func.date(User.last_login_at) == today
@@ -357,7 +358,7 @@ class AdminService:
         total_generations = await self.db.scalar(select(func.count(Generation.id)))
         
         # 统计本周新用户
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = utc_now() - timedelta(days=7)
         new_users_week = await self.db.scalar(
             select(func.count(User.id)).where(User.created_at >= week_ago)
         )

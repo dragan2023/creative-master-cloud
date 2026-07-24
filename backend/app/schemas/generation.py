@@ -6,6 +6,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from enum import Enum
 
+from app.schemas.common import IsoDatetime
+
 
 class GenerationModule(str, Enum):
     """生成模块"""
@@ -349,14 +351,11 @@ class GenerationHistoryResponse(BaseModel):
     model_name: Optional[str] = None
     token_count: int
     duration_ms: int
-    created_at: datetime
+    created_at: IsoDatetime
 
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 
@@ -393,14 +392,11 @@ class UserActionResponse(BaseModel):
     module: str
     action: ActionType
     content_snippet: Optional[str] = None
-    created_at: datetime
+    created_at: IsoDatetime
 
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 

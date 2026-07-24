@@ -11,6 +11,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from enum import Enum
 
+from app.schemas.common import IsoDatetime
+
 
 # ==================== 枚举类型 ====================
 
@@ -213,15 +215,12 @@ class ChapterContentResponse(BaseModel):
     final_content: Optional[str] = None
     word_count: int = 0
     token_count: int = 0
-    created_at: datetime
-    updated_at: datetime
+    created_at: IsoDatetime
+    updated_at: IsoDatetime
 
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 

@@ -2,25 +2,19 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import fs from 'fs'
-import { createRequire } from 'module'
 
-// 创建require函数（ESM环境兼容）
-const require = createRequire(import.meta.url)
-
-// 动态加载混淆插件（如果已安装）
-// 云端部署时启用强混淆，本地开发可禁用以加快构建速度
+// ESM 动态加载可选插件（替代 CJS createRequire hack）
 let obfuscator = null
 let viteCompression = null
 
-// 尝试加载混淆插件（云端部署需要安装：npm install rollup-plugin-obfuscator --save-dev）
 try {
-  obfuscator = require('rollup-plugin-obfuscator').default
+  obfuscator = (await import('rollup-plugin-obfuscator')).default
 } catch (e) {
-  // 混淆插件未安装，使用terser基础混淆
+  // 混淆插件未安装，使用 terser 基础混淆
 }
 
 try {
-  viteCompression = require('vite-plugin-compression').default
+  viteCompression = (await import('vite-plugin-compression')).default
 } catch (e) {
   // 压缩插件未安装
 }
@@ -110,6 +104,14 @@ export default defineConfig(({ mode }) => {
       hmr: {
         overlay: false
       }
+    },
+    // 使用 Sass 现代 API（消除 legacy-js-api 弃用警告）
+    css: {
+      preprocessorOptions: {
+        scss: {
+          api: 'modern'
+        }
+      }
     }
   }
 
@@ -185,12 +187,18 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       // 使用 esbuild 压缩（比 terser 更快更稳定）
       minify: 'esbuild',
-      // 分块策略
+      // 分块策略（仅分离大型库，避免空 chunk）
       rollupOptions: {
         output: {
-          manualChunks: {
-            'element-plus': ['element-plus'],
-            'antv': ['@antv/g6']
+          manualChunks(id) {
+            // element-plus: 大型 UI 库，独立加载有利于缓存
+            if (id.includes('node_modules/element-plus')) {
+              return 'element-plus'
+            }
+            // @antv/g6: 知识图谱页按需加载，仅在访问知识库时加载
+            if (id.includes('node_modules/@antv/g6')) {
+              return 'antv'
+            }
           }
         }
       }

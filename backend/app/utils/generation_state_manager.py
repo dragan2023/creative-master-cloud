@@ -33,6 +33,7 @@ from sqlalchemy import select
 
 from app.models.generation import Generation, GenerationStatus
 from app.core.logger import get_logger
+from app.core.time import utc_now
 
 logger = get_logger(__name__)
 
@@ -93,7 +94,7 @@ class GenerationStateManager:
             self.generation.session_context = existing_context
 
         # 更新时间戳
-        self.generation.updated_at = datetime.utcnow()
+        self.generation.updated_at = utc_now()
 
         await self.db.commit()
         await self.db.refresh(self.generation)
@@ -155,7 +156,7 @@ class GenerationStateManager:
 
         self.generation.session_context['revision_messages'].append({
             **message,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': utc_now().isoformat()
         })
 
         # 更新修订计数
@@ -194,7 +195,7 @@ class GenerationStateManager:
             return None
 
         # 查询最近的记录
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = utc_now() - timedelta(days=days)
 
         stmt = (
             select(Generation)

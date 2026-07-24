@@ -8,6 +8,8 @@
 @contact: QQ：7527149（添加时请说明来意）
 """
 from datetime import datetime, timedelta, timezone
+
+from app.core.time import utc_now
 from fastapi import APIRouter, Depends, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,8 +128,7 @@ async def register(
         max_projects=PLAN_LIMITS[TenantPlan.FREE]["max_projects"],
         max_storage_mb=PLAN_LIMITS[TenantPlan.FREE]["max_storage_mb"],
         max_api_calls_per_day=PLAN_LIMITS[TenantPlan.FREE]["max_api_calls_per_day"],
-        trial_ends_at=datetime.utcnow(
-        ) + timedelta(days=PLAN_LIMITS[TenantPlan.FREE]["trial_days"])
+        trial_ends_at=utc_now().replace(tzinfo=None) + timedelta(days=PLAN_LIMITS[TenantPlan.FREE]["trial_days"])
     )
     db.add(tenant)
     await db.flush()
@@ -226,7 +227,7 @@ async def login(
                 raise AuthorizationException(message="租户已被暂停或过期")
 
     # 更新登录信息
-    user.last_login_at = datetime.utcnow().isoformat()
+    user.last_login_at = utc_now().replace(tzinfo=None).isoformat()
     user.login_count = (user.login_count or 0) + 1
     await db.commit()
 

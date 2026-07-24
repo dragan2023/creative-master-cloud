@@ -1,8 +1,24 @@
 """
 通用响应 Schema
 """
-from typing import Optional, Generic, TypeVar, List
-from pydantic import BaseModel, Field
+from typing import Optional, Generic, TypeVar, List, Annotated
+from datetime import datetime
+from pydantic import BaseModel, Field, PlainSerializer
+
+
+def _serialize_iso_datetime(v: datetime | None) -> str | None:
+    """将 datetime 序列化为 ISO 8601 字符串，None 保持为 None"""
+    if v is None:
+        return None
+    return v.isoformat()
+
+
+# 替代 json_encoders 的 Pydantic V2 惯用写法
+# 使用方式：将 `created_at: datetime` 改为 `created_at: IsoDatetime`
+IsoDatetime = Annotated[
+    datetime,
+    PlainSerializer(_serialize_iso_datetime, when_used='json')
+]
 
 T = TypeVar("T")
 

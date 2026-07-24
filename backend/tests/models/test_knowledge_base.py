@@ -1,6 +1,7 @@
 """KnowledgeBase 模型业务方法测试"""
 import pytest
-from datetime import datetime, timedelta
+from datetime import timedelta
+from app.core.time import utc_now
 from app.models.knowledge_base import (
     KnowledgeBase, KnowledgeBaseType, 
     KnowledgeBaseStatus, KnowledgeBaseCategory
@@ -13,13 +14,13 @@ class TestKnowledgeBaseModel:
     def test_is_expired_true(self):
         kb = KnowledgeBase()
         # 设置过期时间为昨天
-        kb.expires_at = datetime.utcnow() - timedelta(days=1)
+        kb.expires_at = utc_now().replace(tzinfo=None) - timedelta(days=1)
         assert kb.is_expired() is True
     
     def test_is_expired_false(self):
         kb = KnowledgeBase()
         # 设置过期时间为明天
-        kb.expires_at = datetime.utcnow() + timedelta(days=1)
+        kb.expires_at = utc_now().replace(tzinfo=None) + timedelta(days=1)
         assert kb.is_expired() is False
     
     def test_is_expired_no_expiry(self):
@@ -41,7 +42,7 @@ class TestKnowledgeBaseModel:
     def test_is_ready_for_use_expired(self):
         kb = KnowledgeBase()
         kb.status = KnowledgeBaseStatus.READY
-        kb.expires_at = datetime.utcnow() - timedelta(days=1)
+        kb.expires_at = utc_now().replace(tzinfo=None) - timedelta(days=1)
         assert kb.is_ready_for_use() is False
     
     def test_is_processing_true(self):

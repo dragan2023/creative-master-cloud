@@ -1,10 +1,11 @@
 """
 批量生成任务状态管理器 - 数据库同步模块
 
-从 task_manager.py 拆分，包含所有数据库同步方法。
+从 task_manager.py 拆分，将 Redis 任务字典同步到 WritingTask 表。
+替代已删除的 NovelProject.generation_task_* 字段（迁移 022）。
 
-@date: 2026-04-24
-@version: v1.0.0
+@date: 2026-07-23 (迁移至 WritingTask)
+@version: v2.0.0
 """
 from typing import Optional, Dict, Any, Callable
 
@@ -13,6 +14,7 @@ from sqlalchemy import select, update
 from app.core.logger import get_logger
 from app.core.database import async_session_maker
 from app.models import NovelProject
+from app.models.writing_task import WritingTask, TaskStatus
 from app.repositories.novel_project import NovelProjectRepository
 
 logger = get_logger("task_manager")
@@ -31,123 +33,72 @@ def set_novel_project_repo(repo: NovelProjectRepository):
 
 
 async def sync_task_to_db(project_id: int, task: Dict[str, Any]):
-    """同步任务状态到数据库"""
-    try:
-        if _novel_project_repo:
-            project = await _novel_project_repo.get(project_id)
-            if project:
-                project.generation_task_type = task.get("task_type")
-                project.generation_task_status = task.get("status")
-                project.generation_task_total = task.get("total_count", 0)
-                project.generation_task_completed = task.get("completed_count", 0)
-                project.generation_task_failed = task.get("failed_count", 0)
-                project.generation_task_skipped = task.get("skipped_count", 0)
-                project.generation_task_current = task.get("current_item")
-                project.generation_task_started_at = task.get("started_at")
-                project.generation_task_updated_at = task.get("updated_at")
-                await _novel_project_repo.session.commit()
-            return
-        # Fallback: 直连 session
-        async with async_session_maker() as db:
-            query = await db.execute(
-                select(NovelProject).where(NovelProject.id == project_id)
-            )
-            project = query.scalar_one_or_none()
-            if project:
-                project.generation_task_type = task.get("task_type")
-                project.generation_task_status = task.get("status")
-                project.generation_task_total = task.get("total_count", 0)
-                project.generation_task_completed = task.get("completed_count", 0)
-                project.generation_task_failed = task.get("failed_count", 0)
-                project.generation_task_skipped = task.get("skipped_count", 0)
-                project.generation_task_current = task.get("current_item")
-                project.generation_task_started_at = task.get("started_at")
-                project.generation_task_updated_at = task.get("updated_at")
-                await db.commit()
-    except Exception as e:
-        logger.error(f"同步任务状态到数据库失败: {e}", exc_info=True)
-        raise
+    """同步任务状态到 WritingTask 表（替代已删除的 NovelProject.generation_task_*）。"""
+    from app.services.task_query_service import sync_task_to_writing_task
+
+    if _novel_project_repo:
+        db = _novel_project_repo.session
+        # repo 已有 active session，直接复用
+        result = await sync_task_to_writing_task(db, project_id, task)
+        if result is not None:
+            await db.commit()
+        return
+
+    # Fallback: 创建独立 session
+    async with async_session_maker() as db:
+        await sync_task_to_writing_task(db, project_id, task)
 
 
 async def get_task_from_db(project_id: int) -> Optional[Dict[str, Any]]:
-    """从数据库获取任务状态"""
+    """从 WritingTask 表获取任务状态（替代已删除的 NovelProject.generation_task_*）。"""
+    from app.services.task_query_service import get_task_for_project
+
     try:
         if _novel_project_repo:
-            project = await _novel_project_repo.get(project_id)
-            if project and project.generation_task_status:
-                return {
-                    "project_id": project_id,
-                    "task_type": project.generation_task_type,
-                    "status": project.generation_task_status,
-                    "total_count": project.generation_task_total or 0,
-                    "completed_count": project.generation_task_completed or 0,
-                    "failed_count": project.generation_task_failed or 0,
-                    "skipped_count": project.generation_task_skipped or 0,
-                    "current_item": project.generation_task_current,
-                    "started_at": project.generation_task_started_at,
-                    "updated_at": project.generation_task_updated_at,
-                    "metadata": {}
-                }
-            return None
-        # Fallback: 直连 session
+            db = _novel_project_repo.session
+            return await get_task_for_project(db, project_id)
+
         async with async_session_maker() as db:
-            query = await db.execute(
-                select(NovelProject).where(NovelProject.id == project_id)
-            )
-            project = query.scalar_one_or_none()
-            if project and project.generation_task_status:
-                return {
-                    "project_id": project_id,
-                    "task_type": project.generation_task_type,
-                    "status": project.generation_task_status,
-                    "total_count": project.generation_task_total or 0,
-                    "completed_count": project.generation_task_completed or 0,
-                    "failed_count": project.generation_task_failed or 0,
-                    "skipped_count": project.generation_task_skipped or 0,
-                    "current_item": project.generation_task_current,
-                    "started_at": project.generation_task_started_at,
-                    "updated_at": project.generation_task_updated_at,
-                    "metadata": {}
-                }
+            return await get_task_for_project(db, project_id)
     except Exception as e:
         logger.warning(f"从数据库获取任务状态失败: {e}")
     return None
 
 
-async def clear_task_in_db(project_id: int):
-    """清除数据库中的任务状态"""
+async def clear_task_in_db(project_id: int, task: Optional[Dict[str, Any]] = None):
+    """清除 WritingTask 中的任务状态（标记为 cancelled）。
+
+    WritingTask 保留历史记录不删除，仅将状态迁移到终态。
+    若调用方传入了 task 字典（含 writing_task_db_id），直接定位；
+    否则查询最新非终态 WritingTask 来清除。
+    """
+    from app.services.task_query_service import (
+        get_task_for_project,
+        clear_task_in_writing_task,
+    )
+
     try:
+        if task is None:
+            if _novel_project_repo:
+                db = _novel_project_repo.session
+                task = await get_task_for_project(db, project_id)
+                if task:
+                    await clear_task_in_writing_task(db, task)
+                return
+
+            async with async_session_maker() as db:
+                task = await get_task_for_project(db, project_id)
+                if task:
+                    await clear_task_in_writing_task(db, task)
+                return
+
+        # 传入了 task 字典
         if _novel_project_repo:
-            project = await _novel_project_repo.get(project_id)
-            if project:
-                project.generation_task_type = None
-                project.generation_task_status = None
-                project.generation_task_total = 0
-                project.generation_task_completed = 0
-                project.generation_task_failed = 0
-                project.generation_task_skipped = 0
-                project.generation_task_current = None
-                project.generation_task_started_at = None
-                project.generation_task_updated_at = None
-                await _novel_project_repo.session.commit()
+            await clear_task_in_writing_task(_novel_project_repo.session, task)
             return
-        # Fallback: 直连 session
+
         async with async_session_maker() as db:
-            query = await db.execute(
-                select(NovelProject).where(NovelProject.id == project_id)
-            )
-            project = query.scalar_one_or_none()
-            if project:
-                project.generation_task_type = None
-                project.generation_task_status = None
-                project.generation_task_total = 0
-                project.generation_task_completed = 0
-                project.generation_task_failed = 0
-                project.generation_task_skipped = 0
-                project.generation_task_current = None
-                project.generation_task_started_at = None
-                project.generation_task_updated_at = None
-                await db.commit()
+            await clear_task_in_writing_task(db, task)
     except Exception as e:
         logger.warning(f"清除数据库任务状态失败: {e}")
 

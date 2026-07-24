@@ -95,7 +95,7 @@ function Install-Dependencies {
     # 激活虚拟环境并安装依赖
     & ".\venv\Scripts\activate.ps1"
     Write-Host "[安装] 正在安装依赖（清华源）..." -ForegroundColor Yellow
-    pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    pip install -r requirements.txt -c constraints.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[警告] 部分依赖安装失败，尝试继续..." -ForegroundColor Yellow
     }

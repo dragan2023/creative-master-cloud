@@ -14,6 +14,7 @@ from enum import Enum
 # 导入前向引用所需的类型
 from ._enums import ProjectType, ProjectStatus
 from ._config import NovelConfig, SeriesScriptConfig, MovieScriptConfig
+from app.schemas.common import IsoDatetime
 
 
 # ==================== 枚举类型 ====================
@@ -190,8 +191,8 @@ class NovelProjectResponse(BaseModel):
     ai_elimination_enabled: Optional[bool] = True  # 是否启用AI文风消除
     ai_elimination_threshold: Optional[int] = 50  # AI文风消除阈值(0-100)
 
-    created_at: datetime
-    updated_at: datetime
+    created_at: IsoDatetime
+    updated_at: IsoDatetime
 
     # 获取内容类型标签
     @property
@@ -250,9 +251,6 @@ class NovelProjectResponse(BaseModel):
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 

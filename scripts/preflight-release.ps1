@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Runs the required pre-release validation gates.
 
@@ -51,11 +51,126 @@ function Invoke-BackendCompile {
     return ($exitCode -eq 0)
 }
 
+function Invoke-ConstraintCheck {
+    Write-Gate "Dependency constraint consistency"
+    $backendDir = Join-Path $ProjectRoot "backend"
+    $constraints = Join-Path $backendDir "constraints.txt"
+    $requirements = Join-Path $backendDir "requirements.txt"
+
+    if (-not (Test-Path $constraints)) {
+        Write-Host "constraints.txt not found; gate cannot verify reproducibility." -ForegroundColor Red
+        return $false
+    }
+
+    # Validate constraints.txt syntax: each line must be blank/comment/valid pep508 constraint
+    $lines = Get-Content -LiteralPath $constraints -Encoding utf8 | Where-Object { $_ -notmatch '^\s*$' -and $_ -notmatch '^\s*#' }
+    $invalid = @()
+    foreach ($line in $lines) {
+        if ($line -notmatch '^[A-Za-z0-9_\-\.]+[<>=!~]+[0-9]') {
+            $invalid += $line
+        }
+    }
+    if ($invalid.Count -gt 0) {
+        Write-Host "Invalid constraint lines in constraints.txt:" -ForegroundColor Red
+        foreach ($l in $invalid) { Write-Host "  $l" -ForegroundColor Red }
+        return $false
+    }
+
+    # Check that all packages in requirements.txt have corresponding constraints
+    $reqLines = Get-Content -LiteralPath $requirements -Encoding utf8 | Where-Object { $_ -notmatch '^\s*$' -and $_ -notmatch '^\s*#' }
+    $constraintNames = @{}
+    foreach ($line in $lines) {
+        if ($line -match '^([A-Za-z0-9_\-\.]+)') {
+            $constraintNames[$Matches[1].ToLowerInvariant()] = $true
+        }
+    }
+
+    $unconstrained = @()
+    foreach ($line in $reqLines) {
+        if ($line -match '^([A-Za-z0-9_\-\.]+)') {
+            $pkg = $Matches[1].ToLowerInvariant()
+            # Exempt test tools, build tools, and optional dependencies
+            if ($pkg -match '^(pytest|torch|readability-lxml|beautifulsoup4|lxml|pysqlite3-binary)') { continue }
+            if (-not $constraintNames.ContainsKey($pkg) -and $line -notmatch '\[.*\]') {
+                $unconstrained += $line
+            }
+        }
+    }
+    if ($unconstrained.Count -gt 0) {
+        Write-Host "Packages in requirements.txt without constraint in constraints.txt:" -ForegroundColor Yellow
+        foreach ($l in $unconstrained) { Write-Host "  $l" -ForegroundColor Yellow }
+        Write-Host "(Add constraints for production packages to ensure reproducible installs)" -ForegroundColor Yellow
+        # Warning only, do not block release
+    }
+
+    Write-Host "Dependency constraints verified." -ForegroundColor Green
+    return $true
+}
+
+function Invoke-FrontendBudget {
+    Write-Gate "Frontend performance budget"
+    $budgetScript = Join-Path $ScriptDir "check-frontend-budget.mjs"
+    if (-not (Test-Path $budgetScript)) {
+        Write-Host "Budget script not found; skipping." -ForegroundColor Yellow
+        return $true
+    }
+    & node $budgetScript | Out-Host
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Invoke-AntiRegression {
+    Write-Gate "Anti-regression checks"
+    $failures = @()
+    $backendApp = Join-Path $ProjectRoot "backend\app"
+
+    # Check 1: No datetime.utcnow() in production code (allow doc comments in time.py only)
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    $utcnowMatches = Get-ChildItem -Path $backendApp -Recurse -Filter *.py -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne 'time.py' -or $_.Directory.Name -ne 'core' } |
+        Select-String -Pattern 'datetime\.utcnow\(' -ErrorAction SilentlyContinue |
+        Select-Object -First 20
+    $ErrorActionPreference = $prevErrorAction
+    if ($utcnowMatches) {
+        $failures += "datetime.utcnow() found outside core/time.py doc comments"
+        foreach ($m in $utcnowMatches) { Write-Host "  $($m.Path):$($m.LineNumber): $($m.Line.Trim())" -ForegroundColor Red }
+    }
+
+    # Check 2: No generation_task_ in services/api production code (allow doc comments only)
+    $genTaskPaths = @(
+        (Join-Path $ProjectRoot "backend\app\services"),
+        (Join-Path $ProjectRoot "backend\app\api")
+    )
+    $genTaskMatches = Get-ChildItem -Path $genTaskPaths -Recurse -Filter *.py -ErrorAction SilentlyContinue |
+        Select-String -Pattern 'generation_task_' -SimpleMatch |
+        Where-Object { $_.Line -notmatch '替代已删除|字段|NovelProject\.generation_task' } |
+        Select-Object -First 20
+    if ($genTaskMatches) {
+        $failures += "generation_task_ reference found in production code"
+        foreach ($m in $genTaskMatches) { Write-Host "  $($m.Path):$($m.LineNumber): $($m.Line.Trim())" -ForegroundColor Red }
+    }
+
+    # Check 3: No test source files are gitignored (warn only for untracked)
+    $testFiles = & git -C $ProjectRoot ls-files --others --exclude-standard 'backend/tests/**' 'frontend/tests/**' 'tests/**' 2>$null
+    if ($testFiles) {
+        Write-Host "  (info) Untracked test files (ensure they are committed before release):" -ForegroundColor Yellow
+        foreach ($f in $testFiles) { Write-Host "    $f" -ForegroundColor Yellow }
+        # Warning only: untracked test files are new additions, not hidden by gitignore
+    }
+
+    if ($failures.Count -eq 0) {
+        Write-Host "Anti-regression checks: clean." -ForegroundColor Green
+        return $true
+    }
+    Write-Host ("Anti-regression failures: {0}" -f $failures.Count) -ForegroundColor Red
+    return $false
+}
+
 function Invoke-FrontendQuality {
     Write-Gate "Frontend quality build"
     Push-Location (Join-Path $ProjectRoot "frontend")
     try {
-        & npm.cmd run check:quality | Out-Host
+        & npm.cmd run check:toolchain | Out-Host
         $exitCode = $LASTEXITCODE
         return ($exitCode -eq 0)
     }
@@ -137,13 +252,16 @@ Test-BackendPython
 Set-Location $ProjectRoot
 
 $results = [ordered]@{}
+$results["Dependency constraint check"] = Invoke-ConstraintCheck
 $results["Backend tests"] = Invoke-BackendTests
 $results["Backend syntax compilation"] = Invoke-BackendCompile
+$results["Anti-regression checks"] = Invoke-AntiRegression
 if ($SkipFrontend) {
     Write-Host "`nFrontend quality gate skipped." -ForegroundColor Yellow
 }
 else {
     $results["Frontend quality build"] = Invoke-FrontendQuality
+    $results["Frontend performance budget"] = Invoke-FrontendBudget
 }
 $results["Tracked-file secret scan"] = Invoke-SecretScan
 

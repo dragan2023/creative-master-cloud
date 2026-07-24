@@ -37,6 +37,12 @@ describe('shouldReconnect', () => {
     })).toBe(false)
   })
 
+  it('用户主动取消时不重连（任务未运行）', () => {
+    expect(shouldReconnect({
+      state: ConnectionState.RECONNECTING, attempts: 2, maxAttempts: 10, isTaskRunning: false
+    })).toBe(false)
+  })
+
   it('已关闭或错误终态不重连', () => {
     expect(shouldReconnect({ state: ConnectionState.CLOSED, attempts: 0, maxAttempts: 5 })).toBe(false)
     expect(shouldReconnect({ state: ConnectionState.ERROR, attempts: 0, maxAttempts: 5 })).toBe(false)
@@ -45,5 +51,17 @@ describe('shouldReconnect', () => {
   it('达到最大次数后停止重连', () => {
     expect(shouldReconnect({ state: ConnectionState.RECONNECTING, attempts: 5, maxAttempts: 5 })).toBe(false)
     expect(shouldReconnect({ state: ConnectionState.RECONNECTING, attempts: 4, maxAttempts: 5 })).toBe(true)
+  })
+
+  it('连接中断但任务仍在运行时应重连', () => {
+    expect(shouldReconnect({
+      state: ConnectionState.CONNECTED, attempts: 1, maxAttempts: 10, isTaskRunning: true
+    })).toBe(true)
+  })
+
+  it('重连中且未达上限时应继续重连', () => {
+    expect(shouldReconnect({
+      state: ConnectionState.RECONNECTING, attempts: 3, maxAttempts: 10, isTaskRunning: true
+    })).toBe(true)
   })
 })

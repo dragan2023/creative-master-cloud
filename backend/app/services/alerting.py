@@ -16,6 +16,7 @@ from enum import Enum
 
 from app.core.config import get_settings
 from app.core.logger import get_logger
+from app.core.time import utc_now
 
 logger = get_logger("alerting")
 settings = get_settings()
@@ -39,7 +40,7 @@ class AlertMessage:
     
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.utcnow()
+            self.timestamp = utc_now()
 
 
 class AlertChannel:

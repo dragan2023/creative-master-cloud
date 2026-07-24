@@ -9,6 +9,7 @@ from enum import Enum
 from app.schemas.user import UserResponse
 from app.schemas.generation import GenerationHistoryResponse
 from app.schemas.knowledge import KnowledgeBaseResponse
+from app.schemas.common import IsoDatetime
 
 
 class LogLevel(str, Enum):
@@ -59,14 +60,11 @@ class PromptTemplateResponse(BaseModel):
     variables: Optional[List[str]] = None
     version: str
     is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: IsoDatetime
+    updated_at: IsoDatetime
 
     model_config = {
         "from_attributes": True,
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 
@@ -99,15 +97,12 @@ class LogResponse(BaseModel):
     action: Optional[str] = None
     message: str
     request_id: Optional[str] = None
-    created_at: datetime
+    created_at: IsoDatetime
     extra_data: Optional[Dict[str, Any]] = None
 
     model_config = {
         "from_attributes": True,
         "use_enum_values": True,  # 枚举类型序列化为字符串值
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 
@@ -138,16 +133,13 @@ class VersionResponse(BaseModel):
     changelog: Optional[str] = None
     is_released: bool
     is_current: bool
-    released_at: Optional[datetime] = None
-    created_at: datetime
+    released_at: Optional[IsoDatetime] = None
+    created_at: IsoDatetime
     backup_path: Optional[str] = None
     backup_size: Optional[int] = None
 
     model_config = {
         "from_attributes": True,
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 
@@ -164,14 +156,11 @@ class VersionBackupResponse(BaseModel):
     name: str
     backup_path: Optional[str] = None
     backup_size: Optional[int] = None
-    created_at: datetime
+    created_at: IsoDatetime
     is_current: bool
 
     model_config = {
         "from_attributes": True,
-        "json_encoders": {
-            datetime: lambda v: v.isoformat() if v else None
-        }
     }
 
 

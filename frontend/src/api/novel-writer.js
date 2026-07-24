@@ -49,7 +49,7 @@ export const novelWriterApi = {
   deleteChapter: (projectId, chapterNum) => api.delete(`/api/v1/novel-writer/projects/${projectId}/chapters/${chapterNum}`),
 
   // 进度获取
-  // TODO: 已迁移到新的Writing Task系统
+  // [已迁移] 进度查询已迁移到 WritingTask SSE/WebSocket 推送
 
   // 导出
   exportProject: (projectId, data) => api.post(`/api/v1/novel-writer/projects/${projectId}/export`, data, {
@@ -57,7 +57,7 @@ export const novelWriterApi = {
   }),
 
   // ==================== 分集详细大纲 API ====================
-  // TODO: 大纲生成已迁移到新的Writing Task系统
+  // 读取类接口（getEpisodeOutlines等）仍活跃；生成类接口已迁移至 WritingTask 系统
 
   // 获取分集大纲列表
   getEpisodeOutlines: (projectId) => 
@@ -76,10 +76,10 @@ export const novelWriterApi = {
     api.delete(`/api/v1/novel-writer/projects/${projectId}/episode-outlines/${episode}`),
 
   // ==================== 单集正文生成 API ====================
-  // TODO: 正文生成已迁移到新的Writing Task系统
+  // [已迁移] 正文生成已迁移至 WritingTask 系统 (POST /writing-tasks)
 
   // ==================== 章节详细大纲 API ====================
-  // TODO: 大纲生成已迁移到新的Writing Task系统
+  // 读取类接口（getChapterOutlines等）仍活跃；生成类接口已迁移至 WritingTask 系统
 
   // 获取章节大纲列表
   getChapterOutlines: (projectId) =>
@@ -118,10 +118,10 @@ export const novelWriterApi = {
     `/api/v1/novel-writer/projects/${projectId}/chapter-outlines-events?token=${token}`,
 
   // ==================== 章节正文生成 API ====================
-  // TODO: 正文生成已迁移到新的Writing Task系统
+  // [已迁移] 正文生成已迁移至 WritingTask 系统 (POST /writing-tasks)
 
   // ==================== 场景详细大纲 API ====================
-  // TODO: 大纲生成已迁移到新的Writing Task系统
+  // 读取类接口（getSceneOutlines等）仍活跃；生成类接口已迁移至 WritingTask 系统
 
   // 获取场景大纲列表
   getSceneOutlines: (projectId) =>
@@ -140,10 +140,44 @@ export const novelWriterApi = {
     api.delete(`/api/v1/novel-writer/projects/${projectId}/scene-outlines/${scene}`),
 
   // ==================== 场景正文生成 API ====================
-  // TODO: 正文生成已迁移到新的Writing Task系统
+  // [已迁移] 正文生成已迁移到新的Writing Task系统 (POST /writing-tasks)
 
   // ==================== 批量正文生成 API ====================
-  // TODO: 批量正文生成已迁移到新的Writing Task系统
+  // [已迁移] 批量正文生成已迁移到新的Writing Task系统
+
+  // ==================== 整体生成（桩方法 — 已迁移至 WritingTask） ====================
+
+  /**
+   * [已迁移] 一键生成所有章节 — WritingTask 系统替代
+   * 原调用方: useProjectDetailState.js startGenerate()
+   * 替代方案: 在写作工作台中创建 WritingTask（/api/v1/writing-tasks）
+   */
+  generateAll: (projectId, data = {}) => {
+    console.warn('[novelWriterApi.generateAll] 已迁移至 WritingTask 系统')
+    return Promise.resolve({
+      success: false,
+      data: {
+        completed_count: 0,
+        failed_count: 0,
+        error_message: '一键生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成'
+      }
+    })
+  },
+
+  /**
+   * [已迁移] 生成单章内容 — WritingTask 系统替代
+   * 原调用方: useProjectDetailState.js generateSingleChapter()
+   * 替代方案: 创建单章 WritingTask 或通过写作工作台生成
+   */
+  generateChapter: (projectId, chapterNum) => {
+    console.warn('[novelWriterApi.generateChapter] 已迁移至 WritingTask 系统')
+    return Promise.resolve({
+      success: false,
+      data: {
+        error_message: '单章生成已迁移至写作工作台的多Agent Pipeline系统，请在写作工作台中创建任务进行生成'
+      }
+    })
+  },
 
   // ==================== 批量获取正文内容 API ====================
 
@@ -182,7 +216,7 @@ export const novelWriterApi = {
   },
 
   // ==================== 用户干预机制 API ====================
-  // TODO: 用户干预机制已迁移到新的Writing Task系统
+  // 读取类接口仍活跃（InterventionDialog.vue调用）；写入类接口已迁移至 WritingTask 系统
 
   // ==================== 删除内容 API ====================
 
