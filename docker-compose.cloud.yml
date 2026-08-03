@@ -115,7 +115,7 @@ services:
     container_name: creative-master-db
     environment:
       - POSTGRES_USER=${DB_USER:-creative_user}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-creative_password}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD environment variable is required}
       - POSTGRES_DB=${DB_NAME:-creative_master}
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
