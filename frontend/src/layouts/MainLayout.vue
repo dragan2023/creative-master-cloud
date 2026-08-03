@@ -1,5 +1,8 @@
 <template>
   <el-container class="main-layout">
+    <!-- 键盘无障碍：跳过导航，直接跳到主内容 -->
+    <a href="#main-content-start" class="skip-to-main">跳到主内容</a>
+
     <!-- 侧边栏 -->
     <el-aside :width="sidebarWidth" class="sidebar">
       <div class="logo">
@@ -73,6 +76,7 @@
             text 
             @click="toggleSidebar"
             class="collapse-btn"
+            :aria-label="collapsed ? '展开侧边栏' : '折叠侧边栏'"
           >
             <el-icon :size="20">
               <Fold v-if="!collapsed" />
@@ -87,6 +91,22 @@
         </div>
         
         <div class="header-right">
+          <el-badge
+            :value="activeTaskCount"
+            :hidden="activeTaskCount === 0"
+            :max="99"
+            class="task-center-badge"
+          >
+            <el-button
+              text
+              class="task-center-btn"
+              :aria-label="`任务中心 (${activeTaskCount} 个进行中)`"
+              @click="taskCenterVisible = true"
+            >
+              <el-icon :size="20"><List /></el-icon>
+            </el-button>
+          </el-badge>
+
           <el-dropdown @command="handleCommand">
             <div class="user-info">
               <el-avatar :size="32" class="avatar">
@@ -114,30 +134,58 @@
       
       <!-- 内容区 -->
       <el-main class="main-content">
+        <!-- 跳过导航的锚点目标 -->
+        <div id="main-content-start" tabindex="-1"></div>
+        <!-- 全局无障碍状态播报区域 -->
+        <div id="global-aria-live" class="sr-only" aria-live="polite" role="status"></div>
         <router-view v-slot="{ Component, route }">
           <component :is="Component" :key="route.fullPath" />
         </router-view>
       </el-main>
     </el-container>
+
+    <!-- 全局任务中心抽屉 -->
+    <TaskCenterDrawer v-model="taskCenterVisible" />
   </el-container>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, provide, onErrorCaptured } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, provide, onErrorCaptured } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useUserStore, useAppStore } from '@/stores'
-import { DocumentChecked, Setting, SwitchButton } from '@element-plus/icons-vue'
+import { useUserStore, useAppStore, useWritingTaskStore } from '@/stores'
+import { DocumentChecked, Setting, SwitchButton, List } from '@element-plus/icons-vue'
 import { updateApi } from '@/api'
 import { APP_VERSION } from '@/config/version'
 import { getToken, getUserInfo } from '@/utils/authStorage'
+import TaskCenterDrawer from '@/components/TaskCenterDrawer.vue'
+import { createGlobalKeyboardHandler, registerShortcut, unregisterShortcut } from '@/composables/keyboardShortcuts'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const appStore = useAppStore()
+const writingTaskStore = useWritingTaskStore()
 
 // 当前版本号（从后端API获取，失败时使用本地版本）
 const currentVersion = ref(APP_VERSION)
+
+// 任务中心抽屉
+const taskCenterVisible = ref(false)
+
+/** 活跃任务数量（用于徽标） */
+const activeTaskCount = computed(() => {
+  const tasks = writingTaskStore.taskList || []
+  const current = writingTaskStore.currentTask
+  let count = tasks.filter((t) => {
+    const status = t.status || ''
+    return status === 'running' || status === 'pending' || status === 'queued' || status === 'generating'
+  }).length
+  if (current && (current.status === 'running' || current.status === 'pending')) {
+    const exists = tasks.some((t) => t.id === current.id)
+    if (!exists) count++
+  }
+  return count
+})
 
 const collapsed = computed(() => appStore.sidebarCollapsed)
 const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
@@ -179,9 +227,38 @@ onErrorCaptured((error, instance, info) => {
   return false
 })
 
+// 全局键盘处理器（基于 keyboardShortcuts 统一管理）
+const { handleKeydown } = createGlobalKeyboardHandler()
+
 onMounted(async () => {
   await fetchCurrentVersion()
-  
+
+  // 初始化：加载全局任务列表
+  try {
+    await writingTaskStore.fetchTaskList({ page: 1, page_size: 50 })
+  } catch (e) {
+    console.warn('[MainLayout] 任务列表加载失败:', e.message)
+  }
+
+  // 注册全局快捷键
+  registerShortcut('toggle-task-center', {
+    key: 'q',
+    ctrl: true,
+    shift: true,
+    description: '打开/关闭任务中心',
+    handler: () => { taskCenterVisible.value = !taskCenterVisible.value }
+  })
+  registerShortcut('go-home', {
+    key: 'h',
+    ctrl: true,
+    shift: true,
+    description: '返回首页',
+    handler: () => { router.push('/') }
+  })
+
+  // 安装全局键盘监听
+  document.addEventListener('keydown', handleKeydown)
+
   // 验证用户状态：如果 token 存在但 userInfo 不存在，尝试获取用户信息
   const token = getToken()
   const userInfoData = getUserInfo()
@@ -191,9 +268,15 @@ onMounted(async () => {
       await userStore.fetchProfile()
     } catch (error) {
       console.error('[MainLayout] 获取用户信息失败:', error)
-      // 如果获取失败，logout 会在 fetchProfile 内部被调用（当返回 401 时）
     }
   }
+})
+
+// 清理键盘监听和快捷键注册
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeydown)
+  unregisterShortcut('toggle-task-center')
+  unregisterShortcut('go-home')
 })
 </script>
 
@@ -399,6 +482,25 @@ onMounted(async () => {
     display: flex;
     align-items: center;
     gap: 8px;
+
+    .task-center-badge {
+      margin-right: 4px;
+
+      :deep(.el-badge__content) {
+        font-size: 11px;
+      }
+    }
+
+    .task-center-btn {
+      padding: 8px;
+      border-radius: 8px;
+      transition: all 0.3s;
+
+      &:hover {
+        background: rgba(64, 158, 255, 0.1);
+        color: #409EFF;
+      }
+    }
     
     .user-info {
       display: flex;

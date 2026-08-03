@@ -66,7 +66,16 @@ export const adminApi = {
   updatePrompt: (id, data) => api.put(`/api/v1/admin/prompts/${id}`, data),
   
   // 删除提示词模板
-  deletePrompt: (id) => api.delete(`/api/v1/admin/prompts/${id}`)
+  deletePrompt: (id) => api.delete(`/api/v1/admin/prompts/${id}`),
+
+  // ==================== 体验指标（阶段04新增） ====================
+  /**
+   * 获取体验质量指标
+   * @param {Object} [params] - 查询参数
+   * @param {number} [params.days=14] - 统计最近 N 天
+   * @param {number} [params.tenant_id] - 租户ID（不传则跨租户聚合）
+   */
+  getExperienceMetrics: (params) => api.get('/api/v1/admin/experience-metrics', { params })
 }
 
 export default adminApi

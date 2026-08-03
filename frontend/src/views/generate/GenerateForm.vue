@@ -28,6 +28,15 @@
       <p>{{ currentModule?.description }}</p>
     </div>
     
+    <!-- 创作步骤条 -->
+    <CreationStepBar
+      :steps="creationPhases"
+      :current-step="currentPhaseIndex"
+      :primary-action="phasePrimaryAction"
+      :secondary-actions="phaseSecondaryActions"
+      :current-hint="phaseHint"
+    />
+
     <!-- 主体区域：左右分栏 -->
     <div class="main-container">
       <!-- 左侧：表单区域 -->
@@ -305,6 +314,8 @@ import { computeDiffHtml } from '@/utils/diffUtils'
 import { parseChapterCountFromOutline, parseUnitSummariesFromContent } from './utils/outlineParser'
 import { buildOutlineInputParams as buildOutlineParams } from './utils/buildRequestParams'
 import { useConfigPersistence } from '@/composables/useConfigPersistence'
+import { announceGenerationStatus } from '@/utils/ariaLive'
+import { MagicStick, List, Download, Edit, Refresh, Upload, Document } from '@element-plus/icons-vue'
 
 // 导入子组件
 import FormFieldsSection from './components/FormFieldsSection.vue'
@@ -318,6 +329,8 @@ import ImportUnitSummariesDialog from './components/ImportUnitSummariesDialog.vu
 import StartUnitDialog from './components/StartUnitDialog.vue'
 import LogicIssuesDialog from './components/LogicIssuesDialog.vue'
 import RevisionDetailDialog from './components/RevisionDetailDialog.vue'
+import CreationStepBar from '@/components/CreationStepBar.vue'
+import { GENERAL_PHASES } from '@/domain/taskPresentation'
 
 // 导入composables
 import { useGenerationForm } from './composables/useGenerationForm'
@@ -450,6 +463,17 @@ const {
 
 // 流式处理相关状态（必须在 useWorkflow 之前定义）
 const generating = ref(false)
+
+// 屏幕阅读器播报：生成状态变更时通知辅助技术
+watch(generating, (isGen) => {
+  const moduleName = currentModule?.value?.title || ''
+  if (isGen) {
+    announceGenerationStatus('generating', { moduleName })
+  } else {
+    // generating 变为 false 可能是完成或出错，由调用处再次播报具体状态
+  }
+})
+
 const showResult = ref(false)
 const generatedContent = ref('')
 const currentGenerationId = ref(null)
@@ -608,6 +632,151 @@ const backendResumeInfo = ref(null)  // { can_resume, remaining_count, start_fro
 
 // P0改造新增：创建写作项目状态
 const creatingWritingProject = ref(false)
+
+// ==================== 创作步骤条状态（阶段01新增） ====================
+
+/** 创作阶段（复用 domain 定义） */
+const creationPhases = computed(() => {
+  // 两阶段模式（小说/剧本/电影大纲）使用不同的阶段定义
+  if (useTwoStageMode.value) {
+    return [
+      { key: 'setup', label: '设定', icon: 'Setting' },
+      { key: 'global_outline', label: '全局大纲', icon: 'Memo' },
+      { key: 'unit_summaries', label: '单元概述', icon: 'List' },
+      { key: 'review', label: '审阅', icon: 'View' },
+      { key: 'deliver', label: '交付', icon: 'Trophy' },
+    ]
+  }
+  return GENERAL_PHASES
+})
+
+/** 当前阶段索引（0-based） */
+const currentPhaseIndex = computed(() => {
+  // 两阶段模式
+  if (useTwoStageMode.value) {
+    if (outlineStage.value === 0 && !generating.value) return 0         // 设定
+    if (globalOutlineGenerating.value) return 1                          // 全局大纲中
+    if (outlineStage.value === 1 && !globalOutlineGenerating.value && !unitSummariesGenerating.value) return 1 // 大纲完成
+    if (unitSummariesGenerating.value) return 2                          // 单元概述中
+    if (outlineStage.value >= 2 && !generating.value) return 3           // 审阅
+    if (isRevisionMode.value || creatingWritingProject.value) return 4   // 交付
+    return 3
+  }
+  // 通用模式
+  if (!generating.value && !showResult.value) return 0                   // 设定
+  if (generating.value) return 2                                         // 生成
+  if (showResult.value && !isRevisionMode.value) return 3                // 审阅
+  if (isRevisionMode.value) return 4                                     // 交付
+  return 0
+})
+
+/** 主操作按钮 */
+const phasePrimaryAction = computed(() => {
+  const phaseIdx = currentPhaseIndex.value
+
+  // 设定阶段 → 开始生成
+  if (phaseIdx === 0) {
+    return {
+      label: '开始生成',
+      icon: MagicStick,
+      type: 'primary',
+      loading: generating.value || globalOutlineGenerating.value,
+      disabled: generating.value,
+      onClick: handleGenerate,
+    }
+  }
+
+  // 两阶段：全局大纲完成后 → 生成单元概述
+  if (useTwoStageMode.value && phaseIdx === 1 && outlineStage.value >= 1) {
+    return {
+      label: unitSummariesGenerating.value ? '生成中...' : '审核并生成单元概述',
+      icon: List,
+      type: 'primary',
+      loading: unitSummariesGenerating.value,
+      disabled: unitSummariesGenerating.value || globalOutlineGenerating.value,
+      onClick: () => handleGenerateUnitSummaries(),
+    }
+  }
+
+  // 两阶段：单元概述完成后 → 创建写作项目
+  if (useTwoStageMode.value && phaseIdx === 3) {
+    return {
+      label: creatingWritingProject.value ? '创建中...' : '创建写作项目',
+      icon: Edit,
+      type: 'success',
+      loading: creatingWritingProject.value,
+      onClick: handleCreateWritingProject,
+    }
+  }
+
+  // 交付阶段 → 导出
+  if (phaseIdx === 4) {
+    return {
+      label: '导出结果',
+      icon: Download,
+      type: 'primary',
+      onClick: downloadResult,
+    }
+  }
+
+  return null
+})
+
+/** 次级操作按钮 */
+const phaseSecondaryActions = computed(() => {
+  const phaseIdx = currentPhaseIndex.value
+  const actions = []
+
+  // 设定阶段
+  if (phaseIdx === 0) {
+    actions.push({
+      label: '重置',
+      icon: Refresh,
+      onClick: resetForm,
+    })
+    actions.push({
+      label: '导入配置',
+      icon: Upload,
+      onClick: triggerImport,
+    })
+  }
+
+  // 大纲完成后
+  if (useTwoStageMode.value && phaseIdx === 1 && outlineStage.value >= 1) {
+    actions.push({
+      label: '编辑大纲',
+      icon: Edit,
+      onClick: startEditGlobalOutline,
+    })
+    actions.push({
+      label: '导出大纲',
+      icon: Download,
+      onClick: downloadOutline,
+    })
+  }
+
+  // 交付阶段
+  if (phaseIdx === 4) {
+    actions.push({
+      label: '复制内容',
+      icon: Document,
+      onClick: copyResult,
+    })
+  }
+
+  return actions
+})
+
+/** 当前步骤提示 */
+const phaseHint = computed(() => {
+  const phaseIdx = currentPhaseIndex.value
+  if (phaseIdx === 0) return '填写创作参数后点击"开始生成"'
+  if (phaseIdx === 1 && useTwoStageMode.value) return '请审阅全局大纲，确认后可生成单元概述'
+  if (phaseIdx === 2 && generating.value) return 'AI 正在创作中，请耐心等待...'
+  if (phaseIdx === 3) return '请审阅生成结果，可进行修订或直接导出'
+  if (phaseIdx === 4) return '内容已定稿，可导出或分享'
+  return ''
+})
 
 // 知识库组件引用
 const knowledgeBaseSectionRef = ref(null)

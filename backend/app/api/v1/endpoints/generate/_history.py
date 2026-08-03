@@ -20,6 +20,7 @@ from app.core.logger import get_logger
 from app.models import User, Generation, UserAction
 from app.schemas.generation import (
     UserActionCreate, UserActionResponse, ActionStatsResponse,
+    ExperienceEventCreate, ExperienceEventResponse,
     OptimizeRequest, OptimizeResponse,
 )
 from app.schemas.common import ResponseModel
@@ -183,6 +184,49 @@ def register_history_routes(router: APIRouter):
             action=action.action,
             content_snippet=action.content_snippet,
             created_at=action.created_at.isoformat() if action.created_at else None
+        )
+
+    # ==================== 体验事件追踪（阶段04新增） ====================
+
+    @router.post("/experience-event", response_model=ExperienceEventResponse)
+    async def track_experience_event(
+        data: ExperienceEventCreate,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """记录体验事件（creation_started/completed/cancelled 等）
+        
+        事件数据仅包含：模块、阶段、时长桶、错误类别、是否重试、是否首次使用。
+        不包含正文、提示词、API Key 或任何用户内容。
+        """
+        action_service = UserActionService(db)
+        action = await action_service.track_experience_event(
+            user_id=current_user.id,
+            module=data.module,
+            event_type=data.event_type,
+            generation_id=data.generation_id,
+            phase=data.phase,
+            duration_bucket=data.duration_bucket,
+            error_category=data.error_category,
+            is_retry=data.is_retry,
+            is_first_use=data.is_first_use,
+        )
+
+        if action is None:
+            raise ValidationException(message=f"无效的事件类型: {data.event_type}")
+
+        return ExperienceEventResponse(
+            id=action.id,
+            user_id=action.user_id,
+            event_type=action.action.value,
+            module=action.module,
+            generation_id=action.generation_id,
+            phase=action.phase,
+            duration_bucket=action.duration_bucket,
+            error_category=action.error_category,
+            is_retry=action.is_retry or False,
+            is_first_use=action.is_first_use or False,
+            created_at=action.created_at.isoformat() if action.created_at else None,
         )
 
     @router.get("/action/stats")

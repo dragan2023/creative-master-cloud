@@ -281,6 +281,22 @@ export function useWritingTaskActions(state, connectWS, disconnectWS) {
   }
   
   /**
+   * 导出任务内容
+   * @param {string} taskId - 任务ID
+   * @param {string} format - 导出格式 (txt|md)
+   * @returns {Promise<Blob>}
+   */
+  async function exportTask(taskId, format = 'txt') {
+    try {
+      const res = await writingTaskApi.exportTask(taskId, format)
+      return res
+    } catch (error) {
+      console.error('[WritingTask Store] 导出任务失败:', error)
+      throw error
+    }
+  }
+
+  /**
    * 删除任务
    * @param {string} taskId - 任务ID
    * @returns {Promise} 操作结果
@@ -404,6 +420,7 @@ export function useWritingTaskActions(state, connectWS, disconnectWS) {
     fetchUnits,
     fetchScenes,
     fetchStats,
+    exportTask,
     deleteTask,
     fetchAgentConfig,
     updateAgentConfig,

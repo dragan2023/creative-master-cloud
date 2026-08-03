@@ -19,6 +19,15 @@
 -->
 <template>
   <div class="writing-workbench">
+    <!-- 创作步骤条 -->
+    <CreationStepBar
+      :steps="creationPhases"
+      :current-step="currentPhaseIndex"
+      :primary-action="phasePrimaryAction"
+      :secondary-actions="phaseSecondaryActions"
+      :current-hint="phaseHint"
+    />
+
     <WorkbenchHeader
       v-model:show-continue-dialog="showContinueDialog"
       :project-title="projectData?.title || props.projectTitle || '写作工作台'"
@@ -320,6 +329,9 @@ import { useWritingTaskStore } from "@/stores/writingTask";
 import { novelWriterApi } from "@/api/novel-writer";
 import { writingTaskApi } from "@/api/writing-task";
 import { ElMessage, ElMessageBox } from "element-plus";
+import CreationStepBar from '@/components/CreationStepBar.vue';
+import { LONG_FORM_PHASES } from '@/domain/taskPresentation';
+import { Edit, Download, Document, Refresh, Upload, List, MagicStick } from '@element-plus/icons-vue';
 import TaskCreationPanel from "./components/TaskCreationPanel.vue";
 import ProjectSetupPanel from "./components/ProjectSetupPanel.vue";
 import KnowledgeBasePanel from "./components/KnowledgeBasePanel.vue";
@@ -546,6 +558,132 @@ const {
 
 // ==================== 内联状态（UI相关，不适合提取）====================
 const hasOutline = computed(() => !!projectData.value?.outline_content || !!projectData.value?.global_outline_content)
+
+// ==================== 创作步骤条（阶段01新增） ====================
+
+const creationPhases = LONG_FORM_PHASES
+
+/** 当前阶段索引（0-based） */
+const currentPhaseIndex = computed(() => {
+  const task = writingStore.currentTask
+  const hasContent = hasGeneratedContent.value
+  const hasSummaries = hasUnitSummaries.value
+
+  // 无任务 → 项目设定
+  if (!task) {
+    if (hasSummaries && hasContent) return 3  // 有内容但没任务 → 正文/审阅阶段
+    if (hasSummaries) return 2                // 有单元概述
+    if (hasOutline.value) return 1            // 有全局大纲
+    return 0                                  // 项目设定
+  }
+
+  // 任务运行中
+  if (writingStore.isRunning.value) return 3  // 正文生成中
+
+  // 任务已完成
+  if (writingStore.isCompleted.value) return 5 // 定稿
+
+  // 任务中断/失败
+  if (writingStore.isInterrupted.value || writingStore.isFailed.value) return 3 // 正文中断
+
+  // 默认根据已生成内容判断
+  if (hasContent) return 4  // 质控
+  if (hasSummaries) return 2
+  if (hasOutline.value) return 1
+  return 0
+})
+
+/** 主操作按钮 */
+const phasePrimaryAction = computed(() => {
+  const phaseIdx = currentPhaseIndex.value
+  const task = writingStore.currentTask
+
+  if (phaseIdx === 0) {
+    return {
+      label: '创建写作任务',
+      icon: Edit,
+      type: 'primary',
+      disabled: !projectData.value?.id,
+      onClick: () => {
+        // 触发任务创建 — 如果 TaskCreationPanel 中显示，引导用户滚动
+        const panel = document.querySelector('.task-creation-panel')
+        if (panel) panel.scrollIntoView({ behavior: 'smooth' })
+      },
+    }
+  }
+
+  if (phaseIdx === 3 && task && (writingStore.isInterrupted.value || writingStore.isFailed.value)) {
+    return {
+      label: '恢复生成',
+      icon: Refresh,
+      type: 'warning',
+      onClick: () => handleResume(),
+    }
+  }
+
+  if (phaseIdx === 3 && task && writingStore.isRunning.value) {
+    return {
+      label: '中断生成',
+      icon: MagicStick,
+      type: 'danger',
+      loading: interrupting.value,
+      onClick: () => handleInterrupt(),
+    }
+  }
+
+  if (phaseIdx === 5) {
+    return {
+      label: '导出作品',
+      icon: Download,
+      type: 'primary',
+      onClick: () => handleExport(),
+    }
+  }
+
+  return null
+})
+
+/** 次级操作按钮 */
+const phaseSecondaryActions = computed(() => {
+  const phaseIdx = currentPhaseIndex.value
+  const actions = []
+
+  if (phaseIdx === 0) {
+    actions.push({
+      label: '上传大纲',
+      icon: Upload,
+      onClick: () => { showOutlineUploadDialog.value = true },
+    })
+    actions.push({
+      label: '导入单元概述',
+      icon: Document,
+      onClick: () => { showUnitSummariesUploadDialog.value = true },
+    })
+  }
+
+  if (phaseIdx === 1 && hasOutline.value) {
+    actions.push({
+      label: '查看知识图谱',
+      icon: List,
+      onClick: () => { knowledgeGraphVisible.value = true },
+    })
+  }
+
+  return actions
+})
+
+/** 当前步骤提示 */
+const phaseHint = computed(() => {
+  const phaseIdx = currentPhaseIndex.value
+  if (phaseIdx === 0) return '配置项目设定，上传大纲和单元概述'
+  if (phaseIdx === 1) return '全局大纲已就绪，可生成单元概述'
+  if (phaseIdx === 2) return '单元概述已就绪，可开始正文生成'
+  if (phaseIdx === 3 && writingStore.isRunning.value) return 'AI 正在创作正文，可监控下方进度面板'
+  if (phaseIdx === 3) return '正文生成中断，可恢复或重新开始'
+  if (phaseIdx === 4) return '请进行质量检查，确保内容一致性'
+  if (phaseIdx === 5) return '作品已完成，可导出完整内容'
+  return ''
+})
 const activeUnits = ref([]);
 const interrupting = ref(false);
 const knowledgeGraphVisible = ref(false);

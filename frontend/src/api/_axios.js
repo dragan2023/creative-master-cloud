@@ -7,7 +7,7 @@ import { API_BASE_URL } from '@/config'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 import { getToken, clearAuth } from '@/utils/authStorage'
-import { createMessageDeduper, resolveErrorAction } from '@/api/errorPolicy'
+import { createMessageDeduper, resolveErrorAction, classifyError, formatValidationErrors } from '@/api/errorPolicy'
 
 // 全局错误通知去重器：同一请求的相同错误在时间窗口内只展示一次
 const errorDeduper = createMessageDeduper()
@@ -73,9 +73,13 @@ api.interceptors.response.use(
       return Promise.reject({ cancelled: true, message: action.message })
     }
 
-    // 422 参数校验失败：输出详细字段级别错误便于排查
+    // 422 参数校验失败：输出详细字段级别错误，使用字段标签而非内部路径
     if (status === 422) {
-      console.error('[API] 422 参数校验失败:', JSON.stringify(error.response?.data?.detail, null, 2))
+      const detail = error.response?.data?.detail
+      const friendlyMsg = Array.isArray(detail)
+        ? formatValidationErrors(detail)
+        : (typeof detail === 'string' ? detail : '参数校验失败')
+      console.error('[API] 422 参数校验失败:', friendlyMsg)
       console.error('[API] 请求体:', JSON.stringify(error.config?.data, null, 2))
     }
 

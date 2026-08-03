@@ -326,6 +326,90 @@ html, body, #app {
   opacity: 0;
 }
 
+// ============================================================
+// 无障碍辅助类
+// ============================================================
+
+// 屏幕阅读器专用（视觉隐藏但对辅助技术可见）
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+// 键盘焦点可见性增强（非鼠标操作时显示 focus ring）
+:focus-visible {
+  outline: 2px solid var(--color-tangerine-500);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+// 跳过导航链接（Tab 键首先聚焦，允许键盘用户跳过侧边栏）
+.skip-to-main {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 9999;
+  background: var(--color-tangerine-500);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  transition: top 0.2s;
+
+  &:focus {
+    top: 0;
+  }
+}
+
+// ============================================================
+// 响应式全局增强
+// ============================================================
+
+// 390px 极小屏优化
+@media (max-width: 390px) {
+  .el-dialog {
+    width: 94% !important;
+    margin: 0 3%;
+  }
+
+  .el-form-item__label {
+    font-size: 13px;
+  }
+
+  .el-button {
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .el-table {
+    font-size: 12px;
+  }
+}
+
+// 768px 平板优化
+@media (max-width: 768px) {
+  .el-dialog {
+    width: 92% !important;
+  }
+
+  .main-content {
+    padding: 16px !important;
+  }
+
+  .el-card__body {
+    padding: 16px;
+  }
+}
+
 .slide-fade-enter-active {
   transition: all 0.3s ease-out;
 }

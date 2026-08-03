@@ -42,3 +42,16 @@ export const unitSummariesQCApi = {
     timeout: 600000  // 10分钟超时
   })
 }
+
+// ==================== Phase 02 新增：审阅项逐项操作 API ====================
+
+export const reviewItemApi = {
+  // 逐项/批量应用审阅项
+  applyItems: (data) => api.post('/api/v1/generate/revision/apply-items', data),
+
+  // 批量撤销已应用的审阅项
+  undoItems: (data) => api.post('/api/v1/generate/revision/undo-items', data),
+
+  // 获取质控报告对应的审阅项列表
+  getItems: (qcReportId) => api.get(`/api/v1/generate/revision/items/${qcReportId}`)
+}

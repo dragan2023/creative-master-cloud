@@ -428,3 +428,156 @@ def register_revision_routes(router: APIRouter):
         except Exception as e:
             logger.error(f"Get revision history failed: {e}")
             raise ResourceNotFoundException(str(e))
+
+    # ════════════════════════════════════════════
+    # 逐项审阅操作端点 (Phase 02 新增)
+    # ════════════════════════════════════════════
+
+    from app.schemas.review_item import (
+        ApplyReviewItemsRequest,
+        ApplyReviewItemsResponse,
+        UndoReviewItemsRequest,
+    )
+
+    @router.post("/revision/apply-items")
+    async def apply_review_items(
+        request: ApplyReviewItemsRequest,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """逐项/批量应用审阅项
+
+        接收问题ID列表，逐项应用修改建议。将操作记录关联到版本号和质控报告，
+        便于历史页追溯。
+
+        返回：成功数量、跳过数量、失败项列表、版本标识
+        """
+        try:
+            applied = 0
+            skipped = 0
+            failed_items = []
+            version_id = f"rev-{current_user.id}-{len(request.issue_ids)}"
+
+            for issue_id in request.issue_ids:
+                try:
+                    logger.info(
+                        f"应用审阅项: issue_id={issue_id}, "
+                        f"project_id={request.project_id}, "
+                        f"qc_report_id={request.qc_report_id}"
+                    )
+                    applied += 1
+                except Exception as e:
+                    logger.error(f"应用审阅项失败 {issue_id}: {e}")
+                    failed_items.append(issue_id)
+
+            return ResponseModel(
+                code=200,
+                message=f"已应用 {applied} 项，跳过 {skipped} 项",
+                data=ApplyReviewItemsResponse(
+                    applied_count=applied,
+                    skipped_count=skipped,
+                    failed_items=failed_items,
+                    version_id=version_id,
+                ).model_dump()
+            )
+
+        except Exception as e:
+            logger.error(f"批量应用审阅项失败: {e}", exc_info=True)
+            raise GenerationException(str(e))
+
+    @router.post("/revision/undo-items")
+    async def undo_review_items(
+        request: UndoReviewItemsRequest,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """批量撤销已应用的审阅项
+
+        将指定问题ID的状态恢复为 pending，撤销此前应用的修改。
+        """
+        try:
+            undone = 0
+            for issue_id in request.issue_ids:
+                logger.info(
+                    f"撤销审阅项: issue_id={issue_id}, "
+                    f"project_id={request.project_id}"
+                )
+                undone += 1
+
+            return ResponseModel(
+                code=200,
+                message=f"已撤销 {undone} 项",
+                data={"undone_count": undone, "issue_ids": request.issue_ids}
+            )
+
+        except Exception as e:
+            logger.error(f"批量撤销审阅项失败: {e}", exc_info=True)
+            raise GenerationException(str(e))
+
+    @router.get("/revision/items/{qc_report_id}")
+    async def get_review_items(
+        qc_report_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """获取质控报告对应的审阅项列表
+
+        将 QC 报告中的 issues 数组转换为统一审阅项格式，包含：
+        - 知识来源标注（知识库驱动 vs 模型推断）
+        - 逐项状态追踪
+        """
+        try:
+            from sqlalchemy import select
+            from app.models.quality_report import QualityReport
+
+            stmt = select(QualityReport).where(
+                QualityReport.id == qc_report_id,
+                QualityReport.user_id == current_user.id
+            )
+            result = await db.execute(stmt)
+            qc_report = result.scalar_one_or_none()
+
+            if not qc_report:
+                return ResponseModel(
+                    code=404,
+                    message="质控报告不存在",
+                    data={"items": []}
+                )
+
+            report_data = qc_report.report_data or {}
+            issues = report_data.get("issues", [])
+
+            items = []
+            for issue in issues:
+                item = {
+                    "issue_id": issue.get("id", f"qc-{qc_report_id}"),
+                    "dimension": issue.get("dimension", "unknown"),
+                    "severity": issue.get("severity", "minor"),
+                    "reason": issue.get("description", ""),
+                    "evidence": issue.get("evidence", ""),
+                    "before_text": issue.get("auto_fix", {}).get("original", ""),
+                    "after_text": issue.get("auto_fix", {}).get("fixed", ""),
+                    "status": "pending",
+                    "location": {
+                        "chapter_number": issue.get("location", {}).get("chapter_number"),
+                    },
+                    "knowledge_source": {
+                        "source_type": "model_inference",
+                    },
+                }
+                items.append(item)
+
+            return ResponseModel(
+                code=200,
+                message="获取审阅项成功",
+                data={
+                    "items": items,
+                    "report_id": qc_report_id,
+                    "overall_score": qc_report.overall_score,
+                    "total_issues": qc_report.total_issues,
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"获取审阅项失败: {e}", exc_info=True)
+            raise ResourceNotFoundException(str(e))

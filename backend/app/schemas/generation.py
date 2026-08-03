@@ -410,6 +410,39 @@ class ActionStatsResponse(BaseModel):
     download_rate: float  # 下载率 = 下载数/总生成数
 
 
+# ==================== 体验事件（阶段04新增） ====================
+
+class ExperienceEventCreate(BaseModel):
+    """创建体验事件"""
+    event_type: str = Field(..., description="事件类型: creation_started/completed/cancelled/task_restored/revision_applied/revision_reverted/error_recovered")
+    module: str = Field(..., description="模块名称")
+    generation_id: Optional[int] = Field(None, description="生成记录ID")
+    phase: Optional[str] = Field(None, description="创作阶段: outline/generation/qc/revision/finalize")
+    duration_bucket: Optional[str] = Field(None, description="时长分桶")
+    error_category: Optional[str] = Field(None, description="错误类别")
+    is_retry: bool = Field(False, description="是否重试")
+    is_first_use: bool = Field(False, description="是否首次使用")
+
+
+class ExperienceEventResponse(BaseModel):
+    """体验事件响应"""
+    id: int
+    user_id: int
+    event_type: str
+    module: str
+    generation_id: Optional[int] = None
+    phase: Optional[str] = None
+    duration_bucket: Optional[str] = None
+    error_category: Optional[str] = None
+    is_retry: bool = False
+    is_first_use: bool = False
+    created_at: IsoDatetime
+
+    model_config = {
+        "from_attributes": True,
+    }
+
+
 # ==================== 提示词优化 ====================
 
 class OptimizeModule(str, Enum):

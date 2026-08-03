@@ -20,6 +20,63 @@
         <span class="title-icon"></span>
         创意生成模块
       </h2>
+
+      <!-- API Key 未配置时的醒目提示（在模块选择之前） -->
+      <el-alert
+        v-if="!onboarding.hasAPIKeys.value"
+        title="⚡ 尚未配置 API Key"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="api-key-notice"
+      >
+        <template #default>
+          <p>AI 生成功能需要连接大语言模型。配置 API Key 后即可开始创作。</p>
+        </template>
+        <template #extra>
+          <el-button type="primary" size="small" @click="router.push('/api-keys')" aria-label="前往配置 API Key">
+            <el-icon><Key /></el-icon>前往配置
+          </el-button>
+        </template>
+      </el-alert>
+
+      <!-- 角色化快捷入口：三个核心目标 -->
+      <div class="role-entries">
+        <h3 class="role-entries-title">选择您想做的事情：</h3>
+        <div class="role-entry-grid">
+          <div class="role-entry-card quick" @click="router.push('/generate')" aria-label="快速生成一篇内容">
+            <div class="role-entry-icon">
+              <el-icon :size="28"><MagicStick /></el-icon>
+            </div>
+            <div class="role-entry-text">
+              <strong>快速生成一篇内容</strong>
+              <p>短视频脚本、广告文案、应用文等即时创作</p>
+            </div>
+            <el-icon class="role-entry-arrow"><ArrowRight /></el-icon>
+          </div>
+          <div class="role-entry-card project" @click="router.push('/novel-writer')" aria-label="开始长篇项目">
+            <div class="role-entry-icon">
+              <el-icon :size="28"><Edit /></el-icon>
+            </div>
+            <div class="role-entry-text">
+              <strong>开始长篇项目</strong>
+              <p>小说、剧本、剧集等多章节结构化创作</p>
+            </div>
+            <el-icon class="role-entry-arrow"><ArrowRight /></el-icon>
+          </div>
+          <div class="role-entry-card import" @click="router.push('/knowledge')" aria-label="导入已有资料">
+            <div class="role-entry-icon">
+              <el-icon :size="28"><Upload /></el-icon>
+            </div>
+            <div class="role-entry-text">
+              <strong>导入已有资料</strong>
+              <p>上传文档、大纲或知识库材料进行加工</p>
+            </div>
+            <el-icon class="role-entry-arrow"><ArrowRight /></el-icon>
+          </div>
+        </div>
+      </div>
+
       <div class="module-grid">
         <div
           v-for="module in creativeModules"
@@ -131,6 +188,7 @@
       :show-welcome="onboarding.showWelcomeDialog.value"
       :show-api-guide="onboarding.showAPIGuideDialog.value"
       :show-celebration="onboarding.showFirstGenCelebration.value"
+      :onboarding-version="onboarding.onboardingVersion"
       @welcome-complete="onboarding.completeWelcome()"
       @api-guide-complete="onboarding.completeAPIGuide()"
       @skip-all="onboarding.skipAll()"
@@ -203,6 +261,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { APP_VERSION } from '@/config/version'
 import { useOnboarding } from '@/composables/useOnboarding'
 import OnboardingDialogs from './components/OnboardingDialogs.vue'
+import { ArrowRight, Key, MagicStick, Edit, Upload } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -430,6 +489,124 @@ function showManualCloseTip() {
 
     .welcome-text h1 {
       font-size: 24px;
+    }
+  }
+}
+
+/* API Key 未配置通知 */
+.api-key-notice {
+  margin-bottom: 20px;
+  border-radius: var(--radius-lg);
+
+  :deep(.el-alert__title) {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+}
+
+/* 角色化快捷入口 */
+.role-entries {
+  margin-bottom: 24px;
+
+  .role-entries-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+  }
+
+  .role-entry-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+
+    @media (max-width: 768px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .role-entry-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px 22px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(64, 158, 255, 0.08);
+    position: relative;
+    overflow: hidden;
+
+    &:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(64, 158, 255, 0.12);
+
+      .role-entry-arrow {
+        opacity: 1;
+        transform: translateX(4px);
+      }
+
+      .role-entry-icon {
+        transform: scale(1.08);
+      }
+    }
+
+    &.quick .role-entry-icon {
+      background: rgba(249, 115, 22, 0.1);
+      color: var(--color-tangerine-500);
+    }
+
+    &.project .role-entry-icon {
+      background: rgba(99, 102, 241, 0.1);
+      color: var(--color-indigo-500);
+    }
+
+    &.import .role-entry-icon {
+      background: rgba(5, 150, 105, 0.1);
+      color: var(--color-success);
+    }
+
+    .role-entry-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s;
+      flex-shrink: 0;
+    }
+
+    .role-entry-text {
+      flex: 1;
+
+      strong {
+        display: block;
+        font-size: 15px;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+
+      p {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin: 0;
+        line-height: 1.4;
+      }
+    }
+
+    .role-entry-arrow {
+      opacity: 0.3;
+      color: var(--text-secondary);
+      transition: all 0.3s;
+      flex-shrink: 0;
     }
   }
 }

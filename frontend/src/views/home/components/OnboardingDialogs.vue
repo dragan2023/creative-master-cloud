@@ -8,6 +8,8 @@
     :close-on-press-escape="false"
     :show-close="false"
     class="onboarding-dialog welcome-dialog"
+    aria-label="新手欢迎引导"
+    @opened="focusFirstAction"
   >
     <div class="onboarding-content">
       <div class="welcome-header">
@@ -70,6 +72,8 @@
     :close-on-press-escape="false"
     :show-close="false"
     class="onboarding-dialog api-guide-dialog"
+    aria-label="API Key 配置引导"
+    @opened="focusFirstAction"
   >
     <div class="onboarding-content">
       <div class="api-guide-header">
@@ -179,6 +183,11 @@ const props = defineProps({
   hasAPIKeys: {
     type: Boolean,
     default: false
+  },
+  /** 当前引导版本号 */
+  onboardingVersion: {
+    type: Number,
+    default: 1
   }
 })
 
@@ -219,6 +228,18 @@ function handleSkip() {
 
 function goToApiKeyPage() {
   router.push('/api-keys')
+}
+
+/**
+ * 对话框打开时将焦点移动到第一个可操作按钮
+ * 提升键盘无障碍体验
+ */
+function focusFirstAction() {
+  // 使用 nextTick 确保 DOM 已渲染
+  setTimeout(() => {
+    const dialog = document.querySelector('.onboarding-dialog .el-dialog__footer .el-button--primary')
+    if (dialog) dialog.focus()
+  }, 100)
 }
 </script>
 

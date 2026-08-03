@@ -420,3 +420,44 @@ async def get_llm_call_stats(
     from app.services.monitoring import get_monitoring_service
     stats = get_monitoring_service().get_llm_call_stats(hours=hours)
     return ResponseModel(data=stats)
+
+
+# ==================== 体验指标查询（阶段04新增） ====================
+
+class ExperienceMetricsResponse(BaseModel):
+    """体验指标响应"""
+    by_module: dict = Field(default_factory=dict, description="按模块聚合的指标")
+    error_distribution: dict = Field(default_factory=dict, description="错误类别分布")
+    total_creation_started: int = Field(0, description="总创作启动次数")
+    observation_days: int = Field(14, description="观测天数")
+    sample_sufficient: bool = Field(False, description="样本量是否充足（≥100）")
+    sample_note: str = Field("", description="样本量说明")
+
+
+@router.get("/experience-metrics", response_model=ResponseModel[ExperienceMetricsResponse])
+async def get_experience_metrics(
+    days: int = Query(14, ge=1, le=90, description="统计最近 N 天"),
+    tenant_id: Optional[int] = Query(None, description="租户ID（不传则跨租户聚合）"),
+    superuser: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取体验质量指标。
+
+    返回按模块聚合的开始率、完成率、中断率、恢复成功率、
+    平均修订轮次与错误类别分布。
+
+    指标按租户隔离；跨租户聚合仅展示聚合值，不含用户正文或个人标识。
+    仅在样本量达到 100 次启动后比较转化变化。
+
+    需要超级管理员权限
+    """
+    from app.services.user_action_service import UserActionService
+
+    action_service = UserActionService(db)
+    metrics = await action_service.get_experience_metrics(
+        tenant_id=tenant_id,
+        days=days,
+    )
+
+    return ResponseModel(data=ExperienceMetricsResponse(**metrics))

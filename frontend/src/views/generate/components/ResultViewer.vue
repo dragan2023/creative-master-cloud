@@ -635,6 +635,16 @@
     
     <!-- 默认渲染内容（阶段2、3、4时不显示，因为已有独立的编辑区） -->
     <div v-if="!(useTwoStageMode && (outlineStage === 2 || outlineStage === 3 || outlineStage === 4))" class="result-content markdown-content" v-html="renderedContent"></div>
+
+    <!-- Phase 02: 成本透明度面板（默认折叠） -->
+    <CostTransparencyPanel
+      v-if="showCostPanel"
+      :model="generationModel"
+      :provider="generationProvider"
+      :duration-ms="generationDuration"
+      :token-count="generationTokens"
+      :collapsed="true"
+    />
     
     <!-- v2.3新增：质控历史记录弹窗 -->
         <QCHistoryDialog
@@ -682,6 +692,7 @@ import IssuesDetailDialog from './IssuesDetailDialog.vue'
 import RevisionDialog from './RevisionDialog.vue'
 import QCHistoryDialog from './QCHistoryDialog.vue'
 import QCProgressPanel from './QCProgressPanel.vue'
+import CostTransparencyPanel from './CostTransparencyPanel.vue'
 
 const props = defineProps({
   showResult: Boolean,
@@ -736,6 +747,11 @@ const props = defineProps({
   
   // P0改造新增：创建写作项目状态
   creatingWritingProject: { type: Boolean, default: false },
+
+  // Phase 02 新增：成本透明度
+  generationModel: { type: String, default: '' },
+  generationProvider: { type: String, default: '' },
+  generationTokens: { type: Number, default: 0 },
 
   // 知识图谱构建相关props已移除（v5.0）
 })
@@ -1027,6 +1043,11 @@ const unitSummariesReviseData = ref(null)  // 单元概述修正数据
 
 // 质量报告响应式引用
 const qualityReport = computed(() => props.qualityReport)
+
+// Phase 02: 是否显示成本面板（有耗时或Token数据时显示）
+const showCostPanel = computed(() => {
+  return (props.generationDuration > 0 || props.generationTokens > 0) && !props.useTwoStageMode
+})
 
 // 获取项目ID - 优先使用qualityReport中的project_id
 const getProjectId = () => {
