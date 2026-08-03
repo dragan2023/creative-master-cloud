@@ -329,11 +329,13 @@ docker compose -f docker-compose.cloud.yml up -d --build
 
 ## 🤝 贡献
 
-欢迎提交 Issue 与 Pull Request。建议：
+欢迎提交 Issue 与 Pull Request！请先阅读：
 
-1. Fork 本仓库并创建特性分支。
-2. 提交前运行后端与前端测试，确保通过。
-3. 遵守安全约定：不提交任何密钥、开发文档与本地数据。
+- [贡献指南](CONTRIBUTING.md)：开发环境、代码规范、提交信息与 PR 流程
+- [行为准则](CODE_OF_CONDUCT.md)：社区行为规范
+- [安全政策](SECURITY.md)：安全漏洞的私密报告方式
+
+提交前请确保后端与前端测试通过，且不包含任何密钥与敏感信息。
 
 ---
 

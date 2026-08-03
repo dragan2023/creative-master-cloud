@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞报告
+    url: https://github.com/dragan2023/creative-master-cloud/security/advisories/new
+    about: 请通过 GitHub Security Advisory 私密报告安全漏洞，勿公开提交。

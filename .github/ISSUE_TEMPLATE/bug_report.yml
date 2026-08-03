@@ -1,0 +1,73 @@
+name: Bug 报告
+description: 提交一个 Bug 以帮助改进项目
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间报告问题！请尽量填写完整信息，便于快速定位。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 项目版本（见根目录 version.json 或前端页面显示）
+      placeholder: "5.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: 所属模块
+      description: 问题出现在哪个模块
+      options:
+        - 写作工作台
+        - 创意生成
+        - 知识库
+        - 质量质控
+        - 后台管理
+        - 部署与运维
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 请描述如何触发该问题
+      placeholder: |
+        1. 打开...
+        2. 点击...
+        3. 看到报错...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+      description: 你期望发生什么
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 实际发生了什么（含错误信息）
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与截图
+      description: 后端/浏览器控制台日志、截图等
+      render: text
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      description: 操作系统、Python/Node 版本、浏览器等
+      placeholder: |
+        - OS: Windows 11
+        - Python: 3.11
+        - Node: 20 LTS
+        - 浏览器: Chrome 130
