@@ -139,11 +139,13 @@ reports/
 frontend/fix_imports.ps1
 
 # ===== 工作文档 =====
+# 开发文档一律不纳入版本控制（计划、报告、测试记录、日志等）
 docs/
-!docs/
-docs/*
-!docs/全面安全技术债清理方案/
-!docs/全面安全技术债清理方案/**
+
+# ===== 本地工具状态 =====
+.codex/
+.codex-tmp/
+.agents/
 
 # ===== 本地视觉探索会话 =====
 .superpowers/
@@ -159,6 +161,12 @@ docs/*
 *.temp
 *.cache
 pack-exclude.txt
+
+# ===== 备份与运行时数据 =====
+backup/
+backend/app/data/
+backend/scripts/fix_output.txt
+backend/api_documentation.json
 
 # ===== 保留云端部署必需文件 =====
 !scripts/deploy.sh
