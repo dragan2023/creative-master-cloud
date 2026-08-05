@@ -221,12 +221,6 @@ copy .env.cloud.example .env.cloud
 
 `env.cloud` 面向容器化生产环境（PostgreSQL、Redis、HuggingFace / PyPI / npm 镜像等），填写后即可用于云端部署。
 
-### 🔒 安全约定
-
-- `.env`、`.env.cloud` 等真实密钥文件已被 `.gitignore` 排除，**严禁**将任何真实密钥、口令、令牌提交到仓库。
-- 仓库仅保留脱敏模板 `.env.example` 与 `.env.cloud.example`。
-- `docs/` 下的开发文档（计划、报告、日志、验收证据等）不纳入版本控制。
-
 ---
 
 ## 🧪 测试
