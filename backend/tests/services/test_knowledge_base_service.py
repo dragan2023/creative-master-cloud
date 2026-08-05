@@ -225,6 +225,15 @@ class TestKnowledgeBaseService:
         assert result == []
     
     @pytest.mark.asyncio
+    async def test_list_knowledge_bases_rejects_unknown_category(self):
+        """Unknown category must not silently return all knowledge bases."""
+        with pytest.raises(ValidationException):
+            await self.service.list_knowledge_bases(
+                user_id=1,
+                category="movie-outline"
+            )
+    
+    @pytest.mark.asyncio
     async def test_update_knowledge_base(self):
         """测试更新知识库"""
         mock_kb = self._create_mock_kb()

@@ -304,12 +304,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CREATIVE_MODULES } from '@/config'
-import { generateApi, revisionApi, globalOutlineQCApi, unitSummariesQCApi, novelWriterApi } from '@/api'
+import { generateApi, revisionApi, historyApi, globalOutlineQCApi, unitSummariesQCApi, novelWriterApi } from '@/api'
 import { useApiKeyStore } from '@/stores'
 import { API_BASE_URL } from '@/config'
 import { useUserStore } from '@/stores/user'
 import { getToken, getAuthHeaders, getSseAuthParams } from '@/utils/authStorage'
-import { applyDiffInstructions, validateDiffInstructions } from '@/utils/diffApplier'
 import { computeDiffHtml } from '@/utils/diffUtils'
 import { parseChapterCountFromOutline, parseUnitSummariesFromContent } from './utils/outlineParser'
 import { buildOutlineInputParams as buildOutlineParams } from './utils/buildRequestParams'
@@ -1040,7 +1039,75 @@ onMounted(async () => {
   } catch (error) {
     console.log('[GenerateForm] 获取后端断点信息失败:', error.message)
   }
+
+  // 从历史记录"继续调整"进入时，恢复该次生成的内容与参数
+  await restoreFromHistory()
 })
+
+/**
+ * 从历史记录恢复生成状态（通过 ?generation_id=xxx 进入）
+ * 回填表单参数、正文内容与 generation_id，并显示结果区。
+ */
+async function restoreFromHistory() {
+  const historyId = route.query?.generation_id
+  if (!historyId) return
+
+  try {
+    const detail = await historyApi.get(historyId)
+    if (!detail?.id) {
+      ElMessage.warning('未找到该历史记录')
+      return
+    }
+
+    // 回填表单参数（含模块差异字段映射）
+    const params = detail.input_params || {}
+    Object.entries(params).forEach(([key, value]) => {
+      if (key in form.value && value !== null && value !== undefined && value !== '') {
+        form.value[key] = value
+      }
+    })
+    // 模块特有字段映射（前端表单键 -> 后端参数键）
+    if (params.mode) {
+      if (type.value === 'tvc' && 'tvc_mode' in form.value) form.value.tvc_mode = params.mode
+      if (type.value === 'short-video' && 'video_mode' in form.value) form.value.video_mode = params.mode
+    }
+    if (params.generate_ai_prompt !== undefined) {
+      if (type.value === 'tvc' && 'generate_ai_prompt_tvc' in form.value) {
+        form.value.generate_ai_prompt_tvc = params.generate_ai_prompt === '是'
+      }
+      if (type.value === 'short-video' && 'generate_ai_prompt' in form.value) {
+        form.value.generate_ai_prompt = params.generate_ai_prompt === '是'
+      }
+    }
+    if (params.ai_platforms && typeof params.ai_platforms === 'string') {
+      if (type.value === 'tvc' && 'ai_platforms_tvc' in form.value) form.value.ai_platforms_tvc = params.ai_platforms
+      if (type.value === 'short-video' && 'ai_platforms' in form.value) {
+        form.value.ai_platforms = params.ai_platforms.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+      }
+    }
+    if (params.aspect_ratio && type.value === 'tvc' && 'aspect_ratio_tvc' in form.value) {
+      form.value.aspect_ratio_tvc = params.aspect_ratio
+    }
+
+    // 恢复正文与生成记录ID
+    generatedContent.value = detail.output_content || ''
+    currentGenerationId.value = detail.id
+    generationId.value = detail.id
+
+    // 两阶段模块：将内容恢复到全局大纲编辑区（阶段2），便于继续调整
+    if (useTwoStageMode.value) {
+      globalOutlineContent.value = detail.output_content || ''
+      outlineStage.value = 2
+    }
+
+    showResult.value = true
+    ElMessage.success('已从历史记录恢复内容，可继续调整')
+    console.log('[GenerateForm] 已从历史记录恢复:', historyId, '模块:', type.value)
+  } catch (error) {
+    console.error('[GenerateForm] 从历史记录恢复失败:', error)
+    ElMessage.error('从历史记录恢复失败: ' + (error.message || '未知错误'))
+  }
+}
 
 onBeforeUnmount(() => {
   // 离开路由时释放全部实时连接：生成主流 + 质控进度 SSE
@@ -1142,6 +1209,7 @@ async function handleGenerate() {
         platform: form.value.platform || '抖音',
         style: combinedStyleTypes.value || '轻松有趣',
         duration: parseInt(form.value.duration) || 60,
+        aspect_ratio: form.value.aspect_ratio || '9:16',
         mode: form.value.video_mode || 'virtual',
         generate_ai_prompt: form.value.video_mode === 'virtual' && form.value.generate_ai_prompt ? '是' : '否',
         generate_storyboard_images: form.value.video_mode === 'virtual' && form.value.generate_storyboard_images ? '是' : '否',
@@ -1253,9 +1321,10 @@ async function handleGenerate() {
         broadcast_platform: form.value.broadcast_platform || '视频平台',
         style_tone: form.value.style_tone || '温情走心',
         duration: parseInt(form.value.duration) || 30,
+        aspect_ratio: form.value.aspect_ratio_tvc || '16:9',
         mode: form.value.tvc_mode || 'real',
         generate_ai_prompt: form.value.generate_ai_prompt_tvc ? '是' : '否',
-        ai_platforms: form.value.ai_platforms_tvc || '可灵',
+        ai_platforms: form.value.ai_platforms_tvc || 'Seedance 2.0',
         reference_video: form.value.reference_video || null,
         description: form.value.description || null,
         enable_knowledge: kbParams.enableKnowledge,

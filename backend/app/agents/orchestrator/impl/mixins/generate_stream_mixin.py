@@ -46,7 +46,9 @@ class GenerateStreamMixinMixin:
         search_keywords: Optional[List[str]] = None,
         search_depth: str = "normal",
         # 实时热点参数（新）
-        enable_trending: bool = False
+        enable_trending: bool = False,
+        # 历史记录生命周期（新）：流式端点预先创建的生成记录ID
+        generation_id: Optional[int] = None
     ) -> AsyncGenerator[str, None]:
         """
         执行创意生成（流式输出）- 重构后的编排器方法
@@ -83,6 +85,7 @@ class GenerateStreamMixinMixin:
             search_keywords: 用户指定的搜索关键词列表
             search_depth: 搜索深度 (quick/normal/deep)
             enable_trending: 是否启用实时热点聚合
+            generation_id: 已存在的生成记录ID（更新该记录而非新建，保证历史记录不重复）
 
         Yields:
             SSE 格式的数据块
@@ -174,7 +177,9 @@ class GenerateStreamMixinMixin:
                 ctx=ctx,
                 db=db,
                 user_id=user_id,
-                logger=logger
+                logger=logger,
+                module=module,
+                generation_id=generation_id
             ):
                 yield sse_event
 

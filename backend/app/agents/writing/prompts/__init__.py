@@ -44,6 +44,8 @@ from .virtual_mode_prompts import (
     build_virtual_mode_prompt,
     get_image_prompt_templates,
     get_video_prompt_templates,
+    get_audio_prompt_templates,
+    get_comprehensive_ref_templates,
     VIRTUAL_MODE_FULL_TEMPLATE,
     STORYBOARD_TEMPLATE,
 )
@@ -74,6 +76,8 @@ __all__ = [
     "build_virtual_mode_prompt",
     "get_image_prompt_templates",
     "get_video_prompt_templates",
+    "get_audio_prompt_templates",
+    "get_comprehensive_ref_templates",
     "VIRTUAL_MODE_FULL_TEMPLATE",
     "STORYBOARD_TEMPLATE",
 ]

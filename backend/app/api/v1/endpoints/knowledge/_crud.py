@@ -9,7 +9,7 @@ from sqlalchemy import select
 from fastapi import Depends
 
 from app.core.logger import get_logger
-from app.core.exceptions import ResourceNotFoundException
+from app.core.exceptions import ResourceNotFoundException, ValidationException
 from app.models import KnowledgeBase, KnowledgeBaseCategory, KnowledgeBaseStatus, User
 from app.schemas.knowledge import KnowledgeBaseResponse, KnowledgeBaseUpdate
 from app.schemas.common import ResponseModel
@@ -29,9 +29,9 @@ async def list_knowledge_bases_handler(
     if category and category != "all":
         try:
             cat_enum = KnowledgeBaseCategory(category)
-            query = query.where(KnowledgeBase.category == cat_enum)
         except ValueError:
-            pass
+            raise ValidationException(f"未知的知识库分类: {category}")
+        query = query.where(KnowledgeBase.category == cat_enum)
 
     query = query.order_by(KnowledgeBase.created_at.desc())
     result = await db.execute(query)

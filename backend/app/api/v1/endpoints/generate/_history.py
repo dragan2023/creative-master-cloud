@@ -17,7 +17,7 @@ from app.core.exceptions import (
     GenerationException,
 )
 from app.core.logger import get_logger
-from app.models import User, Generation, UserAction
+from app.models import User, Generation, GenerationStatus, UserAction
 from app.schemas.generation import (
     UserActionCreate, UserActionResponse, ActionStatsResponse,
     ExperienceEventCreate, ExperienceEventResponse,
@@ -37,6 +37,10 @@ def register_history_routes(router: APIRouter):
     @router.get("/history")
     async def get_generation_history(
         module: Optional[str] = None,
+        status: Optional[str] = None,
+        keyword: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
         current_user: User = Depends(get_current_user),
@@ -47,21 +51,74 @@ def register_history_routes(router: APIRouter):
 
         Args:
             module: 模块筛选
+            status: 状态筛选（completed/processing/failed/cancelled）
+            keyword: 标题关键词搜索
+            start_date: 创建时间起始（YYYY-MM-DD 或 ISO 时间）
+            end_date: 创建时间截止（YYYY-MM-DD 或 ISO 时间）
             limit: 每页数量
             offset: 偏移量
 
         Returns:
             生成历史列表
         """
-        from sqlalchemy import select, desc, func
+        from sqlalchemy import select, desc, func, and_, or_
 
         # 构建基础查询条件
         base_query = select(Generation).where(
             Generation.user_id == current_user.id
         )
 
+        # [2026-08-04] 过滤旧版遗留的"状态已完成但无正文"记录
+        # （此前流式端点会额外创建一条空状态记录，造成历史列表重复）
+        base_query = base_query.where(
+            or_(
+                and_(
+                    Generation.output_content.isnot(None),
+                    Generation.output_content != "",
+                ),
+                Generation.status != GenerationStatus.COMPLETED,
+            )
+        )
+
         if module:
             base_query = base_query.where(Generation.module == module)
+
+        if status:
+            try:
+                status_enum = GenerationStatus(status)
+                base_query = base_query.where(Generation.status == status_enum)
+            except ValueError:
+                raise ValidationException(message=f"无效的状态值: {status}")
+
+        if keyword:
+            base_query = base_query.where(
+                Generation.title.ilike(f"%{keyword}%")
+            )
+
+        if start_date or end_date:
+            from datetime import datetime
+
+            def _parse_date(value: str, end_of_day: bool):
+                try:
+                    dt = datetime.fromisoformat(value)
+                except ValueError:
+                    try:
+                        dt = datetime.strptime(value, "%Y-%m-%d")
+                    except ValueError:
+                        raise ValidationException(
+                            message=f"无效的日期格式: {value}，请使用 YYYY-MM-DD 或 ISO 时间")
+                if end_of_day:
+                    dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                return dt
+
+            if start_date:
+                base_query = base_query.where(
+                    Generation.created_at >= _parse_date(start_date, end_of_day=False)
+                )
+            if end_date:
+                base_query = base_query.where(
+                    Generation.created_at <= _parse_date(end_date, end_of_day=True)
+                )
 
         # 获取总数
         count_query = select(func.count()).select_from(base_query.subquery())
@@ -83,12 +140,16 @@ def register_history_routes(router: APIRouter):
                     "status": g.status,
                     "title": g.title,
                     "input_params": g.input_params,
-                    "output_content": g.output_content,
+                    "preview": (g.output_content or "")[:200],
+                    "content_length": len(g.output_content or ""),
                     "provider": g.provider,
                     "model_name": g.model_name,
                     "token_count": g.token_count,
                     "duration_ms": g.duration_ms,
-                    "created_at": g.created_at.isoformat() if g.created_at else None
+                    "is_finalized": g.is_finalized,
+                    "revision_count": g.revision_count or 0,
+                    "created_at": g.created_at.isoformat() if g.created_at else None,
+                    "updated_at": g.updated_at.isoformat() if g.updated_at else None
                 }
                 for g in generations
             ],
@@ -126,7 +187,10 @@ def register_history_routes(router: APIRouter):
             "model_name": generation.model_name,
             "token_count": generation.token_count,
             "duration_ms": generation.duration_ms,
-            "created_at": generation.created_at.isoformat() if generation.created_at else None
+            "is_finalized": generation.is_finalized,
+            "revision_count": generation.revision_count or 0,
+            "created_at": generation.created_at.isoformat() if generation.created_at else None,
+            "updated_at": generation.updated_at.isoformat() if generation.updated_at else None
         }
 
     @router.delete("/history/{generation_id}")
@@ -136,7 +200,7 @@ def register_history_routes(router: APIRouter):
         db: AsyncSession = Depends(get_db)
     ):
         """删除生成记录"""
-        from sqlalchemy import select, delete
+        from sqlalchemy import select
 
         result = await db.execute(
             select(Generation).where(
@@ -149,9 +213,8 @@ def register_history_routes(router: APIRouter):
         if not generation:
             raise ResourceNotFoundException("生成记录不存在")
 
-        await db.execute(
-            delete(Generation).where(Generation.id == generation_id)
-        )
+        # 使用 ORM 删除，级联清理修订历史（generation_revision_history）
+        await db.delete(generation)
         await db.commit()
 
         logger.info(f"用户 {current_user.id} 删除了生成记录 {generation_id}")

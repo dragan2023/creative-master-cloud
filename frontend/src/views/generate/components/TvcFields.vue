@@ -147,21 +147,30 @@
     <el-col :span="12">
       <el-form-item label="AI视频平台" prop="ai_platforms_tvc">
         <el-select v-model="form.ai_platforms_tvc" placeholder="选择AI视频平台" style="width: 100%">
-          <el-option label="可灵" value="可灵" />
           <el-option label="Seedance 2.0" value="Seedance 2.0" />
-          <el-option label="Sora 2" value="Sora 2" />
-          <el-option label="Veo 3.1" value="Veo 3.1" />
-          <el-option label="Runway" value="Runway" />
-          <el-option label="Pika" value="Pika" />
-          <el-option label="Wan 2.2" value="Wan 2.2" />
+          <el-option label="MiniMax H3" value="MiniMax H3" />
         </el-select>
+        <div class="form-tip">Seedance 2.0 与 MiniMax H3 均支持多模态参考（图片/音频素材）</div>
       </el-form-item>
     </el-col>
   </el-row>
   
-  <!-- 参考视频URL -->
+  <!-- 画幅尺寸 + 参考视频URL -->
   <el-row :gutter="20">
-    <el-col :span="24">
+    <el-col :span="12">
+      <el-form-item label="画幅尺寸" prop="aspect_ratio_tvc">
+        <el-select v-model="form.aspect_ratio_tvc" placeholder="选择画幅比例" style="width: 100%" allow-create filterable>
+          <el-option label="16:9 横屏（电视/网络视频）" value="16:9" />
+          <el-option label="9:16 竖屏（手机/社交媒体）" value="9:16" />
+          <el-option label="1:1 方形（信息流）" value="1:1" />
+          <el-option label="21:9 影院宽屏" value="21:9" />
+          <el-option label="3:4 竖屏" value="3:4" />
+          <el-option label="4:3 标清" value="4:3" />
+        </el-select>
+        <div class="form-tip">如：16:9横屏、9:16竖屏、21:9影院宽屏，可自定义输入</div>
+      </el-form-item>
+    </el-col>
+    <el-col :span="12">
       <el-form-item prop="reference_video">
         <template #label>
           <span>参考视频</span>

@@ -40,10 +40,13 @@ class ShortVideoInput(BaseModel):
     platform: str = Field(default="抖音", description="发布平台")
     style: str = Field(default="轻松有趣", description="风格调性")
     duration: int = Field(default=60, description="视频时长(秒)")
+    aspect_ratio: str = Field(
+        default="9:16",
+        description="画幅比例（如：9:16竖屏、16:9横屏、1:1方形、21:9超宽屏）")
     mode: Optional[str] = Field(
         default="virtual", description="生成模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI生成）")
     generate_ai_prompt: Optional[str] = Field(None, description="是否生成AI视频提示")
-    ai_platforms: Optional[str] = Field(None, description="AI视频平台")
+    ai_platforms: Optional[str] = Field(None, description="AI视频平台(Seedance 2.0/MiniMax H3)")
     generate_storyboard_images: Optional[str] = Field(
         default="否", description="是否生成分镜图提示词（用于AI绘图生成参考图）")
     reference_video: Optional[str] = Field(
@@ -269,6 +272,9 @@ class TVCInput(BaseModel):
     broadcast_platform: str = Field(default="视频平台", description="投放平台")
     style_tone: str = Field(default="温情走心", description="风格调性")
     duration: int = Field(default=30, description="时长(秒)")
+    aspect_ratio: str = Field(
+        default="16:9",
+        description="画幅比例（如：16:9横屏、9:16竖屏、1:1方形、21:9影院宽屏）")
     description: Optional[str] = Field(None, description="补充说明")
     # 生成模式（现实模式/虚拟模式）
     mode: Optional[str] = Field(
@@ -277,7 +283,7 @@ class TVCInput(BaseModel):
     generate_ai_prompt: Optional[str] = Field(
         default="否", description="是否生成AI视频生成提示")
     ai_platforms: Optional[str] = Field(
-        default="可灵", description="AI视频生成平台(可灵/Seedance 2.0/Sora 2/Veo 3.1/Runway/Pika/Wan 2.2)")
+        default="Seedance 2.0", description="AI视频生成平台(Seedance 2.0/MiniMax H3)")
     # 参考视频（多模态）
     reference_video: Optional[str] = Field(
         None, description="参考视频URL（仅Gemini 1.5 Pro/Flash支持）")

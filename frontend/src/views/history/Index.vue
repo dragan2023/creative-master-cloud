@@ -7,19 +7,35 @@
         刷新
       </el-button>
     </div>
-    
+
     <!-- 筛选栏 -->
     <div class="filter-bar">
       <el-select v-model="filterType" placeholder="类型筛选" clearable style="width: 150px" @change="handleFilter">
         <el-option label="全部" value="" />
-        <el-option label="短视频脚本" value="short-video" />
-        <el-option label="小说大纲" value="novel" />
-        <el-option label="平面广告" value="print-ad" />
-        <el-option label="TVC广告" value="tvc" />
-        <el-option label="电影大纲" value="movie-outline" />
-        <el-option label="剧集大纲" value="series-outline" />
+        <el-option v-for="cfg in moduleConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.backendModuleId" />
       </el-select>
-      
+
+      <el-select v-model="filterStatus" placeholder="状态筛选" clearable style="width: 140px" @change="handleFilter">
+        <el-option label="全部" value="" />
+        <el-option label="已完成" value="completed" />
+        <el-option label="进行中" value="processing" />
+        <el-option label="失败" value="failed" />
+        <el-option label="已取消" value="cancelled" />
+      </el-select>
+
+      <el-input
+        v-model="filterKeyword"
+        placeholder="搜索标题关键词"
+        clearable
+        style="width: 200px"
+        @keyup.enter="handleFilter"
+        @clear="handleFilter"
+      >
+        <template #append>
+          <el-button @click="handleFilter"><el-icon><Search /></el-icon></el-button>
+        </template>
+      </el-input>
+
       <el-date-picker
         v-model="filterDate"
         type="daterange"
@@ -30,11 +46,11 @@
         @change="handleFilter"
       />
     </div>
-    
+
     <!-- 历史列表 -->
     <div class="history-list">
       <el-table :data="historyList" v-loading="loading" style="width: 100%">
-        <el-table-column prop="module" label="类型" width="120">
+        <el-table-column prop="module" label="类型" width="130">
           <template #default="{ row }">
             <el-tag :type="getTagType(row.module)">{{ getTypeName(row.module) }}</el-tag>
           </template>
@@ -44,9 +60,15 @@
             {{ getTitle(row) }}
           </template>
         </el-table-column>
-        <el-table-column prop="provider" label="模型" width="120">
+        <el-table-column label="模型" width="130">
           <template #default="{ row }">
-            {{ row.provider }} / {{ row.model_name }}
+            {{ row.provider || '-' }} / {{ row.model_name || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="修订" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.revision_count" type="info" size="small">{{ row.revision_count }} 次</el-tag>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180">
@@ -54,11 +76,20 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" align="center">
+        <el-table-column label="操作" width="190" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
               <el-button type="primary" link size="small" @click="viewDetail(row)">
                 <el-icon><View /></el-icon>查看
+              </el-button>
+              <el-button
+                v-if="getModuleConfigByBackendId(row.module)"
+                type="warning"
+                link
+                size="small"
+                @click="continueAdjust(row)"
+              >
+                <el-icon><ChatDotRound /></el-icon>继续调整
               </el-button>
               <el-button type="danger" link size="small" @click="confirmDelete(row.id)">
                 <el-icon><Delete /></el-icon>删除
@@ -67,7 +98,7 @@
           </template>
         </el-table-column>
       </el-table>
-      
+
       <div class="pagination">
         <el-pagination
           v-model:current-page="currentPage"
@@ -78,7 +109,7 @@
         />
       </div>
     </div>
-    
+
     <!-- 详情抽屉 -->
     <el-drawer
       v-model="showDetail"
@@ -93,10 +124,24 @@
               <el-tag :type="getTagType(currentItem.module)">{{ getTypeName(currentItem.module) }}</el-tag>
             </span>
             <span class="info-item">
-              <strong>模型：</strong>{{ currentItem.provider }} / {{ currentItem.model_name }}
+              <strong>模型：</strong>{{ currentItem.provider || '-' }} / {{ currentItem.model_name || '-' }}
             </span>
             <span class="info-item">
               <strong>时间：</strong>{{ formatDate(currentItem.created_at) }}
+            </span>
+            <span class="info-item" v-if="currentItem.updated_at">
+              <strong>更新时间：</strong>{{ formatDate(currentItem.updated_at) }}
+            </span>
+            <span class="info-item">
+              <strong>状态：</strong>
+              <el-tag :type="getStatusTagType(currentItem.status)" size="small">
+                {{ getStatusName(currentItem.status) }}
+              </el-tag>
+            </span>
+            <span class="info-item">
+              <strong>修订：</strong>
+              <el-tag type="info" size="small">{{ currentItem.revision_count || 0 }} 次</el-tag>
+              <el-tag v-if="currentItem.is_finalized" type="success" size="small" style="margin-left: 4px;">已确认</el-tag>
             </span>
           </div>
           <div class="detail-actions">
@@ -104,9 +149,35 @@
               <el-icon><CopyDocument /></el-icon>
               复制内容
             </el-button>
+            <el-button type="warning" text @click="continueAdjust(currentItem)">
+              <el-icon><ChatDotRound /></el-icon>继续调整
+            </el-button>
           </div>
         </div>
-        
+
+        <!-- 修订历史 -->
+        <div class="revision-section" v-if="revisionHistoryList.length > 0">
+          <el-divider content-position="left">修订历史（{{ revisionHistoryList.length }} 轮）</el-divider>
+          <el-timeline>
+            <el-timeline-item
+              v-for="rev in revisionHistoryList"
+              :key="rev.id"
+              :timestamp="formatDate(rev.created_at)"
+              placement="top"
+            >
+              <div class="revision-item">
+                <div class="revision-round">第 {{ rev.round_number }} 轮修订</div>
+                <div class="revision-feedback">
+                  <strong>修改意见：</strong>{{ rev.user_feedback }}
+                </div>
+                <div class="revision-length" v-if="rev.content_before || rev.content_after">
+                  <strong>内容长度：</strong>{{ (rev.content_before || '').length }} → {{ (rev.content_after || '').length }} 字
+                </div>
+              </div>
+            </el-timeline-item>
+          </el-timeline>
+        </div>
+
         <div class="detail-body markdown-content" v-html="renderedContent"></div>
       </div>
     </el-drawer>
@@ -115,22 +186,32 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { View, Delete } from '@element-plus/icons-vue'
-import { historyApi } from '@/api'
+import { View, Delete, Search, ChatDotRound } from '@element-plus/icons-vue'
+import { historyApi, revisionApi } from '@/api'
+import { MODULE_CONFIGS, getModuleConfigByBackendId } from '@/config/modules'
 
 const loading = ref(false)
 const historyList = ref([])
 const showDetail = ref(false)
 const currentItem = ref(null)
+const revisionHistoryList = ref([])
 
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const filterType = ref('')
 const filterDate = ref(null)
+const filterStatus = ref('')
+const filterKeyword = ref('')
+
+const router = useRouter()
+
+// 模块配置（用于筛选下拉与类型显示，与生成页共用同一份配置）
+const moduleConfigs = Object.values(MODULE_CONFIGS)
 
 const renderedContent = computed(() => {
   if (!currentItem.value?.output_content) return ''
@@ -142,6 +223,19 @@ onMounted(() => {
   fetchHistory()
 })
 
+// 详情抽屉打开时加载修订历史
+function loadRevisionHistory(generationId) {
+  revisionHistoryList.value = []
+  if (!generationId) return
+  revisionApi.getHistory(generationId)
+    .then((res) => {
+      revisionHistoryList.value = Array.isArray(res?.data) ? res.data : []
+    })
+    .catch((error) => {
+      console.error('获取修订历史失败:', error)
+    })
+}
+
 async function fetchHistory() {
   loading.value = true
   try {
@@ -151,9 +245,19 @@ async function fetchHistory() {
       offset: (currentPage.value - 1) * pageSize.value
     }
     if (filterType.value) {
-      params.module = filterType.value  // 后端使用module参数
+      params.module = filterType.value
     }
-    
+    if (filterStatus.value) {
+      params.status = filterStatus.value
+    }
+    if (filterKeyword.value.trim()) {
+      params.keyword = filterKeyword.value.trim()
+    }
+    if (Array.isArray(filterDate.value) && filterDate.value.length === 2) {
+      params.start_date = formatDateParam(filterDate.value[0])
+      params.end_date = formatDateParam(filterDate.value[1])
+    }
+
     const res = await historyApi.list(params)
     // 后端返回 {code, message, data: {items: [...], total: number}}
     const data = res.data || { items: [], total: 0 }
@@ -179,6 +283,7 @@ async function viewDetail(row) {
   try {
     const res = await historyApi.get(row.id)
     currentItem.value = res
+    loadRevisionHistory(row.id)
     showDetail.value = true
   } catch (error) {
     console.error('获取详情失败:', error)
@@ -209,18 +314,18 @@ async function copyContent() {
   }
 }
 
-// 模块名称映射（后端返回下划线格式）
-const moduleNameMap = {
-  'short_video': '短视频脚本',
-  'novel': '小说大纲',
-  'print_ad': '平面广告',
-  'tvc': 'TVC广告脚本',
-  'movie_outline': '电影大纲',
-  'series_outline': '剧集大纲'
+// 从历史记录继续调整：跳转到生成页并携带 generation_id
+function continueAdjust(row) {
+  const cfg = getModuleConfigByBackendId(row?.module)
+  if (!cfg) {
+    ElMessage.warning('该模块暂不支持从历史继续调整')
+    return
+  }
+  router.push({ path: `/generate/${cfg.id}`, query: { generation_id: row.id } })
 }
 
 function getTypeName(type) {
-  return moduleNameMap[type] || type
+  return getModuleConfigByBackendId(type)?.name || type
 }
 
 function getTagType(type) {
@@ -230,9 +335,31 @@ function getTagType(type) {
     'print_ad': 'warning',
     'tvc': 'info',
     'movie_outline': 'success',
-    'series_outline': ''
+    'series_outline': '',
+    'original_ip': 'success',
+    'practical_writing': 'info'
   }
   return typeMap[type] || ''
+}
+
+function getStatusName(status) {
+  const map = {
+    'completed': '已完成',
+    'processing': '进行中',
+    'failed': '失败',
+    'cancelled': '已取消'
+  }
+  return map[status] || status || '未知'
+}
+
+function getStatusTagType(status) {
+  const map = {
+    'completed': 'success',
+    'processing': 'warning',
+    'failed': 'danger',
+    'cancelled': 'info'
+  }
+  return map[status] || 'info'
 }
 
 function getTitle(row) {
@@ -240,7 +367,7 @@ function getTitle(row) {
   if (row?.title) {
     return row.title
   }
-  
+
   // 兜底：从 input_params 中提取标题
   const params = row?.input_params || {}
   return params.topic || params.theme || params.synopsis || params.title || '创意内容'
@@ -249,6 +376,14 @@ function getTitle(row) {
 function formatDate(dateStr) {
   if (!dateStr) return ''
   return new Date(dateStr).toLocaleString('zh-CN')
+}
+
+function formatDateParam(date) {
+  const d = new Date(date)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 </script>
 
@@ -263,7 +398,7 @@ function formatDate(dateStr) {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
-  
+
   .page-title {
     font-size: 22px;
     color: #303133;
@@ -272,6 +407,7 @@ function formatDate(dateStr) {
 
 .filter-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -280,7 +416,7 @@ function formatDate(dateStr) {
   background: #fff;
   border-radius: 12px;
   padding: 24px;
-  
+
   .pagination {
     margin-top: 20px;
     display: flex;
@@ -293,24 +429,51 @@ function formatDate(dateStr) {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    gap: 16px;
     padding-bottom: 20px;
     border-bottom: 1px solid #eee;
     margin-bottom: 20px;
-    
+
     .detail-info {
       display: flex;
       flex-wrap: wrap;
       gap: 20px;
-      
+
       .info-item {
         font-size: 14px;
         color: #606266;
       }
     }
+
+    .detail-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
   }
-  
+
+  .revision-section {
+    margin-bottom: 12px;
+
+    .revision-item {
+      .revision-round {
+        font-weight: 600;
+        color: #409eff;
+        margin-bottom: 4px;
+      }
+
+      .revision-feedback,
+      .revision-length {
+        font-size: 13px;
+        color: #606266;
+        margin-top: 2px;
+        word-break: break-all;
+      }
+    }
+  }
+
   .detail-body {
-    max-height: calc(100vh - 200px);
+    max-height: calc(100vh - 260px);
     overflow-y: auto;
   }
 }
@@ -322,11 +485,11 @@ function formatDate(dateStr) {
   align-items: center;
   gap: 4px;
   white-space: nowrap;
-  
+
   .el-button {
     padding: 2px 4px;
     font-size: 13px;
-    
+
     .el-icon {
       margin-right: 2px;
       font-size: 14px;

@@ -47,6 +47,12 @@ MODULE_VARIABLES_CONFIG = {
                 "description": "视频时长(秒)",
                 "required": False
             },
+            "aspect_ratio": {
+                "default": "9:16",
+                "description": "画幅比例（如：9:16竖屏、16:9横屏、1:1方形、21:9超宽屏）",
+                "required": False,
+                "options": ["9:16", "16:9", "1:1", "3:4", "4:3", "21:9"]
+            },
             "mode": {
                 "default": "virtual",
                 "description": "生成模式（real=现实模式用于真人拍摄，virtual=虚拟模式用于AI生成）",
@@ -59,9 +65,10 @@ MODULE_VARIABLES_CONFIG = {
                 "required": False
             },
             "ai_platforms": {
-                "default": "无",
+                "default": "Seedance 2.0",
                 "description": "AI视频生成平台",
-                "required": False
+                "required": False,
+                "options": ["Seedance 2.0", "MiniMax H3"]
             },
             "generate_storyboard_images": {
                 "default": "否",
@@ -352,16 +359,22 @@ MODULE_VARIABLES_CONFIG = {
                 "description": "时长(秒)",
                 "required": True
             },
+            "aspect_ratio": {
+                "default": "16:9",
+                "description": "画幅比例（如：16:9横屏、9:16竖屏、1:1方形、21:9影院宽屏）",
+                "required": False,
+                "options": ["16:9", "9:16", "1:1", "21:9", "3:4", "4:3"]
+            },
             "generate_ai_prompt": {
                 "default": "否",
                 "description": "是否生成AI视频生成提示",
                 "required": False
             },
             "ai_platforms": {
-                "default": "可灵",
+                "default": "Seedance 2.0",
                 "description": "AI视频生成平台",
                 "required": False,
-                "options": ["可灵", "Seedance 2.0", "Sora 2", "Veo 3.1", "Runway", "Pika", "Wan 2.2"]
+                "options": ["Seedance 2.0", "MiniMax H3"]
             },
             "reference_video": {
                 "default": "",

@@ -2,7 +2,7 @@
 生成记录模型
 记录用户的创意生成历史
 """
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, Enum, JSON, DateTime, Boolean
+from sqlalchemy import Column, String, Integer, ForeignKey, Text, Enum, JSON, DateTime, Boolean, Index
 from sqlalchemy.orm import relationship
 import enum
 
@@ -34,6 +34,10 @@ class GenerationStatus(str, enum.Enum):
 class Generation(BaseModel):
     """生成记录表"""
     __tablename__ = "generations"
+    __table_args__ = (
+        # 历史记录列表按 用户+创建时间 查询，增加组合索引
+        Index("ix_generations_user_created", "user_id", "created_at"),
+    )
 
     user_id = Column(Integer, ForeignKey(
         "users.id", ondelete="CASCADE"), nullable=False, comment="用户ID")

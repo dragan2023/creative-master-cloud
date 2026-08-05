@@ -218,6 +218,16 @@ async def run_migrations() -> None:
                 if 'channel' not in uak_columns:
                     await conn.execute(text("ALTER TABLE user_api_keys ADD COLUMN channel VARCHAR(50) DEFAULT 'default'"))
 
+                # === generations 历史查询索引 ===
+                result = await conn.execute(text(
+                    "SELECT name FROM sqlite_master WHERE type='index' AND name='ix_generations_user_created'"
+                ))
+                if result.fetchone() is None:
+                    await conn.execute(text(
+                        "CREATE INDEX ix_generations_user_created ON generations (user_id, created_at)"
+                    ))
+                    logger.info("Migration: 创建 generations (user_id, created_at) 索引")
+
                 # === novel_projects 表迁移 ===
                 # 注意: generation_task_* 字段已迁移到 WritingTask 模型，此处不再添加
                 # 详见迁移脚本: 019_migrate_generation_task_to_writing_task.py 和 022_drop_generation_task_fields.py
@@ -281,6 +291,11 @@ async def run_migrations() -> None:
 
                 if 'channel' not in uak_columns:
                     await conn.execute(text("ALTER TABLE user_api_keys ADD COLUMN channel VARCHAR(50) DEFAULT 'default'"))
+
+                # === generations 历史查询索引 ===
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_generations_user_created ON generations (user_id, created_at)"
+                ))
 
                 logger.info("[Migration] PostgreSQL 迁移检查完成")
             except Exception as e:

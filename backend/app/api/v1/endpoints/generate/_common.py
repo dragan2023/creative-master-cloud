@@ -211,6 +211,9 @@ async def _create_streaming_endpoint(
                 kb_vertical_ids=kb_vertical_ids,
                 kb_user_specific_ids=kb_user_specific_ids,
                 kb_manual_ids=kb_manual_ids,
+                # 传入预先创建的生成记录ID，完成后更新该记录而非新建，
+                # 保证"一次生成 = 一条历史记录"（修复重复记录与模块类型错误）
+                generation_id=generation.id,
                 **kwargs
             ):
                 # 优先检查内存事件（立即中断）

@@ -18,7 +18,7 @@
   </el-form-item>
   
   <el-row :gutter="20">
-    <el-col :span="12">
+    <el-col :span="8">
       <el-form-item label="视频时长" prop="duration">
         <el-input
           v-model="form.duration"
@@ -26,7 +26,7 @@
         />
       </el-form-item>
     </el-col>
-    <el-col :span="12">
+    <el-col :span="8">
       <el-form-item label="目标平台" prop="platform">
         <el-select v-model="form.platform" placeholder="选择平台" style="width: 100%">
           <el-option label="抖音" value="douyin" />
@@ -36,6 +36,19 @@
           <el-option label="小红书" value="xiaohongshu" />
           <el-option label="YouTube Shorts" value="youtube" />
         </el-select>
+      </el-form-item>
+    </el-col>
+    <el-col :span="8">
+      <el-form-item label="画幅尺寸" prop="aspect_ratio">
+        <el-select v-model="form.aspect_ratio" placeholder="选择画幅比例" style="width: 100%" allow-create filterable>
+          <el-option label="9:16 竖屏（抖音/快手/视频号）" value="9:16" />
+          <el-option label="16:9 横屏" value="16:9" />
+          <el-option label="1:1 方形" value="1:1" />
+          <el-option label="3:4 竖屏" value="3:4" />
+          <el-option label="4:3 横屏" value="4:3" />
+          <el-option label="21:9 超宽屏" value="21:9" />
+        </el-select>
+        <div class="form-tip">如：9:16竖屏、16:9横屏，可自定义输入</div>
       </el-form-item>
     </el-col>
   </el-row>
@@ -54,10 +67,10 @@
   
   <el-form-item v-if="form.video_mode === 'virtual' && form.generate_ai_prompt" label="AI视频生成平台">
     <el-checkbox-group v-model="form.ai_platforms">
-      <el-checkbox label="seedance2">Seedance 2</el-checkbox>
-      <el-checkbox label="sora2">Sora 2</el-checkbox>
-      <el-checkbox label="veo3">Veo 3.1</el-checkbox>
+      <el-checkbox label="Seedance 2.0">Seedance 2.0</el-checkbox>
+      <el-checkbox label="MiniMax H3">MiniMax H3</el-checkbox>
     </el-checkbox-group>
+    <div class="form-tip" style="display: block; margin-left: 0; margin-top: 4px;">两款模型均支持多模态参考：上传人物/场景/物品参考图与音频素材，可提升生成一致性</div>
   </el-form-item>
   
   <!-- 分镜图提示词（仅虚拟模式显示） -->

@@ -5,7 +5,6 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { revisionApi, generateApi } from '@/api'
-import { applyDiffInstructions, validateDiffInstructions } from '@/utils/diffApplier'
 
 export function useRevisionMode(deps) {
   const {
@@ -507,7 +506,11 @@ export function useRevisionMode(deps) {
   }
 
   /**
-   * 远程修订（普通模式使用后端API）
+   * 远程修订（普通模式使用后端API，全文流式输出）
+   *
+   * [2026-08-04] 由“差异指令(diff)”方案改为“全文流式”方案：
+   * 后端 LLM 直接输出修订后的完整内容，前端整段替换，
+   * 避免 diff 中 original_text 与实际内容存在细微差异导致修订静默不生效。
    */
   async function submitRemoteRevision(feedback) {
     if (!generationId.value) {
@@ -517,25 +520,25 @@ export function useRevisionMode(deps) {
 
     const currentFeedback = feedback || revisionInput.value
 
-    console.log('[Revision] Starting remote revision, generationId:', generationId.value)
+    console.log('[Revision] Starting remote revision (full content), generationId:', generationId.value)
     console.log('[Revision] Revision round:', currentRevisionRound.value + 1)
     console.log('[Revision] User feedback:', currentFeedback)
 
     revising.value = true
 
-    // 添加用户消息 + "正在生成"占位消息
+    // 添加用户消息 + 加载占位消息
     revisionMessages.value.push({
       role: 'user',
       content: currentFeedback
     })
     revisionMessages.value.push({
       role: 'assistant',
-      content: '正在生成修改指令...'
+      content: '正在生成修订内容...'
     })
 
     const removePendingMessage = () => {
       const idx = revisionMessages.value.findIndex(
-        m => m.role === 'assistant' && m.content === '正在生成修改指令...'
+        m => m.role === 'assistant' && m.content === '正在生成修订内容...'
       )
       if (idx !== -1) revisionMessages.value.splice(idx, 1)
     }
@@ -543,53 +546,48 @@ export function useRevisionMode(deps) {
     let succeeded = false
     let failed = false
 
-    // 超时保护（LLM 长输出，300 秒）
-    let timeoutId = null
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error('修订请求超时（300秒），请检查网络连接或后端服务'))
-      }, 300000)
-    })
-
     try {
-      console.log('[Revision] Calling revisionApi.revise()')
+      const moduleMap = { 'practical-writing': 'practical_writing' }
+      const module = moduleMap[type.value] || type.value
 
-      await Promise.race([
-        revisionApi.revise(
-          generationId.value,
-          {
-            generation_id: generationId.value,
-            user_feedback: currentFeedback,
-            current_content: revisionContent.value,
-            original_params: form.value,
-            module: (() => {
-              const moduleMap = { 'practical-writing': 'practical_writing' }
-              return moduleMap[type.value] || type.value
-            })(),
-            round_number: currentRevisionRound.value + 1
-          },
-          (chunkText) => {
-            // diff_chunk：LLM 输出的指令文本片段，仅用于调试观察
-            if (chunkText) {
-              console.log('[Revision] diff_chunk:', String(chunkText).substring(0, 80))
+      console.log('[Revision] Calling revisionApi.revise() (full content)')
+
+      await revisionApi.revise(
+        generationId.value,
+        {
+          generation_id: generationId.value,
+          user_feedback: currentFeedback,
+          current_content: revisionContent.value,
+          original_params: form.value,
+          module,
+          round_number: currentRevisionRound.value + 1,
+          provider: null,
+          temperature: 0.7
+        },
+        (fullContent, chunk) => {
+          // 全文流式修订：LLM 输出修订后的完整内容，实时更新预览区
+          if (fullContent) {
+            revisionContent.value = fullContent
+
+            // 普通模式：同步更新主显示区内容（与大纲模块行为一致）
+            if (generatedContent) {
+              generatedContent.value = fullContent
             }
-          },
-          (diffInstructions) => {
-            console.log('[Revision] Received diff_complete:', diffInstructions?.summary)
-            try {
-              if (!validateDiffInstructions(diffInstructions)) {
-                throw new Error('差异指令格式无效')
-              }
 
-              revisionContent.value = applyDiffInstructions(
-                revisionContent.value,
-                diffInstructions
-              )
+            console.log('[Revision] Content updated, length:', revisionContent.value.length)
+          }
+        },
+        (event) => {
+          console.log('[Revision] onDone event:', event)
+
+          if (event.type === 'diff_complete') {
+            try {
+              const summary = event.data?.summary || '修改完成'
 
               removePendingMessage()
               revisionMessages.value.push({
                 role: 'assistant',
-                content: diffInstructions.summary || '修改完成'
+                content: summary
               })
 
               // 仅成功时递增轮次
@@ -597,7 +595,7 @@ export function useRevisionMode(deps) {
               revisionHistory.value.push({
                 round_number: currentRevisionRound.value,
                 user_feedback: currentFeedback,
-                diff_summary: diffInstructions.summary
+                diff_summary: summary
               })
 
               revisionInput.value = ''
@@ -605,7 +603,7 @@ export function useRevisionMode(deps) {
               ElMessage.success(`第${currentRevisionRound.value}轮修订完成`)
             } catch (e) {
               failed = true
-              console.error('[Revision] Apply diff failed:', e)
+              console.error('[Revision] Parse revision result failed:', e)
               removePendingMessage()
               revisionMessages.value.push({
                 role: 'assistant',
@@ -613,29 +611,37 @@ export function useRevisionMode(deps) {
               })
               ElMessage.error('修订失败: ' + e.message)
             }
-          },
-          (error) => {
+          } else if (event.type === 'error') {
             failed = true
-            console.error('[Revision] Stream error:', error)
+            console.error('[Revision] Revision error:', event.data)
             removePendingMessage()
             revisionMessages.value.push({
               role: 'assistant',
-              content: '修订失败: ' + (error.message || '未知错误')
+              content: '修订失败: ' + (event.data?.data || event.data?.message || '未知错误')
             })
-            ElMessage.error('修订失败: ' + (error.message || '未知错误'))
+            ElMessage.error('修订失败: ' + (event.data?.data || event.data?.message || '未知错误'))
           }
-        ),
-        timeoutPromise
-      ])
+        },
+        (error) => {
+          failed = true
+          console.error('[Revision] Stream error:', error)
+          removePendingMessage()
+          revisionMessages.value.push({
+            role: 'assistant',
+            content: '修订失败: ' + (error.message || '未知错误')
+          })
+          ElMessage.error('修订失败: ' + (error.message || '未知错误'))
+        }
+      )
 
       // 流正常结束但既未收到 diff_complete 也未收到 error（异常兜底）
       if (!succeeded && !failed) {
         removePendingMessage()
         revisionMessages.value.push({
           role: 'assistant',
-          content: '修订失败: 未收到有效的修改指令'
+          content: '修订失败: 未收到有效的修订内容'
         })
-        ElMessage.error('修订失败: 未收到有效的修改指令')
+        ElMessage.error('修订失败: 未收到有效的修订内容')
       }
 
       console.log('[Revision] Revision stream finished, succeeded:', succeeded)
@@ -648,7 +654,6 @@ export function useRevisionMode(deps) {
       })
       ElMessage.error('修订失败: ' + (error.message || '未知错误'))
     } finally {
-      if (timeoutId) clearTimeout(timeoutId)
       revising.value = false
     }
   }

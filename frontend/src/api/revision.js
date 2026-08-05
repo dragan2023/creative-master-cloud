@@ -1,19 +1,20 @@
 /**
  * revisionApi - API 模块
  *
- * 注意：修订流式接口的 SSE 事件格式为 data: {"event":"diff_chunk"|"diff_complete"|"error","data":...}
- * 事件名在 JSON 内部（而非 SSE event: 行），因此使用独立解析器按 payload.event 分发。
+ * [2026-08-04] 修订流式接口改为“全文流式”方案（与大纲模块一致）：
+ * LLM 直接输出修订后的完整内容，前端整段替换，避免 diff 匹配失败导致修订不生效。
+ * SSE 事件格式: event: content / diff_complete / error
  */
 import { api } from './_axios'
 import { API_BASE_URL } from '@/config'
 import { getToken } from '@/utils/authStorage'
 
 export const revisionApi = {
-  // 提交修订请求(流式)
-  // onDiffChunk(text): LLM 输出的 diff 指令文本片段
-  // onDiffComplete(diffInstructions): 解析完成的差异指令 JSON 对象
+  // 提交修订请求(流式) - 全文修订
+  // onContent(fullContent, chunkText): 修订后完整内容（实时累积）
+  // onDone({type: 'diff_complete', data}): 修订完成（data.summary 为修改概述）
   // onError(Error): 后端返回 error 事件
-  revise: (generationId, data, onDiffChunk, onDiffComplete, onError) => {
+  revise: (generationId, data, onContent, onDone, onError) => {
     return new Promise((resolve, reject) => {
       const url = `${API_BASE_URL}/api/v1/generate/revision/${generationId}/stream`
       const token = getToken()
@@ -34,12 +35,14 @@ export const revisionApi = {
 
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
+        let fullContent = ''
+        let currentEventType = ''
         let pendingData = ''
 
         function readChunk() {
           reader.read().then(({ done, value }) => {
             if (done) {
-              resolve({ success: true })
+              resolve({ content: fullContent, success: true })
               return
             }
 
@@ -48,29 +51,36 @@ export const revisionApi = {
             pendingData = lines.pop() || ''
 
             for (const line of lines) {
-              if (!line.startsWith('data: ')) continue
-              const jsonStr = line.slice(6)
-              if (!jsonStr.trim()) continue
-              try {
-                const payload = JSON.parse(jsonStr)
-                if (payload.event === 'diff_chunk') {
-                  if (onDiffChunk) onDiffChunk(payload.data)
-                } else if (payload.event === 'diff_complete') {
-                  if (onDiffComplete) onDiffComplete(payload.data)
-                } else if (payload.event === 'error') {
-                  const errMsg = typeof payload.data === 'string'
-                    ? payload.data
-                    : (payload.data?.message || '修订失败')
-                  if (onError) onError(new Error(errMsg))
+              if (line.startsWith('event: ')) {
+                currentEventType = line.slice(7).trim()
+                continue
+              }
+              if (line.startsWith('data: ')) {
+                try {
+                  const jsonStr = line.slice(6)
+                  if (!jsonStr.trim()) continue
+                  const eventData = JSON.parse(jsonStr)
+
+                  if (currentEventType === 'content' && eventData.text) {
+                    fullContent += eventData.text
+                    if (onContent) onContent(fullContent, eventData.text)
+                  } else if (currentEventType === 'diff_complete') {
+                    if (onDone) onDone({ type: 'diff_complete', data: eventData })
+                  } else if (currentEventType === 'error') {
+                    const errMsg = eventData.data || eventData.message || '修订失败'
+                    if (onDone) onDone({ type: 'error', data: eventData })
+                    if (onError) onError(new Error(errMsg))
+                  }
+                  currentEventType = ''
+                } catch (e) {
+                  console.warn('[RevisionStream] JSON parse failed:', e.message)
                 }
-              } catch (e) {
-                console.warn('[RevisionStream] JSON parse failed:', e.message)
               }
             }
             readChunk()
           }).catch(error => {
             if (error.name === 'AbortError') {
-              resolve({ cancelled: true })
+              resolve({ content: fullContent, cancelled: true })
             } else {
               reject(error)
             }

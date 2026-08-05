@@ -219,6 +219,19 @@ const loadingKbByCategory = ref({
   manual: false
 })
 
+// 垂直领域知识库按业务分类查询；'general'（通用知识库）也一并展示，
+// 避免历史数据均为通用分类时下拉选项为空（通用知识库本身默认自动加载，重复勾选无副作用）
+const VERTICAL_KB_CATEGORIES = ['short-video', 'script', 'novel-writing', 'print-ad', 'tvc', 'practical-writing', 'general']
+
+function dedupeKbs(list) {
+  const seen = new Set()
+  return list.filter(kb => {
+    if (seen.has(kb.id)) return false
+    seen.add(kb.id)
+    return true
+  })
+}
+
 // 加载知识库列表
 async function loadKnowledgeBases() {
   loadingKnowledge.value = true
@@ -235,10 +248,9 @@ async function loadKnowledgeBases() {
 
 // 按类别分组知识库
 function categorizeKnowledgeBases(kbs) {
-  const verticalCategories = ['short-video', 'novel', 'print-ad', 'tvc', 'movie-outline', 'series-outline']
-  kbCategories.value.vertical.list = kbs.filter(kb => verticalCategories.includes(kb.category))
-  kbCategories.value.userSpecific.list = kbs.filter(kb => kb.category === 'user-specific')
-  kbCategories.value.manual.list = kbs.filter(kb => kb.category === 'manual')
+  kbCategories.value.vertical.list = dedupeKbs(kbs.filter(kb => VERTICAL_KB_CATEGORIES.includes(kb.category)))
+  kbCategories.value.userSpecific.list = dedupeKbs(kbs.filter(kb => kb.category === 'user-specific'))
+  kbCategories.value.manual.list = dedupeKbs(kbs.filter(kb => kb.category === 'manual'))
 }
 
 // 加载指定类别的知识库
@@ -246,21 +258,21 @@ async function loadKbByCategory(category) {
   loadingKbByCategory.value[category] = true
   try {
     if (category === 'vertical') {
-      const verticalCategories = ['short-video', 'novel', 'print-ad', 'tvc', 'movie-outline', 'series-outline']
       const allResults = []
-      for (const cat of verticalCategories) {
+      for (const cat of VERTICAL_KB_CATEGORIES) {
         const res = await knowledgeApi.list({ status: 'ready', category: cat })
         if (res.data) {
           allResults.push(...res.data)
         }
       }
-      kbCategories.value.vertical.list = allResults
+      kbCategories.value.vertical.list = dedupeKbs(allResults)
     } else {
-      const res = await knowledgeApi.list({ status: 'ready', category: category })
+      const apiCategory = category === 'userSpecific' ? 'user-specific' : category
+      const res = await knowledgeApi.list({ status: 'ready', category: apiCategory })
       if (category === 'userSpecific' || category === 'user-specific') {
-        kbCategories.value.userSpecific.list = res.data || []
+        kbCategories.value.userSpecific.list = dedupeKbs(res.data || [])
       } else if (category === 'manual') {
-        kbCategories.value.manual.list = res.data || []
+        kbCategories.value.manual.list = dedupeKbs(res.data || [])
       }
     }
   } catch (error) {

@@ -201,7 +201,7 @@ class RevisionMixin:
 **【强制】AI平台名称保留**：
 - 原始内容中的AI视频生成提示词标题必须严格使用平台名称："{ai_platforms}"
 - 禁止更改为其他名称（如 SEDANCE、SoraDance、Seedance2 等）
-- 禁止添加版本号（如 2.0、2 等）
+- 版本号以用户选择的平台名称原样保留（如"Seedance 2.0""MiniMax H3"），禁止随意增删或改写
 - 必须完全按照 "{ai_platforms}" 输出"""
 
         # 构建修正提示词
@@ -372,6 +372,131 @@ class RevisionMixin:
             logger.error(
                 f"Revision diff generation failed: {e}", exc_info=True)
             yield f"data: {json.dumps({'event': 'error', 'data': f'修订生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+
+    async def generate_revision_full_content(
+        self,
+        db: AsyncSession,
+        generation_id: int,
+        user_feedback: str,
+        current_content: str,
+        original_params: Dict[str, Any],
+        module: str,
+        round_number: int,
+        provider: Optional[str] = None,
+        temperature: float = 0.7,
+        user_id: int = 0
+    ) -> AsyncGenerator[str, None]:
+        """
+        生成修订后的完整内容(流式)
+
+        与 generate_revision_diff 的差异指令方案不同：
+        LLM 直接输出修改后的完整内容，前端整段替换。
+        避免 LLM 转写原文与真实内容存在细微差异（换行符、标点、格式等）
+        导致 diff 匹配失败而“静默不生效”的问题。
+
+        SSE 事件格式:
+        - content: {"text": "修订后内容片段"}
+        - diff_complete: {"summary": "修改概述"}
+        - error: {"data": "错误信息"}
+        """
+        import json
+
+        logger = self.logger
+
+        try:
+            # 1. 加载LLM provider
+            llm_provider, _model_display_name = await self._load_llm_provider(
+                db, user_id, provider)
+            logger.info(
+                f"Revision(full): LLM provider loaded successfully for user {user_id}")
+
+            # 2. 获取修订历史
+            logger.info(
+                f"Revision(full): Loading revision history for generation {generation_id}")
+            revision_history_stmt = select(GenerationRevisionHistory).where(
+                GenerationRevisionHistory.generation_id == generation_id
+            ).order_by(GenerationRevisionHistory.round_number)
+            revision_history_result = await db.execute(revision_history_stmt)
+            revision_history = revision_history_result.scalars().all()
+            logger.info(
+                f"Revision(full): Found {len(revision_history)} previous revisions")
+
+            # 3. 构建全文修订提示词
+            logger.info(
+                f"Revision(full): Building full-content revision prompt for round {round_number}")
+            prompt = self._build_full_revision_prompt(
+                module=module,
+                original_params=original_params,
+                current_content=current_content,
+                user_feedback=user_feedback,
+                revision_history=[rev.to_dict() for rev in revision_history],
+                round_number=round_number
+            )
+            logger.info(
+                f"Revision(full): Prompt length: {len(prompt)} characters")
+
+            # 4. 流式调用LLM，直接输出修订后的完整内容
+            logger.info("Revision(full): Starting LLM stream generation")
+            async for chunk in llm_provider.generate_stream(prompt):
+                yield self._format_sse("content", {"text": chunk})
+
+            # 5. 发送完成事件
+            yield self._format_sse("diff_complete", {
+                "summary": f"已根据'{user_feedback[:50]}'完成修订",
+            })
+
+        except Exception as e:
+            logger.error(
+                f"Revision(full) generation failed: {e}", exc_info=True)
+            yield self._format_sse("error", {"data": f"修订生成失败: {str(e)}"})
+
+
+    def _build_full_revision_prompt(
+        self,
+        module: str,
+        original_params: Dict[str, Any],
+        current_content: str,
+        user_feedback: str,
+        revision_history: List[Dict],
+        round_number: int
+    ) -> str:
+        """
+        构建全文修订提示词
+
+        与 diff 方案不同：要求 LLM 直接输出修订后的完整内容，
+        而不是输出差异指令 JSON。
+        """
+        # 压缩历史修订
+        history_summary = self._compress_revision_history(revision_history)
+
+        prompt = f"""# 创意内容全文修订
+
+## 原始创作参数
+{json.dumps(original_params, ensure_ascii=False, indent=2)}
+
+## 当前完整内容
+{current_content}
+
+## 用户修改意见(本轮)
+{user_feedback}
+
+## 历史修订摘要(最近3轮)
+{history_summary}
+
+## 任务
+
+请根据用户的修改意见，对上述内容进行修订，并**直接输出修订后的完整内容**。
+
+## 修订原则
+1. **保持核心**：保持内容的核心创意、整体结构和原有格式
+2. **最小变更**：只修改用户要求的部分，其余内容原样保留
+3. **完整输出**：必须输出修改后的完整内容，不得省略或截断
+4. **保持连贯**：修改后的内容必须逻辑自洽、可直接使用
+5. **遵守原始要求**：不得偏离原始创作参数
+
+现在，请直接输出修订后的完整内容（不要输出 JSON、不要输出任何解释）："""
+        return prompt
 
 
     def _build_revision_prompt(

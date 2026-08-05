@@ -212,9 +212,6 @@ def register_original_ip_routes(router: APIRouter):
             "topic": data.ip_description[:100] if data.ip_description else "IP角色设计",
         }
 
-        # 用于收集完整内容的缓冲区
-        content_buffer = []
-
         async def generate():
             try:
                 async for chunk in orchestrator.generate_stream(
@@ -242,50 +239,11 @@ def register_original_ip_routes(router: APIRouter):
                         logger.info(f"原创IP生成被取消: {session_id}")
                         break
 
-                    # 解析 SSE 数据以提取内容
-                    if chunk.startswith("event: content\ndata: "):
-                        try:
-                            json_str = chunk.split("data: ", 1)[1].strip()
-                            if json_str:
-                                content_data = json.loads(json_str)
-                                if content_data.get("text"):
-                                    content_buffer.append(content_data["text"])
-                        except (json.JSONDecodeError, IndexError):
-                            pass
-
                     yield chunk
             finally:
                 # 清理取消令牌
                 if session_id and session_id in cancel_tokens:
                     del cancel_tokens[session_id]
-
-                # 保存生成记录
-                if content_buffer:
-                    try:
-                        full_content = "".join(content_buffer)
-                        # 从 input_params 中提取标题
-                        title = None
-                        input_params_dict = data.model_dump()
-                        if input_params_dict:
-                            title_keys = ['ip_name', 'title',
-                                          'topic', 'theme', 'subject', 'name']
-                            for key in title_keys:
-                                if key in input_params_dict and input_params_dict[key]:
-                                    title = str(input_params_dict[key])[:200]
-                                    break
-
-                        generation_service = GenerationService(db)
-                        await generation_service.save_generation(
-                            user_id=current_user.id,
-                            module=GenerationModule.ORIGINAL_IP,
-                            input_params=input_params_dict,
-                            title=title,
-                            output_content=full_content,
-                            provider=provider,
-                            status=GenerationStatus.COMPLETED,
-                        )
-                    except Exception as e:
-                        logger.warning(f"保存生成记录失败: {e}")
 
         return StreamingResponse(
             generate(),
@@ -309,20 +267,133 @@ def register_revision_routes(router: APIRouter):
         db: AsyncSession = Depends(get_db)
     ):
         """
-        流式生成修订差异指令
+        流式生成修订后的完整内容
 
         工作流程:
         1. 加载原始生成记录和上下文
-        2. 构建修订提示词(包含原始内容+用户反馈)
-        3. LLM输出差异指令(流式)
-        4. 前端接收后应用diff
+        2. 构建全文修订提示词(包含原始内容+用户反馈+历史修订)
+        3. LLM直接输出修订后的完整内容(流式)
+        4. 前端整段替换当前内容
+
+        [2026-08-04] 由“差异指令(diff)”方案改为“全文流式”方案：
+        原先 LLM 输出的 diff 指令中 original_text 与实际内容存在细微差异时，
+        前端替换会静默失败，导致“AI回复已修正但内容未变化”。
+        """
+        orchestrator = get_agent_orchestrator()
+
+        async def event_generator():
+            revision_record = None
+            revision_ok = False
+            try:
+                logger.info(
+                    f"Revision stream started: generation_id={generation_id}, user={current_user.id}")
+
+                # 保存修订历史记录
+                revision_record = GenerationRevisionHistory(
+                    generation_id=generation_id,
+                    round_number=request.round_number,
+                    user_feedback=request.user_feedback,
+                    content_before=request.current_content
+                )
+                db.add(revision_record)
+                await db.commit()
+                logger.info(
+                    f"Revision history record saved for round {request.round_number}")
+
+                # 流式生成修订后的完整内容
+                logger.info(
+                    f"Calling generate_revision_full_content with user_id={current_user.id}")
+                content_parts = []
+                async for chunk in orchestrator.generate_revision_full_content(
+                    db=db,
+                    generation_id=generation_id,
+                    user_feedback=request.user_feedback,
+                    current_content=request.current_content,
+                    original_params=request.original_params,
+                    module=request.module,
+                    round_number=request.round_number,
+                    provider=request.provider,
+                    temperature=request.temperature,
+                    user_id=current_user.id
+                ):
+                    # 累积 content 事件文本，用于修订历史审计
+                    if chunk.startswith("event: content\ndata: "):
+                        try:
+                            json_str = chunk.split("data: ", 2)[1].strip()
+                            content_data = json.loads(json_str)
+                            text = content_data.get("text", "")
+                            if text:
+                                content_parts.append(text)
+                        except Exception:
+                            pass
+                    elif chunk.startswith("event: diff_complete"):
+                        revision_ok = True
+                    yield chunk
+
+                # 修订成功时递增 generation.revision_count（用于历史记录展示）
+                if revision_ok:
+                    try:
+                        from sqlalchemy import select
+                        from app.models.generation import Generation
+                        stmt = select(Generation).where(Generation.id == generation_id)
+                        gen = (await db.execute(stmt)).scalar_one_or_none()
+                        if gen is not None:
+                            gen.revision_count = (gen.revision_count or 0) + 1
+                            await db.commit()
+                            logger.info(
+                                f"Revision count updated to {gen.revision_count} for generation {generation_id}")
+                    except Exception as count_err:
+                        logger.warning(f"更新修订次数失败: {count_err}")
+
+                # 保存修订后内容（审计用）
+                if content_parts and revision_record is not None:
+                    try:
+                        revision_record.content_after = "".join(content_parts)
+                        db.add(revision_record)
+                        await db.commit()
+                        logger.info(
+                            f"Revision content_after saved for round {request.round_number}, "
+                            f"length={len(''.join(content_parts))}")
+                    except Exception as save_err:
+                        logger.warning(f"保存修订后内容失败: {save_err}")
+
+                logger.info(
+                    f"Revision stream completed successfully for generation {generation_id}")
+
+            except Exception as e:
+                logger.error(f"Revision stream failed: {e}", exc_info=True)
+                yield f"data: {json.dumps({'event': 'error', 'data': f'修订流失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive"
+            }
+        )
+
+    @router.post("/revision/{generation_id}/diff-stream")
+    async def revise_content_diff_stream(
+        generation_id: int,
+        request: RevisionRequest,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """
+        [已弃用] 流式生成修订差异指令（旧方案）
+
+        保留该端点仅为兼容历史调用方，新逻辑请使用 /revision/{generation_id}/stream。
+        旧方案的缺陷：LLM 输出的 diff 指令中 original_text 与实际内容存在细微差异时，
+        前端替换会静默失败，导致修订不生效。
         """
         orchestrator = get_agent_orchestrator()
 
         async def event_generator():
             try:
                 logger.info(
-                    f"Revision stream started: generation_id={generation_id}, user={current_user.id}")
+                    f"Revision diff-stream started (deprecated): generation_id={generation_id}, user={current_user.id}")
 
                 # 保存修订历史记录
                 revision_record = GenerationRevisionHistory(

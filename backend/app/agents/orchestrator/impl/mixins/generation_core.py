@@ -232,10 +232,26 @@ class GenerationCoreMixin:
         ctx: GenerateStreamContext,
         db: AsyncSession,
         user_id: int,
-        logger
+        logger,
+        module: Optional[str] = None,
+        generation_id: Optional[int] = None
     ) -> AsyncGenerator[str, None]:
         """
         保存生成记录并发送完成事件
+
+        [2026-08-04] 修复历史记录重复与模块类型错误：
+        - 不再新建第二条生成记录，而是更新流式端点预先创建的同一条记录，
+          保证"一次生成 = 一条历史记录"。
+        - 模块类型显式传入（module），不再从 input_params 里取，
+          避免所有模块被默认落库为 short_video。
+
+        Args:
+            ctx: 生成上下文
+            db: 数据库会话
+            user_id: 用户ID
+            logger: 日志器
+            module: 模块名称（与 GenerationModule 枚举值一致）
+            generation_id: 已存在的生成记录ID（流式端点预先创建），为空时新建
 
         Yields:
             SSE 格式的事件字符串
@@ -244,8 +260,8 @@ class GenerationCoreMixin:
         yield self._format_sse("content", {"text": "\n\n---\n\n✨ *该方案已经过全能创意大师智能验证与优化*"})
         ctx.final_content += "\n\n---\n\n✨ *该方案已经过全能创意大师智能验证与优化*"
 
-        # 保存生成记录到数据库
-        generation_id = None
+        # 保存生成记录到数据库（优先更新已存在的记录，避免重复）
+        saved_generation_id = None
         try:
             title = None
             if ctx.input_params:
@@ -255,22 +271,55 @@ class GenerationCoreMixin:
                         title = str(ctx.input_params[key])[:200]
                         break
 
-            generation = Generation(
-                user_id=user_id,
-                module=GenerationModule(
-                    ctx.input_params.get("module", "short_video")),
-                status=GenerationStatus.COMPLETED,
-                input_params=ctx.input_params,
-                title=title,
-                output_content=ctx.final_content,
-                provider=ctx.llm_provider.get_model_info()["provider"],
-                model_name=ctx.llm_provider.model_name,
-                duration_ms=int((time.time() - ctx.start_time) * 1000)
-            )
-            db.add(generation)
+            module_enum = GenerationModule(module) if module else None
+
+            if generation_id is not None:
+                # 更新流式端点预先创建的记录（单记录生命周期）
+                generation = await db.get(Generation, generation_id)
+                if generation is None:
+                    # 记录已被删除等异常情况：回退为新建
+                    generation = Generation(
+                        user_id=user_id,
+                        module=module_enum or GenerationModule.SHORT_VIDEO,
+                        status=GenerationStatus.COMPLETED,
+                        input_params=ctx.input_params,
+                        title=title,
+                        output_content=ctx.final_content,
+                        provider=ctx.llm_provider.get_model_info()["provider"],
+                        model_name=ctx.llm_provider.model_name,
+                        duration_ms=int((time.time() - ctx.start_time) * 1000)
+                    )
+                    db.add(generation)
+                else:
+                    if module_enum is not None:
+                        generation.module = module_enum
+                    generation.status = GenerationStatus.COMPLETED
+                    generation.input_params = ctx.input_params
+                    generation.title = title
+                    generation.output_content = ctx.final_content
+                    generation.provider = ctx.llm_provider.get_model_info()["provider"]
+                    generation.model_name = ctx.llm_provider.model_name
+                    generation.duration_ms = int((time.time() - ctx.start_time) * 1000)
+                    db.add(generation)
+            else:
+                generation = Generation(
+                    user_id=user_id,
+                    module=module_enum or GenerationModule.SHORT_VIDEO,
+                    status=GenerationStatus.COMPLETED,
+                    input_params=ctx.input_params,
+                    title=title,
+                    output_content=ctx.final_content,
+                    provider=ctx.llm_provider.get_model_info()["provider"],
+                    model_name=ctx.llm_provider.model_name,
+                    duration_ms=int((time.time() - ctx.start_time) * 1000)
+                )
+                db.add(generation)
+
             await db.commit()
-            generation_id = generation.id
-            logger.info(f"生成记录已保存 - ID: {generation.id}, 标题: {title}")
+            saved_generation_id = generation.id
+            logger.info(
+                f"生成记录已保存 - ID: {generation.id}, 模块: {generation.module}, "
+                f"标题: {title}, 是否为更新: {generation_id is not None}")
         except Exception as save_error:
             logger.exception("保存生成记录失败")
             await db.rollback()
@@ -285,7 +334,7 @@ class GenerationCoreMixin:
             "model_id": ctx.llm_provider.model_name,
             "provider": ctx.llm_provider.get_model_info()["provider"],
             "duration_ms": duration_ms,
-            "generation_id": generation_id
+            "generation_id": saved_generation_id
         })
 
 

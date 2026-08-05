@@ -184,9 +184,9 @@ class KnowledgeBaseService:
         if category and category != "all":
             try:
                 cat_enum = KnowledgeBaseCategory(category)
-                query = query.where(KnowledgeBase.category == cat_enum)
             except ValueError:
-                pass
+                raise ValidationException(f"未知的知识库分类: {category}")
+            query = query.where(KnowledgeBase.category == cat_enum)
         
         query = query.order_by(KnowledgeBase.created_at.desc())
         result = await self.db.execute(query)

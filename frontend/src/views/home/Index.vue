@@ -257,6 +257,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores'
 import { historyApi, systemApi } from '@/api'
 import { CREATIVE_MODULES } from '@/config'
+import { getModuleConfigByBackendId } from '@/config/modules'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { APP_VERSION } from '@/config/version'
 import { useOnboarding } from '@/composables/useOnboarding'
@@ -283,9 +284,9 @@ onMounted(async () => {
 
 async function fetchRecentGenerations() {
   try {
-    const res = await historyApi.list({ page: 1, page_size: 5 })
-    // 后端返回 {code, message, data: [...]} 列表
-    recentGenerations.value = res.data || []
+    // 后端分页参数为 limit/offset，返回结构为 { items: [...], total: N }
+    const res = await historyApi.list({ limit: 5, offset: 0 })
+    recentGenerations.value = res.data?.items || []
   } catch (error) {
     console.error('获取历史记录失败:', error)
   }
@@ -299,16 +300,8 @@ function viewHistory(id) {
   router.push(`/history?id=${id}`)
 }
 
-// 模块名称映射（后端返回下划线格式）
-const moduleNameMap = {
-  'short_video': '短视频脚本',
-  'novel': '小说大纲',
-  'print_ad': '平面广告',
-  'tvc': 'TVC广告脚本'
-}
-
 function getTypeName(type) {
-  return moduleNameMap[type] || type
+  return getModuleConfigByBackendId(type)?.name || type
 }
 
 function getTagType(type) {

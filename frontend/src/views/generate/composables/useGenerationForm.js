@@ -128,18 +128,20 @@ export function useGenerationForm(type, router) {
     // TVC新增字段
     broadcast_platform: '',
     tvc_mode: 'real',
+    aspect_ratio_tvc: '16:9',
     generate_ai_prompt_tvc: false,
-    ai_platforms_tvc: '',
+    ai_platforms_tvc: 'Seedance 2.0',
     // 多模态支持
     images: [],
     reference_video: '',
     // 短视频新增字段
     video_mode: 'virtual',
+    aspect_ratio: '9:16',
     style_types: [],
     style_types_level1: [],
     generate_ai_prompt: false,
     generate_storyboard_images: true,
-    ai_platforms: [],
+    ai_platforms: ['Seedance 2.0'],
     // 短视频运营相关变量
     account_tone: '',
     target_fans: '',
@@ -688,9 +690,14 @@ export function useGenerationForm(type, router) {
     form.value.style_types = []
     form.value.style_types_level1 = []
     form.value.video_mode = 'virtual'
+    form.value.aspect_ratio = '9:16'
     form.value.generate_ai_prompt = false
     form.value.generate_storyboard_images = true
     form.value.ai_platforms = []
+    form.value.tvc_mode = 'real'
+    form.value.aspect_ratio_tvc = '16:9'
+    form.value.generate_ai_prompt_tvc = false
+    form.value.ai_platforms_tvc = 'Seedance 2.0'
     form.value.series_type = ''
     form.value.reference_works = ''
   }
